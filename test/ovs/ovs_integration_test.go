@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -11,26 +12,39 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/go-logr/logr"
 	"github.com/google/uuid"
 	"github.com/ory/dockertest/v3"
 	"github.com/ory/dockertest/v3/docker"
 	"github.com/ovn-kubernetes/libovsdb/cache"
 	"github.com/ovn-kubernetes/libovsdb/client"
+	"github.com/ovn-kubernetes/libovsdb/database/inmemory"
 	"github.com/ovn-kubernetes/libovsdb/model"
 	"github.com/ovn-kubernetes/libovsdb/ovsdb"
+	"github.com/ovn-kubernetes/libovsdb/server"
 	"github.com/stretchr/testify/suite"
 )
 
-// OVSIntegrationSuite runs tests against a real Open vSwitch instance
+// OVSIntegrationSuite runs the same tests against either OVS or the in-tree server.
 type OVSIntegrationSuite struct {
 	suite.Suite
+	inMemory                    bool
+	endpoint                    string
 	pool                        *dockertest.Pool
 	resource                    *dockertest.Resource
+	server                      *server.OvsdbServer
+	rootInitialized             bool
 	clientWithoutInactvityCheck client.Client
 	clientWithInactivityCheck   client.Client
 }
 
 func (suite *OVSIntegrationSuite) SetupSuite() {
+	suite.inMemory = os.Getenv("IN_MEMORY_DATABASE") == "1"
+	if suite.inMemory {
+		suite.startInMemoryServer()
+		return
+	}
+
 	var err error
 	suite.pool, err = dockertest.NewPool("")
 	suite.Require().NoError(err)
@@ -50,22 +64,41 @@ func (suite *OVSIntegrationSuite) SetupSuite() {
 		Tty: true,
 	}
 	hostConfig := func(config *docker.HostConfig) {
-		// set AutoRemove to true so that stopped container goes away by itself
 		config.AutoRemove = true
-		config.RestartPolicy = docker.RestartPolicy{
-			Name: "no",
-		}
+		config.RestartPolicy = docker.RestartPolicy{Name: "no"}
 	}
 
 	suite.resource, err = suite.pool.RunWithOptions(options, hostConfig)
 	suite.Require().NoError(err)
+	suite.Require().NoError(suite.resource.Expire(90))
+	suite.endpoint = "tcp::56640"
 
-	// set expiry to 90 seconds so containers are cleaned up on test panic
-	err = suite.resource.Expire(90)
+	// Let the container initialize its database before attempting a connection.
+	time.Sleep(5 * time.Second)
+}
+
+func (suite *OVSIntegrationSuite) startInMemoryServer() {
+	schemaFile, err := os.Open(filepath.Join("..", "..", "example", "vswitchd", "ovs.ovsschema"))
+	suite.Require().NoError(err)
+	defer schemaFile.Close()
+	schema, err := ovsdb.SchemaFromFile(schemaFile)
 	suite.Require().NoError(err)
 
-	// let the container start before we attempt connection
-	time.Sleep(5 * time.Second)
+	dbModel, errs := model.NewDatabaseModel(schema, defDB)
+	suite.Require().Empty(errs)
+	logger := logr.Discard()
+	db := inmemory.NewDatabase(map[string]model.ClientDBModel{"Open_vSwitch": defDB}, &logger)
+	suite.server, err = server.NewOvsdbServer(db, &logger, dbModel)
+	suite.Require().NoError(err)
+
+	socket := filepath.Join(suite.T().TempDir(), "ovsdb.sock")
+	suite.endpoint = "unix:" + socket
+	go func() {
+		if err := suite.server.Serve("unix", socket); err != nil {
+			suite.T().Error(err)
+		}
+	}()
+	suite.Require().Eventually(suite.server.Ready, time.Second, 10*time.Millisecond)
 }
 
 func (suite *OVSIntegrationSuite) SetupTest() {
@@ -75,55 +108,80 @@ func (suite *OVSIntegrationSuite) SetupTest() {
 	if suite.clientWithInactivityCheck != nil {
 		suite.clientWithInactivityCheck.Close()
 	}
-	var err error
-	err = suite.pool.Retry(func() error {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		endpoint := "tcp::56640"
-		ovs, err := client.NewOVSDBClient(
-			defDB,
-			client.WithEndpoint(endpoint),
-			client.WithLeaderOnly(true),
-		)
-		if err != nil {
-			return err
-		}
-		err = ovs.Connect(ctx)
-		if err != nil {
-			suite.T().Log(err)
-			return err
-		}
-		suite.clientWithoutInactvityCheck = ovs
 
-		ovs2, err := client.NewOVSDBClient(
-			defDB,
-			client.WithEndpoint(endpoint),
-			client.WithInactivityCheck(2*time.Second, 1*time.Second, &backoff.ZeroBackOff{}),
-			client.WithLeaderOnly(true),
-		)
-		if err != nil {
-			return err
+	var lastErr error
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		if err := suite.connectClients(); err != nil {
+			lastErr = err
+			continue
 		}
-		err = ovs2.Connect(ctx)
-		if err != nil {
-			suite.T().Log(err)
-			return err
-		}
-		suite.clientWithInactivityCheck = ovs2
+		lastErr = nil
+		break
+	}
+	suite.Require().NoError(lastErr)
 
-		return nil
-	})
-	suite.Require().NoError(err)
+	if suite.inMemory {
+		suite.ensureRootRow()
+	}
 
-	// give ovsdb-server some time to start up
-
-	_, err = suite.clientWithoutInactvityCheck.Monitor(context.TODO(),
+	_, err := suite.clientWithoutInactvityCheck.Monitor(context.TODO(),
 		suite.clientWithoutInactvityCheck.NewMonitor(
 			client.WithTable(&ovsType{}),
 			client.WithTable(&bridgeType{}),
 		),
 	)
 	suite.Require().NoError(err)
+}
+
+func (suite *OVSIntegrationSuite) connectClients() error {
+	options := []client.Option{client.WithEndpoint(suite.endpoint)}
+	if !suite.inMemory {
+		options = append(options, client.WithLeaderOnly(true))
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	ovs, err := client.NewOVSDBClient(defDB, options...)
+	if err != nil {
+		return err
+	}
+	if err := ovs.Connect(ctx); err != nil {
+		ovs.Close()
+		return err
+	}
+
+	inactivityOptions := append([]client.Option{}, options...)
+	inactivityOptions = append(inactivityOptions,
+		client.WithInactivityCheck(2*time.Second, time.Second, &backoff.ZeroBackOff{}))
+	ovs2, err := client.NewOVSDBClient(defDB, inactivityOptions...)
+	if err != nil {
+		ovs.Close()
+		return err
+	}
+	if err := ovs2.Connect(ctx); err != nil {
+		ovs.Close()
+		ovs2.Close()
+		return err
+	}
+
+	suite.clientWithoutInactvityCheck = ovs
+	suite.clientWithInactivityCheck = ovs2
+	return nil
+}
+
+func (suite *OVSIntegrationSuite) ensureRootRow() {
+	if suite.rootInitialized {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	ops := []ovsdb.Operation{{Op: ovsdb.OperationInsert, Table: "Open_vSwitch", Row: ovsdb.Row{}}}
+	results, err := suite.clientWithoutInactvityCheck.Transact(ctx, ops...)
+	suite.Require().NoError(err)
+	_, err = ovsdb.CheckOperationResults(results, ops)
+	suite.Require().NoError(err)
+	suite.rootInitialized = true
 }
 
 // TearDownTest runs after each test case
@@ -203,8 +261,12 @@ func (suite *OVSIntegrationSuite) TearDownSuite() {
 		suite.clientWithInactivityCheck.Close()
 		suite.clientWithInactivityCheck = nil
 	}
-	err := suite.pool.Purge(suite.resource)
-	suite.Require().NoError(err)
+	if suite.pool != nil && suite.resource != nil {
+		suite.Require().NoError(suite.pool.Purge(suite.resource))
+	}
+	if suite.server != nil {
+		suite.server.Close()
+	}
 }
 
 func TestOVSIntegrationTestSuite(t *testing.T) {
@@ -223,16 +285,17 @@ var (
 
 // bridgeType is the simplified ORM model of the Bridge table
 type bridgeType struct {
-	UUID        string            `ovsdb:"_uuid"`
-	Name        string            `ovsdb:"name"`
-	OtherConfig map[string]string `ovsdb:"other_config"`
-	ExternalIDs map[string]string `ovsdb:"external_ids"`
-	Ports       []string          `ovsdb:"ports"`
-	Status      map[string]string `ovsdb:"status"`
-	FailMode    *BridgeFailMode   `ovsdb:"fail_mode" validate:"omitempty,oneof='standalone' 'secure'"`
-	IPFIX       *string           `ovsdb:"ipfix"`
-	DatapathID  *string           `ovsdb:"datapath_id"`
-	Mirrors     []string          `ovsdb:"mirrors"`
+	UUID         string            `ovsdb:"_uuid"`
+	Name         string            `ovsdb:"name"`
+	DatapathType string            `ovsdb:"datapath_type"`
+	OtherConfig  map[string]string `ovsdb:"other_config"`
+	ExternalIDs  map[string]string `ovsdb:"external_ids"`
+	Ports        []string          `ovsdb:"ports"`
+	Status       map[string]string `ovsdb:"status"`
+	FailMode     *BridgeFailMode   `ovsdb:"fail_mode" validate:"omitempty,oneof='standalone' 'secure'"`
+	IPFIX        *string           `ovsdb:"ipfix"`
+	DatapathID   *string           `ovsdb:"datapath_id"`
+	Mirrors      []string          `ovsdb:"mirrors"`
 }
 
 // ovsType is the ORM model of the OVS table
@@ -645,8 +708,8 @@ func (suite *OVSIntegrationSuite) TestMultipleOpsTransactIntegration() {
 	reply, err := suite.clientWithoutInactvityCheck.Transact(context.TODO(), operations...)
 	suite.Require().NoError(err)
 
-	_, err = ovsdb.CheckOperationResults(reply, operations)
-	suite.Require().NoError(err)
+	opErrors, err := ovsdb.CheckOperationResults(reply, operations)
+	suite.Require().NoErrorf(err, "errors: %+v, reply: %+v", opErrors, reply)
 
 	suite.Eventually(func() bool {
 		err := suite.clientWithoutInactvityCheck.Get(context.Background(), br)
@@ -751,6 +814,19 @@ func (suite *OVSIntegrationSuite) TestColumnSchemaValidationIntegration() {
 	suite.Require().Error(err)
 }
 
+func (suite *OVSIntegrationSuite) TestMonitorRPCIntegration() {
+	monitor := suite.clientWithInactivityCheck.NewMonitor(client.WithTable(&queueType{}))
+	monitor.Method = ovsdb.MonitorRPC
+	_, err := suite.clientWithInactivityCheck.Monitor(context.Background(), monitor)
+	suite.Require().NoError(err)
+
+	uuid, err := suite.createQueue("monitor_rpc", 7)
+	suite.Require().NoError(err)
+	suite.Eventually(func() bool {
+		return suite.clientWithInactivityCheck.Get(context.Background(), &queueType{UUID: uuid}) == nil
+	}, 2*time.Second, 10*time.Millisecond)
+}
+
 func (suite *OVSIntegrationSuite) TestMonitorCancelIntegration() {
 	monitorID, err := suite.clientWithoutInactvityCheck.Monitor(
 		context.TODO(),
@@ -798,12 +874,11 @@ func (suite *OVSIntegrationSuite) TestMonitorConditionIntegration() {
 		},
 	}
 
-	_, err := suite.clientWithoutInactvityCheck.Monitor(
-		context.TODO(),
-		suite.clientWithoutInactvityCheck.NewMonitor(
-			client.WithConditionalTable(&queue, conditions),
-		),
+	monitor := suite.clientWithoutInactvityCheck.NewMonitor(
+		client.WithConditionalTable(&queue, conditions),
 	)
+	monitor.Method = ovsdb.ConditionalMonitorRPC
+	_, err := suite.clientWithoutInactvityCheck.Monitor(context.TODO(), monitor)
 	suite.Require().NoError(err)
 
 	uuid1, err := suite.createQueue("test1", 1)
@@ -829,6 +904,131 @@ func (suite *OVSIntegrationSuite) TestMonitorConditionIntegration() {
 		err := suite.clientWithoutInactvityCheck.Get(context.Background(), q)
 		return err == nil
 	}, 2*time.Second, 500*time.Millisecond)
+}
+
+func (suite *OVSIntegrationSuite) TestMonitorConditionInitialSnapshot() {
+	name1 := "initial-cond-1"
+	name2 := "initial-cond-2"
+	uuid1, err := suite.createBridge(name1, nil, nil)
+	suite.Require().NoError(err)
+	uuid2, err := suite.createBridge(name2, nil, nil)
+	suite.Require().NoError(err)
+
+	bridge := bridgeType{}
+	_, err = suite.clientWithInactivityCheck.Monitor(
+		context.Background(),
+		suite.clientWithInactivityCheck.NewMonitor(
+			client.WithConditionalTable(&bridge, []model.Condition{
+				{Field: &bridge.Name, Function: ovsdb.ConditionEqual, Value: name1},
+				{Field: &bridge.Name, Function: ovsdb.ConditionEqual, Value: name2},
+			}),
+		),
+	)
+	suite.Require().NoError(err)
+	for _, bridgeUUID := range []string{uuid1, uuid2} {
+		bridge := &bridgeType{UUID: bridgeUUID}
+		suite.Eventually(func() bool {
+			return suite.clientWithInactivityCheck.Get(context.Background(), bridge) == nil
+		}, 2*time.Second, 10*time.Millisecond)
+	}
+}
+
+func (suite *OVSIntegrationSuite) TestMonitorConditionDefaultValue() {
+	uuid, err := suite.createBridge("default-condition", nil, nil)
+	suite.Require().NoError(err)
+	bridge := &bridgeType{UUID: uuid}
+	suite.Eventually(func() bool {
+		return suite.clientWithoutInactvityCheck.Get(context.Background(), bridge) == nil
+	}, 2*time.Second, 10*time.Millisecond)
+
+	bridge.DatapathType = "system"
+	ops, err := suite.clientWithoutInactvityCheck.Where(bridge).Update(bridge, &bridge.DatapathType)
+	suite.Require().NoError(err)
+	results, err := suite.clientWithoutInactvityCheck.Transact(context.Background(), ops...)
+	suite.Require().NoError(err)
+	_, err = ovsdb.CheckOperationResults(results, ops)
+	suite.Require().NoError(err)
+
+	conditionModel := bridgeType{}
+	_, err = suite.clientWithInactivityCheck.Monitor(
+		context.Background(),
+		suite.clientWithInactivityCheck.NewMonitor(
+			client.WithConditionalTable(&conditionModel, []model.Condition{{
+				Field: &conditionModel.DatapathType, Function: ovsdb.ConditionEqual, Value: "",
+			}}),
+		),
+	)
+	suite.Require().NoError(err)
+	suite.Require().Error(suite.clientWithInactivityCheck.Get(context.Background(), &bridgeType{UUID: uuid}))
+
+	bridge.DatapathType = ""
+	ops, err = suite.clientWithoutInactvityCheck.Where(bridge).Update(bridge, &bridge.DatapathType)
+	suite.Require().NoError(err)
+	results, err = suite.clientWithoutInactvityCheck.Transact(context.Background(), ops...)
+	suite.Require().NoError(err)
+	_, err = ovsdb.CheckOperationResults(results, ops)
+	suite.Require().NoError(err)
+	suite.Eventually(func() bool {
+		return suite.clientWithInactivityCheck.Get(context.Background(), &bridgeType{UUID: uuid}) == nil
+	}, 2*time.Second, 10*time.Millisecond)
+}
+
+func (suite *OVSIntegrationSuite) TestMonitorConditionMapIncludes() {
+	bridge := bridgeType{}
+	_, err := suite.clientWithInactivityCheck.Monitor(
+		context.Background(),
+		suite.clientWithInactivityCheck.NewMonitor(
+			client.WithConditionalTable(&bridge, []model.Condition{{
+				Field:    &bridge.ExternalIDs,
+				Function: ovsdb.ConditionIncludes,
+				Value:    map[string]string{"owner": "monitor-test"},
+			}}),
+		),
+	)
+	suite.Require().NoError(err)
+
+	uuid, err := suite.createBridge("map-condition", map[string]string{"owner": "monitor-test", "kind": "integration"}, nil)
+	suite.Require().NoError(err)
+	suite.Eventually(func() bool {
+		return suite.clientWithInactivityCheck.Get(context.Background(), &bridgeType{UUID: uuid}) == nil
+	}, 2*time.Second, 10*time.Millisecond)
+}
+
+func (suite *OVSIntegrationSuite) TestSelectExplicitColumns() {
+	name := "select-columns"
+	uuid, err := suite.createBridge(name, nil, nil)
+	suite.Require().NoError(err)
+	op := ovsdb.Operation{
+		Op:      ovsdb.OperationSelect,
+		Table:   "Bridge",
+		Columns: []string{"name"},
+		Where: []ovsdb.Condition{
+			ovsdb.NewCondition("_uuid", ovsdb.ConditionEqual, ovsdb.UUID{GoUUID: uuid}),
+		},
+	}
+	results, err := suite.clientWithoutInactvityCheck.Transact(context.Background(), op)
+	suite.Require().NoError(err)
+	opErrors, err := ovsdb.CheckOperationResults(results, []ovsdb.Operation{op})
+	suite.Require().NoErrorf(err, "%+v", opErrors)
+	suite.Require().Len(results, 1)
+	suite.Require().Len(results[0].Rows, 1)
+	suite.Equal(ovsdb.Row{"name": name}, results[0].Rows[0])
+
+	_, err = suite.createBridge("select-columns-duplicate", nil, nil)
+	suite.Require().NoError(err)
+	op = ovsdb.Operation{
+		Op:      ovsdb.OperationSelect,
+		Table:   "Bridge",
+		Columns: []string{"datapath_type"},
+		Where:   []ovsdb.Condition{},
+	}
+	results, err = suite.clientWithoutInactvityCheck.Transact(context.Background(), op)
+	suite.Require().NoError(err)
+	opErrors, err = ovsdb.CheckOperationResults(results, []ovsdb.Operation{op})
+	suite.Require().NoErrorf(err, "%+v", opErrors)
+	suite.Require().Len(results, 1)
+	suite.Require().Len(results[0].Rows, 1)
+	suite.Equal(ovsdb.Row{"datapath_type": ""}, results[0].Rows[0])
 }
 
 func (suite *OVSIntegrationSuite) TestInsertDuplicateTransactIntegration() {
