@@ -56,6 +56,7 @@ type Client interface {
 	Close()
 	Schema() ovsdb.DatabaseSchema
 	Cache() *cache.TableCache
+	UpdateEndpoints([]string) error
 	SetOption(Option) error
 	Connected() bool
 	DisconnectNotify() chan struct{}
@@ -520,6 +521,47 @@ func (o *ovsdbClient) Cache() *cache.TableCache {
 	return db.cache
 }
 
+// UpdateEndpoints sets client endpoints
+// It is intended to be called at runtime
+func (o *ovsdbClient) UpdateEndpoints(endpoints []string) error {
+	o.rpcMutex.Lock()
+	defer o.rpcMutex.Unlock()
+	if len(endpoints) == 0 {
+		endpoints = []string{defaultUnixEndpoint}
+	}
+	o.options.endpoints = endpoints
+	originEps := o.endpoints[:]
+	var newEps []*epInfo
+	var idx int
+	for i, address := range o.options.endpoints {
+		var serverID string
+		for j, origin := range originEps {
+			if address == origin.address {
+				if j == 0 {
+					idx = i
+				}
+				serverID = origin.serverID
+				break
+			}
+		}
+		if serverID != "" {
+			newEps = append(newEps, &epInfo{address: address, serverID: serverID})
+		} else {
+			newEps = append(newEps, &epInfo{address: address})
+		}
+	}
+	o.endpoints = newEps
+	if o.rpcClient == nil {
+		return nil
+	}
+	if idx != 0 {
+		o.moveEndpointFirst(idx)
+	} else {
+		o._disconnect()
+	}
+	return nil
+}
+
 // SetOption sets a new value for an option.
 // It may only be called when the client is not connected
 func (o *ovsdbClient) SetOption(opt Option) error {
@@ -837,8 +879,9 @@ func (o *ovsdbClient) Monitor(ctx context.Context, monitor *Monitor) (MonitorCoo
 	return cookie, o.monitor(ctx, cookie, false, monitor)
 }
 
-//gocyclo:ignore
 // monitor must only be called with a lock on monitorsMutex
+//
+//gocyclo:ignore
 func (o *ovsdbClient) monitor(ctx context.Context, cookie MonitorCookie, reconnecting bool, monitor *Monitor) error {
 	// if we're reconnecting, we already hold the rpcMutex
 	if !reconnecting {
@@ -1291,7 +1334,7 @@ func hasMonitors(db *database) bool {
 // We add this wrapper to allow users to access the API directly on the
 // client object
 
-//Get implements the API interface's Get function
+// Get implements the API interface's Get function
 func (o *ovsdbClient) Get(ctx context.Context, model model.Model) error {
 	primaryDB := o.primaryDB()
 	waitForCacheConsistent(ctx, primaryDB, o.logger, o.primaryDBName)
@@ -1299,12 +1342,12 @@ func (o *ovsdbClient) Get(ctx context.Context, model model.Model) error {
 	return primaryDB.api.Get(ctx, model)
 }
 
-//Create implements the API interface's Create function
+// Create implements the API interface's Create function
 func (o *ovsdbClient) Create(models ...model.Model) ([]ovsdb.Operation, error) {
 	return o.primaryDB().api.Create(models...)
 }
 
-//List implements the API interface's List function
+// List implements the API interface's List function
 func (o *ovsdbClient) List(ctx context.Context, result interface{}) error {
 	primaryDB := o.primaryDB()
 	waitForCacheConsistent(ctx, primaryDB, o.logger, o.primaryDBName)
@@ -1322,12 +1365,12 @@ func (o *ovsdbClient) WhereAny(m model.Model, conditions ...model.Condition) Con
 	return o.primaryDB().api.WhereAny(m, conditions...)
 }
 
-//WhereAll implements the API interface's WhereAll function
+// WhereAll implements the API interface's WhereAll function
 func (o *ovsdbClient) WhereAll(m model.Model, conditions ...model.Condition) ConditionalAPI {
 	return o.primaryDB().api.WhereAll(m, conditions...)
 }
 
-//WhereCache implements the API interface's WhereCache function
+// WhereCache implements the API interface's WhereCache function
 func (o *ovsdbClient) WhereCache(predicate interface{}) ConditionalAPI {
 	return o.primaryDB().api.WhereCache(predicate)
 }
