@@ -453,6 +453,10 @@ func (suite *OVSIntegrationSuite) TestMultipleOpsTransactIntegration() {
 	require.NoError(suite.T(), err)
 	operations = append(operations, op2...)
 
+	var op3Comment = "update external ids"
+	op3 := ovsdb.Operation{Op: ovsdb.OperationComment, Comment: &op3Comment}
+	operations = append(operations, op3)
+
 	reply, err := suite.client.Transact(context.TODO(), operations...)
 	require.NoError(suite.T(), err)
 

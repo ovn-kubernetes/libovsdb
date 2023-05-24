@@ -2,6 +2,7 @@ package ovsdb
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"reflect"
 	"testing"
@@ -11,31 +12,48 @@ import (
 )
 
 func TestOpRowSerialization(t *testing.T) {
-	operation := Operation{
-		Op:    "insert",
-		Table: "Bridge",
+	var commentString = "this is a comment"
+	tests := []struct {
+		name     string
+		op       Operation
+		expected string
+	}{
+		{
+			"insert",
+			Operation{
+				Op:    "insert",
+				Table: "Bridge",
+			},
+			`{"op":"insert","table":"Bridge"}`,
+		},
+		{
+			"insert with row",
+			Operation{
+				Op:    "insert",
+				Table: "Bridge",
+				Row:   Row(map[string]interface{}{"name": "docker-ovs"}),
+			},
+			`{"op":"insert","table":"Bridge","row":{"name":"docker-ovs"}}`,
+		},
+		{
+			"comment",
+			Operation{
+				Op:      "comment",
+				Comment: &commentString,
+			},
+			fmt.Sprintf(`{"op":"comment","comment":"%s"}`, commentString),
+		},
 	}
-	str, err := json.Marshal(operation)
-	if err != nil {
-		log.Fatal("serialization error:", err)
-	}
-	expected := `{"op":"insert","table":"Bridge"}`
-	if string(str) != expected {
-		t.Error("Expected: ", expected, "Got", string(str))
-	}
-
-	row := Row(map[string]interface{}{"name": "docker-ovs"})
-	operation.Row = row
-
-	str, err = json.Marshal(operation)
-	if err != nil {
-		log.Fatal("serialization error:", err)
-	}
-
-	expected = `{"op":"insert","table":"Bridge","row":{"name":"docker-ovs"}}`
-
-	if string(str) != expected {
-		t.Error("Expected: ", expected, "Got", string(str))
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			str, err := json.Marshal(test.op)
+			if err != nil {
+				log.Fatal("serialization error:", err)
+			}
+			if string(str) != test.expected {
+				t.Error("Expected: ", test.expected, "Got", string(str))
+			}
+		})
 	}
 }
 
