@@ -1194,72 +1194,34 @@ func (o *ovsdbClient) handleClientErrors(stopCh <-chan struct{}) {
 	}
 }
 
-func (o *ovsdbClient) sendEcho(args []any, reply *[]any) *rpc2.Call {
-	o.rpcMutex.RLock()
-	defer o.rpcMutex.RUnlock()
-	if o.rpcClient == nil {
-		return nil
-	}
-	return o.rpcClient.Go("echo", args, reply, make(chan *rpc2.Call, 1))
-}
-
 func (o *ovsdbClient) handleInactivityProbes() {
 	defer o.handlerShutdown.Done()
-	echoReplied := make(chan string)
-	var lastEcho string
 	stopCh := o.stopCh
 	trafficSeen := o.trafficSeen
+	timer := time.NewTimer(o.options.inactivityTimeout)
 	for {
 		select {
 		case <-stopCh:
+			timer.Stop()
 			return
 		case <-trafficSeen:
-			// We got some traffic from the server, restart our timer
-		case ts := <-echoReplied:
-			// Got a response from the server, check it against lastEcho; if same clear lastEcho; if not same Disconnect()
-			if ts != lastEcho {
-				o.Disconnect()
-				return
+			// We got some traffic from the server
+			// Timer must be stopped and drained of stale values before resetting it
+			// See: https://pkg.go.dev/time#NewTimer
+			if !timer.Stop() {
+				<-timer.C
 			}
-			lastEcho = ""
-		case <-time.After(o.options.inactivityTimeout):
-			// If there's a lastEcho already, then we didn't get a server reply, disconnect
-			if lastEcho != "" {
+		case <-timer.C:
+			// We timed out, send an echo request
+			ctx, cancel := context.WithTimeout(context.Background(), o.options.inactivityTimeout)
+			err := o.Echo(ctx)
+			if err != nil {
+				o.logger.V(3).Error(err, "server echo reply error")
 				o.Disconnect()
-				return
 			}
-			// Otherwise send an echo
-			thisEcho := fmt.Sprintf("%d", time.Now().UnixMicro())
-			args := []any{"libovsdb echo", thisEcho}
-			var reply []any
-			// Can't use o.Echo() because it blocks; we need the Call object direct from o.rpcClient.Go()
-			call := o.sendEcho(args, &reply)
-			if call == nil {
-				o.Disconnect()
-				return
-			}
-			lastEcho = thisEcho
-			go func() {
-				// Wait for the echo reply
-				select {
-				case <-stopCh:
-					return
-				case <-call.Done:
-					if call.Error != nil {
-						// RPC timeout; disconnect
-						o.logger.V(3).Error(call.Error, "server echo reply error")
-						o.Disconnect()
-					} else if !reflect.DeepEqual(args, reply) {
-						o.logger.V(3).Info("warning: incorrect server echo reply",
-							"expected", args, "reply", reply)
-						o.Disconnect()
-					} else {
-						// Otherwise stuff thisEcho into the echoReplied channel
-						echoReplied <- thisEcho
-					}
-				}
-			}()
+			cancel()
 		}
+		timer.Reset(o.options.inactivityTimeout)
 	}
 }
 
