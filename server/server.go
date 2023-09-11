@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -13,6 +12,7 @@ import (
 	"github.com/go-logr/stdr"
 	"github.com/google/uuid"
 	"github.com/ovn-kubernetes/libovsdb/database"
+	"github.com/ovn-kubernetes/libovsdb/internal/json"
 	"github.com/ovn-kubernetes/libovsdb/model"
 	"github.com/ovn-kubernetes/libovsdb/ovsdb"
 )
