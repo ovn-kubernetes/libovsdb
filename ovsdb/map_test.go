@@ -1,8 +1,9 @@
 package ovsdb
 
 import (
-	"encoding/json"
 	"testing"
+
+	"github.com/ovn-kubernetes/libovsdb/internal/json"
 )
 
 func benchmarkMap(m map[string]string, b *testing.B) {

@@ -1,12 +1,13 @@
 package ovsdb
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"math"
 	"os"
 	"strings"
+
+	"github.com/ovn-kubernetes/libovsdb/internal/json"
 )
 
 // DatabaseSchema is a database schema according to RFC7047

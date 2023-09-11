@@ -1,9 +1,10 @@
 package ovsdb
 
 import (
-	"encoding/json"
 	"fmt"
 	"regexp"
+
+	"github.com/ovn-kubernetes/libovsdb/internal/json"
 )
 
 var validUUID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)

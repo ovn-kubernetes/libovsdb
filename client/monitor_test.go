@@ -1,9 +1,9 @@
 package client
 
 import (
-	"encoding/json"
 	"testing"
 
+	"github.com/ovn-kubernetes/libovsdb/internal/json"
 	"github.com/ovn-kubernetes/libovsdb/model"
 	"github.com/ovn-kubernetes/libovsdb/ovsdb"
 	"github.com/stretchr/testify/assert"
