@@ -1,6 +1,6 @@
 package ovsdb
 
-import "encoding/json"
+import "github.com/ovn-org/libovsdb/internal/json"
 
 // Row is a table Row according to RFC7047
 type Row map[string]interface{}

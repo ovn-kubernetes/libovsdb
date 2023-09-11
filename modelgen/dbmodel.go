@@ -1,10 +1,10 @@
 package modelgen
 
 import (
-	"encoding/json"
 	"sort"
 	"text/template"
 
+	"github.com/ovn-org/libovsdb/internal/json"
 	"github.com/ovn-org/libovsdb/ovsdb"
 )
 
@@ -29,8 +29,7 @@ func NewDBTemplate() *template.Template {
 {{- end }}
 {{- define "preDBDefinitions" }}
  import (
-	"encoding/json"
-
+	"github.com/ovn-org/libovsdb/internal/json"
 	"github.com/ovn-org/libovsdb/model"
 	"github.com/ovn-org/libovsdb/ovsdb"
 )

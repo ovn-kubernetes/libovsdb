@@ -1,9 +1,10 @@
 package modelgen
 
 import (
-	"encoding/json"
 	"testing"
 	"text/template"
+
+	"github.com/ovn-org/libovsdb/internal/json"
 
 	"github.com/ovn-org/libovsdb/ovsdb"
 	"github.com/stretchr/testify/assert"
@@ -52,8 +53,7 @@ func TestDbModelTemplate(t *testing.T) {
 package test
 
 import (
-	"encoding/json"
-
+	"github.com/ovn-org/libovsdb/internal/json"
 	"github.com/ovn-org/libovsdb/model"
 	"github.com/ovn-org/libovsdb/ovsdb"
 )

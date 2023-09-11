@@ -1,8 +1,9 @@
 package ovsdb
 
 import (
-	"encoding/json"
 	"fmt"
+
+	"github.com/ovn-org/libovsdb/internal/json"
 )
 
 type MonitorCondSinceReply struct {

@@ -1,9 +1,10 @@
 package ovsdb
 
 import (
-	"encoding/json"
 	"fmt"
 	"reflect"
+
+	"github.com/ovn-org/libovsdb/internal/json"
 )
 
 // OvsSet is an OVSDB style set
@@ -92,7 +93,8 @@ func (o *OvsSet) UnmarshalJSON(b []byte) (err error) {
 		}
 		if oSet[0] != "set" {
 			// it is a slice, but is not a set
-			return &json.UnmarshalTypeError{Value: reflect.ValueOf(inter).String(), Type: reflect.TypeOf(*o)}
+			return fmt.Errorf("json: cannot unmarshal %s into Go value of type %s",
+				reflect.ValueOf(inter).String(), reflect.TypeOf(*o).String())
 		}
 		innerSet := oSet[1].([]interface{})
 		for _, val := range innerSet {

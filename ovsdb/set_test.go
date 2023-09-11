@@ -1,11 +1,12 @@
 package ovsdb
 
 import (
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/ovn-org/libovsdb/internal/json"
 )
 
 var testUUIDs = []string{

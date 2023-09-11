@@ -1,12 +1,12 @@
 package server
 
 import (
-	"encoding/json"
 	"log"
 	"sync"
 
 	"github.com/cenkalti/rpc2"
 	"github.com/google/uuid"
+	"github.com/ovn-org/libovsdb/internal/json"
 	"github.com/ovn-org/libovsdb/ovsdb"
 )
 

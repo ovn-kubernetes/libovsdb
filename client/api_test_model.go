@@ -1,10 +1,10 @@
 package client
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/ovn-org/libovsdb/cache"
+	"github.com/ovn-org/libovsdb/internal/json"
 	"github.com/ovn-org/libovsdb/model"
 	"github.com/ovn-org/libovsdb/ovsdb"
 	"github.com/stretchr/testify/assert"
@@ -128,7 +128,7 @@ func (*testLogicalSwitch) Table() string {
 	return "Logical_Switch"
 }
 
-//LogicalSwitchPort struct defines an object in Logical_Switch_Port table
+// LogicalSwitchPort struct defines an object in Logical_Switch_Port table
 type testLogicalSwitchPort struct {
 	UUID             string            `ovsdb:"_uuid"`
 	Up               *bool             `ovsdb:"up"`

@@ -1,8 +1,9 @@
 package ovsdb
 
 import (
-	"encoding/json"
 	"testing"
+
+	"github.com/ovn-org/libovsdb/internal/json"
 )
 
 func TestNewGetSchemaArgs(t *testing.T) {

@@ -1,13 +1,14 @@
 package ovsdb
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"math"
 	"os"
 	"strings"
+
+	"github.com/ovn-org/libovsdb/internal/json"
 )
 
 // DatabaseSchema is a database schema according to RFC7047
@@ -124,7 +125,7 @@ of this library, we define an ExtendedType that includes all possible column typ
 atomic fields).
 */
 
-//ExtendedType includes atomic types as defined in the RFC plus Enum, Map and Set
+// ExtendedType includes atomic types as defined in the RFC plus Enum, Map and Set
 type ExtendedType = string
 
 // RefType is used to define the possible RefTypes

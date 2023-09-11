@@ -298,6 +298,73 @@ In your application, load the ClientDBModel, connect to the server and start int
         fmt.Printf("My Router has UUID: %s and %d Ports\n", lr.UUID, len(lr.Ports))
     }
 
+## Drop-in json library
+
+There are two json libraries to use as a drop-in replacement for std json library. 
+[go-json](https://github.com/goccy/go-json) and [json-iterator](https://github.com/json-iterator/go)
+
+go build your application with -tags go_json or jsoniter
+
+    $ benchstat bench.out.std bench.out.jsoniter bench.out.go_json
+    goos: linux
+    goarch: amd64
+    pkg: github.com/ovn-org/libovsdb/ovsdb
+    cpu: Intel(R) Core(TM) i5-9600K CPU @ 3.70GHz
+    │ bench.out.std │           bench.out.jsoniter           │           bench.out.go_json           │
+    │    sec/op     │    sec/op      vs base                 │    sec/op     vs base                 │
+    MapMarshalJSON1-4            2.234µ ± ∞ ¹    1.621µ ± ∞ ¹        ~ (p=0.100 n=3) ²   1.289µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    MapMarshalJSON2-4            3.109µ ± ∞ ¹    2.283µ ± ∞ ¹        ~ (p=0.100 n=3) ²   1.834µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    MapMarshalJSON3-4            4.165µ ± ∞ ¹    2.900µ ± ∞ ¹        ~ (p=0.100 n=3) ²   2.404µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    MapMarshalJSON5-4            6.058µ ± ∞ ¹    4.119µ ± ∞ ¹        ~ (p=0.100 n=3) ²   3.421µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    MapMarshalJSON8-4            8.978µ ± ∞ ¹    5.685µ ± ∞ ¹        ~ (p=0.100 n=3) ²   4.912µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    MapUnmarshalJSON1-4          3.208µ ± ∞ ¹    2.437µ ± ∞ ¹        ~ (p=0.100 n=3) ²   1.944µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    MapUnmarshalJSON2-4          4.525µ ± ∞ ¹    3.579µ ± ∞ ¹        ~ (p=0.100 n=3) ²   2.659µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    MapUnmarshalJSON3-4          6.015µ ± ∞ ¹    4.780µ ± ∞ ¹        ~ (p=0.100 n=3) ²   3.404µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    MapUnmarshalJSON5-4          9.121µ ± ∞ ¹    7.061µ ± ∞ ¹        ~ (p=0.100 n=3) ²   4.914µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    MapUnmarshalJSON8-4         13.912µ ± ∞ ¹   10.242µ ± ∞ ¹        ~ (p=0.100 n=3) ²   7.076µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONString1-4      668.7n ± ∞ ¹    511.9n ± ∞ ¹        ~ (p=0.100 n=3) ²   393.8n ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONString2-4     1756.0n ± ∞ ¹   1243.0n ± ∞ ¹        ~ (p=0.100 n=3) ²   972.6n ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONString3-4      1.977µ ± ∞ ¹    1.320µ ± ∞ ¹        ~ (p=0.100 n=3) ²   1.082µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONString5-4      2.463µ ± ∞ ¹    1.561µ ± ∞ ¹        ~ (p=0.100 n=3) ²   1.327µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONString8-4      3.310µ ± ∞ ¹    1.929µ ± ∞ ¹        ~ (p=0.100 n=3) ²   1.647µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONInt1-4         605.4n ± ∞ ¹    495.1n ± ∞ ¹        ~ (p=0.100 n=3) ²   405.5n ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONInt2-4         1.612µ ± ∞ ¹    1.253µ ± ∞ ¹        ~ (p=0.100 n=3) ²   1.057µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONInt3-4         1.766µ ± ∞ ¹    1.327µ ± ∞ ¹        ~ (p=0.100 n=3) ²   1.200µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONInt5-4         2.082µ ± ∞ ¹    1.560µ ± ∞ ¹        ~ (p=0.100 n=3) ²   1.423µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONInt8-4         2.554µ ± ∞ ¹    1.906µ ± ∞ ¹        ~ (p=0.100 n=3) ²   1.772µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONFloat1-4       676.8n ± ∞ ¹    562.1n ± ∞ ¹        ~ (p=0.100 n=3) ²   489.2n ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONFloat2-4       1.599µ ± ∞ ¹    1.205µ ± ∞ ¹        ~ (p=0.100 n=3) ²   1.025µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONFloat3-4       1.761µ ± ∞ ¹    1.341µ ± ∞ ¹        ~ (p=0.100 n=3) ²   1.148µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONFloat5-4       2.090µ ± ∞ ¹    1.576µ ± ∞ ¹        ~ (p=0.100 n=3) ²   1.379µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONFloat8-4       2.543µ ± ∞ ¹    1.902µ ± ∞ ¹        ~ (p=0.100 n=3) ²   1.720µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONUUID1-4       1227.0n ± ∞ ¹    570.0n ± ∞ ¹        ~ (p=0.100 n=3) ²   485.8n ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONUUID2-4        2.875µ ± ∞ ¹    1.311µ ± ∞ ¹        ~ (p=0.100 n=3) ²   1.142µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONUUID3-4        3.594µ ± ∞ ¹    1.490µ ± ∞ ¹        ~ (p=0.100 n=3) ²   1.313µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONUUID5-4        5.184µ ± ∞ ¹    1.832µ ± ∞ ¹        ~ (p=0.100 n=3) ²   1.674µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONUUID8-4        7.555µ ± ∞ ¹    2.333µ ± ∞ ¹        ~ (p=0.100 n=3) ²   2.252µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONString1-4    848.8n ± ∞ ¹    769.3n ± ∞ ¹        ~ (p=0.100 n=3) ²   517.0n ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONString2-4    2.722µ ± ∞ ¹    2.270µ ± ∞ ¹        ~ (p=0.100 n=3) ²   1.684µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONString3-4    3.264µ ± ∞ ¹    2.790µ ± ∞ ¹        ~ (p=0.100 n=3) ²   1.940µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONString5-4    4.482µ ± ∞ ¹    3.580µ ± ∞ ¹        ~ (p=0.100 n=3) ²   2.414µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONString8-4    5.980µ ± ∞ ¹    4.519µ ± ∞ ¹        ~ (p=0.100 n=3) ²   3.010µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONInt1-4       741.6n ± ∞ ¹    942.9n ± ∞ ¹        ~ (p=0.100 n=3) ²   514.6n ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONInt2-4       2.394µ ± ∞ ¹    2.236µ ± ∞ ¹        ~ (p=0.100 n=3) ²   1.709µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONInt3-4       2.839µ ± ∞ ¹    2.667µ ± ∞ ¹        ~ (p=0.100 n=3) ²   2.048µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONInt5-4       3.521µ ± ∞ ¹    3.425µ ± ∞ ¹        ~ (p=0.100 n=3) ²   2.497µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONInt8-4       4.383µ ± ∞ ¹    4.227µ ± ∞ ¹        ~ (p=0.100 n=3) ²   3.066µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONFloat1-4     845.2n ± ∞ ¹    960.0n ± ∞ ¹        ~ (p=0.100 n=3) ²   541.3n ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONFloat2-4     2.606µ ± ∞ ¹    2.264µ ± ∞ ¹        ~ (p=0.100 n=3) ²   1.748µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONFloat3-4     3.141µ ± ∞ ¹    2.667µ ± ∞ ¹        ~ (p=0.100 n=3) ²   2.040µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONFloat5-4     4.118µ ± ∞ ¹    3.436µ ± ∞ ¹        ~ (p=0.100 n=3) ²   2.560µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONFloat8-4     5.149µ ± ∞ ¹    4.286µ ± ∞ ¹        ~ (p=0.100 n=3) ²   3.141µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONUUID1-4     1802.0n ± ∞ ¹    879.3n ± ∞ ¹        ~ (p=0.100 n=3) ²   613.5n ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONUUID2-4      5.697µ ± ∞ ¹    2.503µ ± ∞ ¹        ~ (p=0.100 n=3) ²   1.899µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONUUID3-4      7.469µ ± ∞ ¹    3.035µ ± ∞ ¹        ~ (p=0.100 n=3) ²   2.218µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONUUID5-4     11.604µ ± ∞ ¹    3.965µ ± ∞ ¹        ~ (p=0.100 n=3) ²   2.987µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONUUID8-4     17.097µ ± ∞ ¹    5.168µ ± ∞ ¹        ~ (p=0.100 n=3) ²   3.731µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    geomean                      2.982µ          2.057µ        -31.03%                   1.606µ        -46.14%
+    ¹ need >= 6 samples for confidence interval at level 0.95
+    ² need >= 4 samples to detect a difference at alpha level 0.05
 
 ## Running the tests
 

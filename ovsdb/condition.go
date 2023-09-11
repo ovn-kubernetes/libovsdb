@@ -1,9 +1,10 @@
 package ovsdb
 
 import (
-	"encoding/json"
 	"fmt"
 	"reflect"
+
+	"github.com/ovn-org/libovsdb/internal/json"
 )
 
 type ConditionFunction string

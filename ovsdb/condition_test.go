@@ -1,9 +1,10 @@
 package ovsdb
 
 import (
-	"encoding/json"
 	"reflect"
 	"testing"
+
+	"github.com/ovn-org/libovsdb/internal/json"
 
 	"github.com/stretchr/testify/assert"
 )

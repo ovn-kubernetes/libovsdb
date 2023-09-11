@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -10,6 +9,7 @@ import (
 	"runtime"
 	"runtime/pprof"
 
+	"github.com/ovn-org/libovsdb/internal/json"
 	"github.com/ovn-org/libovsdb/ovsdb"
 )
 

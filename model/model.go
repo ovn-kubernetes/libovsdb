@@ -1,10 +1,10 @@
 package model
 
 import (
-	"encoding/json"
 	"fmt"
 	"reflect"
 
+	"github.com/ovn-org/libovsdb/internal/json"
 	"github.com/ovn-org/libovsdb/ovsdb"
 )
 
@@ -16,12 +16,13 @@ import (
 // The struct may also have non-tagged fields (which will be ignored by the API calls)
 // The Model interface must be implemented by the pointer to such type
 // Example:
-//type MyLogicalRouter struct {
-//	UUID          string            `ovsdb:"_uuid"`
-//	Name          string            `ovsdb:"name"`
-//	ExternalIDs   map[string]string `ovsdb:"external_ids"`
-//	LoadBalancers []string          `ovsdb:"load_balancer"`
-//}
+//
+//	type MyLogicalRouter struct {
+//		UUID          string            `ovsdb:"_uuid"`
+//		Name          string            `ovsdb:"name"`
+//		ExternalIDs   map[string]string `ovsdb:"external_ids"`
+//		LoadBalancers []string          `ovsdb:"load_balancer"`
+//	}
 type Model interface{}
 
 type CloneableModel interface {

@@ -1,7 +1,7 @@
 package ovsdb
 
 import (
-	"encoding/json"
+	"github.com/ovn-org/libovsdb/internal/json"
 )
 
 const (

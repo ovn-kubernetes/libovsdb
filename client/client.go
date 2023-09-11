@@ -3,7 +3,6 @@ package client
 import (
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -21,6 +20,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/go-logr/stdr"
 	"github.com/ovn-org/libovsdb/cache"
+	"github.com/ovn-org/libovsdb/internal/json"
 	"github.com/ovn-org/libovsdb/mapper"
 	"github.com/ovn-org/libovsdb/model"
 	"github.com/ovn-org/libovsdb/ovsdb"

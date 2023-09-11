@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -9,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/ovn-org/libovsdb/internal/json"
 	"github.com/ovn-org/libovsdb/modelgen"
 	"github.com/ovn-org/libovsdb/ovsdb"
 )

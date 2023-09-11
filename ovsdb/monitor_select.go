@@ -1,6 +1,6 @@
 package ovsdb
 
-import "encoding/json"
+import "github.com/ovn-org/libovsdb/internal/json"
 
 // MonitorSelect represents a monitor select according to RFC7047
 type MonitorSelect struct {

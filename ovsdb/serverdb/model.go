@@ -4,8 +4,7 @@
 package serverdb
 
 import (
-	"encoding/json"
-
+	"github.com/ovn-org/libovsdb/internal/json"
 	"github.com/ovn-org/libovsdb/model"
 	"github.com/ovn-org/libovsdb/ovsdb"
 )

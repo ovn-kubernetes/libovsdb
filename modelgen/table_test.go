@@ -1,7 +1,6 @@
 package modelgen
 
 import (
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"testing"
@@ -9,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/ovn-org/libovsdb/example/vswitchd"
+	"github.com/ovn-org/libovsdb/internal/json"
 	"github.com/ovn-org/libovsdb/model"
 	"github.com/ovn-org/libovsdb/ovsdb"
 	"github.com/stretchr/testify/assert"
