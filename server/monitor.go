@@ -1,13 +1,13 @@
 package server
 
 import (
-	"encoding/json"
 	"log"
 	"sync"
 
 	"github.com/cenkalti/rpc2"
 	"github.com/google/uuid"
 	"github.com/ovn-kubernetes/libovsdb/database"
+	"github.com/ovn-kubernetes/libovsdb/internal/json"
 	"github.com/ovn-kubernetes/libovsdb/ovsdb"
 )
 

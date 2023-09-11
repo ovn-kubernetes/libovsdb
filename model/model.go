@@ -1,10 +1,10 @@
 package model
 
 import (
-	"encoding/json"
 	"fmt"
 	"reflect"
 
+	"github.com/ovn-kubernetes/libovsdb/internal/json"
 	"github.com/ovn-kubernetes/libovsdb/ovsdb"
 )
 

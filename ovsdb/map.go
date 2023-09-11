@@ -1,9 +1,10 @@
 package ovsdb
 
 import (
-	"encoding/json"
 	"fmt"
 	"reflect"
+
+	"github.com/ovn-kubernetes/libovsdb/internal/json"
 )
 
 // OvsMap is the JSON map structure used for OVSDB
@@ -47,7 +48,8 @@ func (o *OvsMap) UnmarshalJSON(b []byte) (err error) {
 			case []any:
 				vSet := f[0].([]any)
 				if len(vSet) != 2 || vSet[0] == "map" {
-					return &json.UnmarshalTypeError{Value: reflect.ValueOf(oMap).String(), Type: reflect.TypeOf(*o)}
+					return fmt.Errorf("json: cannot unmarshal %s into Go value of type %s",
+						reflect.ValueOf(oMap).String(), reflect.TypeOf(*o).String())
 				}
 				goSlice, err := ovsSliceToGoNotation(vSet)
 				if err != nil {
@@ -61,7 +63,8 @@ func (o *OvsMap) UnmarshalJSON(b []byte) (err error) {
 			case []any:
 				vSet := f[1].([]any)
 				if len(vSet) != 2 || vSet[0] == "map" {
-					return &json.UnmarshalTypeError{Value: reflect.ValueOf(oMap).String(), Type: reflect.TypeOf(*o)}
+					return fmt.Errorf("json: cannot unmarshal %s into Go value of type %s",
+						reflect.ValueOf(oMap).String(), reflect.TypeOf(*o).String())
 				}
 				goSlice, err := ovsSliceToGoNotation(vSet)
 				if err != nil {

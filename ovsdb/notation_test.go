@@ -1,11 +1,12 @@
 package ovsdb
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"reflect"
 	"testing"
+
+	"github.com/ovn-kubernetes/libovsdb/internal/json"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -84,9 +85,7 @@ func TestOpRowsSerialization(t *testing.T) {
 
 	expected := `{"op":"insert","table":"Interface","rows":[{"mac":"0000ffaaaa","name":"test-iface1","ofport":1},{"mac":"0000ffaabb","name":"test-iface2","ofport":2}]}`
 
-	if string(str) != expected {
-		t.Error("Expected: ", expected, "Got", string(str))
-	}
+	require.JSONEq(t, expected, string(str))
 }
 
 func TestValidateOvsSet(t *testing.T) {
