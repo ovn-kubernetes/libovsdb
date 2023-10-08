@@ -771,14 +771,23 @@ func (o *ovsdbClient) listDbs(ctx context.Context) ([]string, error) {
 	return dbs, err
 }
 
+// logFromContext returns a Logger from ctx or return the default logger
+func (o *ovsdbClient) logFromContext(ctx context.Context) *logr.Logger {
+	if logger, err := logr.FromContext(ctx); err == nil {
+		return &logger
+	}
+	return o.logger
+}
+
 // Transact performs the provided Operations on the database
 // RFC 7047 : transact
 func (o *ovsdbClient) Transact(ctx context.Context, operation ...ovsdb.Operation) ([]ovsdb.OperationResult, error) {
+	logger := o.logFromContext(ctx)
 	o.rpcMutex.RLock()
 	if o.rpcClient == nil || !o.connected {
 		o.rpcMutex.RUnlock()
 		if o.options.reconnect {
-			o.logger.V(5).Info("blocking transaction until reconnected", "operations",
+			logger.V(5).Info("blocking transaction until reconnected", "operations",
 				fmt.Sprintf("%+v", operation))
 			ticker := time.NewTicker(50 * time.Millisecond)
 			defer ticker.Stop()
@@ -804,6 +813,7 @@ func (o *ovsdbClient) Transact(ctx context.Context, operation ...ovsdb.Operation
 }
 
 func (o *ovsdbClient) transact(ctx context.Context, dbName string, operation ...ovsdb.Operation) ([]ovsdb.OperationResult, error) {
+	logger := o.logFromContext(ctx)
 	var reply []ovsdb.OperationResult
 	db := o.databases[dbName]
 	db.modelMutex.RLock()
@@ -820,7 +830,7 @@ func (o *ovsdbClient) transact(ctx context.Context, dbName string, operation ...
 	if o.rpcClient == nil {
 		return nil, ErrNotConnected
 	}
-	o.logger.V(4).Info("transacting operations", "database", dbName, "operations", fmt.Sprintf("%+v", operation))
+	logger.V(4).Info("transacting operations", "database", dbName, "operations", fmt.Sprintf("%+v", operation))
 	err := o.rpcClient.CallWithContext(ctx, "transact", args, &reply)
 	if err != nil {
 		if err == rpc2.ErrShutdown {
