@@ -15,6 +15,7 @@ const (
 	defaultTCPEndpoint  = "tcp:127.0.0.1:6640"
 	defaultSSLEndpoint  = "ssl:127.0.0.1:6640"
 	defaultUnixEndpoint = "unix:/var/run/openvswitch/ovsdb.sock"
+	defaultTimeout      = 60 * time.Second
 )
 
 type options struct {
