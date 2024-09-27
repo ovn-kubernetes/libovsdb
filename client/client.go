@@ -283,11 +283,11 @@ func (o *ovsdbClient) connect(ctx context.Context, reconnect bool) error {
 		o.logger.V(3).Info("reconnected - restarting monitors")
 		for dbName, db := range o.databases {
 			db.monitorsMutex.Lock()
-			defer db.monitorsMutex.Unlock()
 
 			// Purge entire cache if no monitors exist to update dynamically
 			if len(db.monitors) == 0 {
 				db.cache.Purge(db.model)
+				db.monitorsMutex.Unlock()
 				continue
 			}
 
@@ -297,9 +297,11 @@ func (o *ovsdbClient) connect(ctx context.Context, reconnect bool) error {
 				err := o.monitor(ctx, MonitorCookie{DatabaseName: dbName, ID: id}, true, request)
 				if err != nil {
 					o.resetRPCClient()
+					db.monitorsMutex.Unlock()
 					return err
 				}
 			}
+			db.monitorsMutex.Unlock()
 		}
 	}
 
