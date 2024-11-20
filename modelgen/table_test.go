@@ -64,7 +64,7 @@ type (
 	AtomicTableProtocol  = string
 )
 
-var (
+const (
 	AtomicTableEventTypeEmptyLbBackends AtomicTableEventType = "empty_lb_backends"
 	AtomicTableProtocolTCP              AtomicTableProtocol  = "tcp"
 	AtomicTableProtocolUDP              AtomicTableProtocol  = "udp"
@@ -128,7 +128,7 @@ type (
 	AtomicTableProtocol  = string
 )
 
-var (
+const (
 	AtomicTableEventTypeEmptyLbBackends AtomicTableEventType = "empty_lb_backends"
 	AtomicTableProtocolTCP              AtomicTableProtocol  = "tcp"
 	AtomicTableProtocolUDP              AtomicTableProtocol  = "udp"
@@ -172,7 +172,7 @@ type (
 	AtomicTableProtocol  = string
 )
 
-var (
+const (
 	AtomicTableEventTypeEmptyLbBackends AtomicTableEventType = "empty_lb_backends"
 	AtomicTableProtocolTCP              AtomicTableProtocol  = "tcp"
 	AtomicTableProtocolUDP              AtomicTableProtocol  = "udp"
@@ -330,7 +330,7 @@ type (
 	AtomicTableProtocol  = string
 )
 
-var (
+const (
 	AtomicTableEventTypeEmptyLbBackends AtomicTableEventType = "empty_lb_backends"
 	AtomicTableProtocolTCP              AtomicTableProtocol  = "tcp"
 	AtomicTableProtocolUDP              AtomicTableProtocol  = "udp"
@@ -589,7 +589,7 @@ type (
 	AtomicTableProtocol  = string
 )
 
-var (
+const (
 	AtomicTableEventTypeEmptyLbBackends AtomicTableEventType = "empty_lb_backends"
 	AtomicTableProtocolTCP              AtomicTableProtocol  = "tcp"
 	AtomicTableProtocolUDP              AtomicTableProtocol  = "udp"
@@ -870,7 +870,7 @@ func buildRandStr() *string {
 }
 
 func buildTestBridge() *vswitchd.Bridge {
-	return &vswitchd.Bridge{
+	bridge := &vswitchd.Bridge{
 		UUID:                *buildRandStr(),
 		AutoAttach:          buildRandStr(),
 		Controller:          []string{*buildRandStr(), *buildRandStr()},
@@ -878,7 +878,7 @@ func buildTestBridge() *vswitchd.Bridge {
 		DatapathType:        *buildRandStr(),
 		DatapathVersion:     *buildRandStr(),
 		ExternalIDs:         map[string]string{*buildRandStr(): *buildRandStr(), *buildRandStr(): *buildRandStr()},
-		FailMode:            &vswitchd.BridgeFailModeSecure,
+		FailMode:            new(string),
 		FloodVLANs:          []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9},
 		FlowTables:          map[int]string{1: *buildRandStr(), 2: *buildRandStr()},
 		IPFIX:               buildRandStr(),
@@ -895,6 +895,8 @@ func buildTestBridge() *vswitchd.Bridge {
 		Status:              map[string]string{*buildRandStr(): *buildRandStr(), *buildRandStr(): *buildRandStr()},
 		STPEnable:           false,
 	}
+	*bridge.FailMode = vswitchd.BridgeFailModeSecure
+	return bridge
 }
 
 func buildTestInterface() *vswitchd.Interface {
