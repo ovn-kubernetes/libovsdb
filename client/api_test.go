@@ -1719,7 +1719,6 @@ func BenchmarkAPIList(b *testing.B) {
 	}
 	tcache := apiTestCache(b, testData)
 
-	rand.Seed(int64(b.N))
 	var index int
 
 	test := []struct {

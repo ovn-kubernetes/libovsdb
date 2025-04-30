@@ -2915,8 +2915,6 @@ func BenchmarkRowsByCondition(b *testing.B) {
 		models = append(models, model)
 	}
 
-	rand.Seed(int64(b.N))
-
 	benchmarks := []struct {
 		name    string
 		prepare func(int) []ovsdb.Condition

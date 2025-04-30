@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"os"
 	"runtime"
@@ -53,7 +53,7 @@ func main() {
 	}
 	defer schemaFile.Close()
 
-	schemaBytes, err := ioutil.ReadAll(schemaFile)
+	schemaBytes, err := io.ReadAll(schemaFile)
 	if err != nil {
 		log.Fatal(err)
 	}

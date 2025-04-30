@@ -10,6 +10,11 @@ linters:
     - revive
     - staticcheck
     - unused
+  settings:
+    revive:
+      rules:
+        - name: unused-parameter
+          disabled: true
   exclusions:
     generated: lax
     presets:
@@ -19,8 +24,6 @@ linters:
       - std-error-handling
     paths:
       - third_party$
-      - builtin$
-      - examples$
 formatters:
   enable:
     - goimports
@@ -28,5 +31,3 @@ formatters:
     generated: lax
     paths:
       - third_party$
-      - builtin$
-      - examples$

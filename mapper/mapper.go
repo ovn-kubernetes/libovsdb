@@ -12,12 +12,14 @@ import (
 // to what column in the database id through field a field tag.
 // The tag used is "ovsdb" and has the following structure
 // 'ovsdb:"${COLUMN_NAME}"'
+//
 //	where COLUMN_NAME is the name of the column and must match the schema
 //
-//Example:
-//  type MyObj struct {
-//  	Name string `ovsdb:"name"`
-//  }
+// Example:
+//
+//	type MyObj struct {
+//		Name string `ovsdb:"name"`
+//	}
 type Mapper struct {
 	Schema ovsdb.DatabaseSchema
 }

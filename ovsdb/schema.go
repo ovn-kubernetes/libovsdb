@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math"
 	"os"
 	"strings"
@@ -75,7 +74,7 @@ func (schema DatabaseSchema) Print(w io.Writer) {
 
 // SchemaFromFile returns a DatabaseSchema from a file
 func SchemaFromFile(f *os.File) (DatabaseSchema, error) {
-	data, err := ioutil.ReadAll(f)
+	data, err := io.ReadAll(f)
 	if err != nil {
 		return DatabaseSchema{}, err
 	}
