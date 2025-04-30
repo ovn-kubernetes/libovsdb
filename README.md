@@ -237,6 +237,105 @@ They can also be created based on a list of Conditions:
         }).Delete()
     ovs.Transact(ops...)
 
+### Querying with Select
+
+The `Select` operation is used to build an OVSDB `select` query. Unlike the `List` operation, which returns results directly from the cache, `Select` only generates `ovsdb.Operation`(s). You must pass these operations to `Transact` to execute them against the database, and then use a helper function like `GetSelectResults` to parse the reply.
+
+The core workflow is: `WhereXxx(...).Select() -> Transact(...) -> GetSelectResults(...)`
+
+#### Selecting Rows
+
+**Select All Rows from a Table:**
+
+To select all rows from a table, you can call `Where()` with a zero-value instance of the model struct (e.g., `&MyLogicalSwitch{}`). This sets the table context for the `Select` operation without adding any conditions.
+
+```go
+// var ovs client.Client
+// var ctx context.Context
+var allSwitches []MyLogicalSwitch
+// 1. Generate Op: Where(&MyLogicalSwitch{}) specifies the table
+selectOps, err := ovs.Where(&MyLogicalSwitch{}).Select()
+// ...
+// 2. Execute transaction
+reply, err := ovs.Transact(ctx, selectOps...)
+// ...
+// 3. Parse result
+err = ovs.GetSelectResults(selectOps, reply, &allSwitches)
+// ...
+```
+
+**Select by Index:**
+
+You can also use `Where()` with a model instance that has indexed fields populated. This will create a condition to find matching rows based on the first available index.
+
+```go
+// Assuming "Name" is an indexed field
+ls := &MyLogicalSwitch{Name: "switch1"}
+var results []MyLogicalSwitch
+// 1. Generate Op
+selectOps, err := ovs.Where(ls).Select()
+// ...
+// 2. Transact and parse
+reply, err := ovs.Transact(ctx, selectOps...)
+err = ovs.GetSelectResults(selectOps, reply, &results)
+// ...
+```
+
+**Select with Conditions (AND):**
+
+Use `WhereAll()` to set the table context and one or more filter conditions. All conditions are combined with an `AND` operator.
+
+```go
+var specificSwitches []MyLogicalSwitch
+lsModel := &MyLogicalSwitch{}
+cond1 := model.Condition{Field: &lsModel.Name, Function: ovsdb.ConditionEqual, Value: "sw1"}
+cond2 := model.Condition{Field: &lsModel.Ports, Function: ovsdb.ConditionIncludes, Value: "some_port_uuid"}
+
+// 1. Generate Op: Use WhereAll for one or more AND conditions
+selectOps, err := ovs.WhereAll(lsModel, cond1, cond2).Select()
+// ...
+// 2. Transact and parse
+reply, err := ovs.Transact(ctx, selectOps...)
+err = ovs.GetSelectResults(selectOps, reply, &specificSwitches)
+// ...
+```
+
+**Select with Conditions (OR):**
+
+Use `WhereAny()` to set the table context and one or more filter conditions. `WhereAny` will generate one `select` operation per condition. All generated operations share the same `CorrelationID`, allowing `GetSelectResults` to aggregate the results into a single slice.
+
+```go
+var specificSwitches []MyLogicalSwitch
+lsModel := &MyLogicalSwitch{}
+cond1 := model.Condition{Field: &lsModel.Name, Function: ovsdb.ConditionEqual, Value: "sw1"}
+cond2 := model.Condition{Field: &lsModel.Ports, Function: ovsdb.ConditionIncludes, Value: "some_port_uuid"}
+
+// 1. Generate Ops: Use WhereAny for one or more OR conditions
+// This generates multiple operations, one for each condition
+selectOps, err := ovs.WhereAny(lsModel, cond1, cond2).Select()
+// ...
+// 2. Transact and parse
+reply, err := ovs.Transact(ctx, selectOps...)
+// GetSelectResults will parse all results and populate them into the target slice.
+err = ovs.GetSelectResults(selectOps, reply, &specificSwitches)
+// ...
+```
+
+#### Selecting Specific Columns
+
+By default, `Select` queries all columns of a table. You can pass column names to the `Select` method to retrieve only specific columns. The `_uuid` column is always included in the result.
+
+```go
+// Selects only the "name" and "ports" columns
+selectOps, err := ovs.Where(&MyLogicalSwitch{Name: "sw1"}).Select("name", "ports")
+```
+
+#### Limitations
+
+-   `WhereCache(...).Select()`: **Not supported**. Cache-based predicate functions cannot be translated into OVSDB query conditions. Calling `Select` after `WhereCache` will return an error.
+
+-   **Multiple Select operations for the same table within a single transaction are not supported**. Each table can only have one Select operation per transaction. If you need to perform multiple selections on the same table, use separate transactions instead. This limitation ensures proper result handling and prevents correlation ID conflicts.
+
 ## Monitor for updates
 
 You can also register a notification handler to get notified every time an element is added, deleted or updated from the database.
