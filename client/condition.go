@@ -85,6 +85,12 @@ func (c *equalityConditional) Matches() (map[string]model.Model, error) {
 // based on the UUID of the found model. Otherwise, the conditions will be based
 // on the index.
 func (c *equalityConditional) Generate() ([][]ovsdb.Condition, error) {
+	// If models is empty, we should select all.
+	// This is the case when calling Where(&Model{})
+	if len(c.models) == 0 {
+		return [][]ovsdb.Condition{}, nil
+	}
+
 	models, err := c.Matches()
 	if err != nil && err != ErrNotFound {
 		return nil, err
