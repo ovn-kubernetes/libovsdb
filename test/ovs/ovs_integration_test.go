@@ -818,21 +818,24 @@ func (suite *OVSIntegrationSuite) TestMonitorConditionIntegration() {
 		return err == nil
 	}, 2*time.Second, 500*time.Millisecond)
 
-	uuid, err = suite.createQueue("test2", 3)
+	uuid2, err := suite.createQueue("test2", 3)
 	require.NoError(suite.T(), err)
-	assert.Never(suite.T(), func() bool {
-		q := &queueType{UUID: uuid}
-		err = suite.clientWithoutInactvityCheck.Get(context.Background(), q)
-		return err == nil
-	}, 2*time.Second, 500*time.Millisecond)
 
-	uuid, err = suite.createQueue("test3", 2)
+	uuid3, err := suite.createQueue("test3", 2)
 	require.NoError(suite.T(), err)
 	require.Eventually(suite.T(), func() bool {
-		q := &queueType{UUID: uuid}
+		q := &queueType{UUID: uuid3}
 		err = suite.clientWithoutInactvityCheck.Get(context.Background(), q)
 		return err == nil
-	}, 2*time.Second, 500*time.Millisecond)
+	}, 2*time.Second, 500*time.Millisecond, "Queue test3 did not appear")
+
+	// Wait briefly for potential cache updates to settle after creating all queues
+	time.Sleep(500 * time.Millisecond)
+
+	// Check ONCE that queue "test2" (dscp=3) is NOT in the cache
+	q2 := &queueType{UUID: uuid2}
+	err = suite.clientWithoutInactvityCheck.Get(context.Background(), q2)
+	assert.ErrorIs(suite.T(), err, client.ErrNotFound, "Queue with DSCP 3 should not be found in cache")
 }
 
 func (suite *OVSIntegrationSuite) TestInsertDuplicateTransactIntegration() {
