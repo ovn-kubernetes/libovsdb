@@ -12,12 +12,14 @@ import (
 // to what column in the database id through field a field tag.
 // The tag used is "ovsdb" and has the following structure
 // 'ovsdb:"${COLUMN_NAME}"'
+//
 //	where COLUMN_NAME is the name of the column and must match the schema
 //
-//Example:
-//  type MyObj struct {
-//  	Name string `ovsdb:"name"`
-//  }
+// Example:
+//
+//	type MyObj struct {
+//		Name string `ovsdb:"name"`
+//	}
 type Mapper struct {
 	Schema ovsdb.DatabaseSchema
 }
@@ -76,6 +78,20 @@ func (m Mapper) getData(ovsData ovsdb.Row, result *Info) error {
 
 		if err := result.SetField(name, nativeElem); err != nil {
 			return err
+		}
+	}
+
+	// Explicitly handle the _uuid column after processing schema columns
+	if uuidOvsElem, uuidOk := ovsData["_uuid"]; uuidOk {
+		if uuidInfo, uuidInfoOk := uuidOvsElem.(ovsdb.UUID); uuidInfoOk {
+			// Check if the target model has a field tagged with "_uuid"
+			// The check `hasColumn` uses Metadata.Fields which is keyed by column name (tag)
+			if result.hasColumn("_uuid") {
+				// Set the field using the string value. SetField should handle it.
+				if err := result.SetField("_uuid", uuidInfo.GoUUID); err != nil {
+					return fmt.Errorf("failed to set _uuid field: %w", err)
+				}
+			}
 		}
 	}
 	return nil

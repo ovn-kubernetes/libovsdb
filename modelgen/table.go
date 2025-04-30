@@ -207,6 +207,17 @@ const {{ index . "StructName" }}Table = "{{ index . "TableName" }}"
 {{ define "extraFields" }}{{ end }}
 {{ define "extraDefinitions" }}{{ end }}
 {{ define "postStructDefinitions" }}{{ end }}
+{{ define "columnDict" }}
+{{- if index . "WithColumnDict" }}
+// {{ index . "StructName" }}Columns represents the columns defined in the {{ index . "StructName" }} model.
+const (
+{{- $structName := index . "StructName" }}
+{{- range $field := index . "Fields" }}
+	{{ $structName }}Column{{ FieldName $field.Column }} = "{{ $field.Column }}"
+{{- end }}
+)
+{{- end }}
+{{- end }}
 {{ template "header" . }}
 {{ define "enums" }}
 {{ if index . "WithEnumTypes" }}
@@ -234,6 +245,7 @@ package {{ index . "PackageName" }}
 {{ template "preStructDefinitions" . }}
 {{ template "showTableName" . }}
 {{ template "enums" . }}
+{{ template "columnDict" . }}
 {{ template "structComment" . }}
 type {{ index . "StructName" }} struct {
 {{- $tableName := index . "TableName" }}
@@ -281,6 +293,12 @@ func (t TableTemplateData) WithExtendedGen(val bool) {
 	t["WithExtendedGen"] = val
 }
 
+// WithColumnDict configures whether the Template should generate column dict
+// or not (false by default)
+func (t TableTemplateData) WithColumnDict(val bool) {
+	t["WithColumnDict"] = val
+}
+
 // GetTableTemplateData returns the TableTemplateData map. It has the following
 // keys:
 //
@@ -318,6 +336,7 @@ func GetTableTemplateData(pkg, name string, table *ovsdb.TableSchema) TableTempl
 	data["Enums"] = Enums
 	data["WithEnumTypes"] = true
 	data["WithExtendedGen"] = false
+	data["WithColumnDict"] = false
 	return data
 }
 

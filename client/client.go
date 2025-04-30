@@ -62,6 +62,8 @@ type Client interface {
 	DisconnectNotify() chan struct{}
 	Echo(context.Context) error
 	Transact(context.Context, ...ovsdb.Operation) ([]ovsdb.OperationResult, error)
+	Select(ctx context.Context, dbName string, tableName string, where []ovsdb.Condition, columns []string) ([]ovsdb.Row, error)
+	SelectModels(ctx context.Context, m model.Model, result interface{}, conditions ...model.Condition) error
 	Monitor(context.Context, *Monitor) (MonitorCookie, error)
 	MonitorAll(context.Context) (MonitorCookie, error)
 	MonitorCancel(ctx context.Context, cookie MonitorCookie) error
@@ -1477,4 +1479,298 @@ func (o *ovsdbClient) WhereAll(m model.Model, conditions ...model.Condition) Con
 // WhereCache implements the API interface's WhereCache function
 func (o *ovsdbClient) WhereCache(predicate interface{}) ConditionalAPI {
 	return o.primaryDB().api.WhereCache(predicate)
+}
+
+// Select implements the Client interface's Select function.
+// It performs a select operation directly against the OVSDB server without relying on the local cache.
+func (o *ovsdbClient) Select(ctx context.Context, dbName string, tableName string, where []ovsdb.Condition, columns []string) ([]ovsdb.Row, error) {
+	selectOp := ovsdb.Operation{
+		Op:      ovsdb.OperationSelect,
+		Table:   tableName,
+		Where:   where,
+		Columns: columns,
+	}
+
+	results, err := o.transact(ctx, dbName, true, selectOp)
+	if err != nil {
+		return nil, fmt.Errorf("select transaction failed: %w", err)
+	}
+
+	if len(results) != 1 {
+		return nil, fmt.Errorf("unexpected number of results for select operation: got %d, expected 1", len(results))
+	}
+
+	result := results[0]
+	if result.Error != "" {
+		details := ""
+		if result.Details != "" {
+			details = ": " + result.Details
+		}
+		return nil, fmt.Errorf("select operation failed: %s%s", result.Error, details)
+	}
+
+	// RFC 7047 sec 5.2.2: result object contains "rows": [<row>*]
+	return result.Rows, nil
+}
+
+// SelectModels selects models from the primary database matching the provided conditions.
+// m is an instance of the model type being selected, used as context for resolving condition field pointers.
+// If conditions are provided, m must be a non-nil pointer to a struct.
+// result must be a non-nil pointer to a slice of model structs or pointers to model structs of the same type as m.
+// conditions are used to filter the results.
+func (o *ovsdbClient) SelectModels(ctx context.Context, m model.Model, result interface{}, conditions ...model.Condition) error {
+	// 1. Validate input result type and get element type
+	elemStructType, err := validateSelectModelsInput(result)
+	if err != nil {
+		return err
+	}
+
+	// Use the primary database for this operation
+	dbName := o.primaryDBName
+	db := o.databases[dbName]
+	if db == nil {
+		return fmt.Errorf("primary database '%s' not found in client configuration", dbName)
+	}
+
+	db.modelMutex.RLock()
+	defer db.modelMutex.RUnlock()
+
+	if !db.model.Valid() {
+		return fmt.Errorf("database model for '%s' is not valid (client may not be connected or schema mismatch)", dbName)
+	}
+
+	// 2. Get Target Table
+	tableName := db.model.FindTable(reflect.PointerTo(elemStructType))
+	if tableName == "" {
+		return fmt.Errorf("failed to find table name for type %s", elemStructType.String())
+	}
+
+	// 3. Convert Conditions
+	ovsdbConditions, err := buildOvsdbConditions(m, conditions, db.model, tableName, o.logger)
+	if err != nil {
+		return err // Error already formatted in helper
+	}
+
+	// 4. Determine Columns to Select (select all columns from the schema for the table)
+	tableSchemaForCols := db.model.Schema.Table(tableName)
+	if tableSchemaForCols == nil {
+		return fmt.Errorf("internal error: could not find table schema for %s to determine columns", tableName)
+	}
+	columnsToSelect := make([]string, 0, len(tableSchemaForCols.Columns)+1) // Increase capacity by 1
+	columnsToSelect = append(columnsToSelect, "_uuid")                      // Explicitly add _uuid
+	for colName := range tableSchemaForCols.Columns {
+		// Skip adding _uuid again if it somehow exists in the schema's explicit columns
+		if colName == "_uuid" {
+			continue
+		}
+		columnsToSelect = append(columnsToSelect, colName)
+	}
+
+	// 5. Build and Execute Select Operation
+	selectOp := ovsdb.Operation{
+		Op:      ovsdb.OperationSelect,
+		Table:   tableName,
+		Where:   ovsdbConditions,
+		Columns: columnsToSelect,
+	}
+
+	results, err := o.transact(ctx, dbName, true, selectOp)
+	if err != nil {
+		return fmt.Errorf("selectmodels transaction failed: %w", err)
+	}
+
+	// 6. Process Results
+	if len(results) != 1 {
+		return fmt.Errorf("unexpected number of results for selectmodels operation: got %d, expected 1", len(results))
+	}
+
+	opResult := results[0]
+	if opResult.Error != "" {
+		details := ""
+		if opResult.Details != "" {
+			details = ": " + opResult.Details
+		}
+		return fmt.Errorf("selectmodels operation failed: %s%s", opResult.Error, details)
+	}
+
+	// 7. Map Rows to Models
+	sliceVal := reflect.ValueOf(result).Elem() // We know result is ptr to slice from validation
+	modelType := sliceVal.Type().Elem()        // Original element type (struct or ptr)
+
+	err = mapResultsToSlice(opResult.Rows, sliceVal, modelType, elemStructType, db.model)
+	if err != nil {
+		return err // Error already formatted in helper
+	}
+
+	return nil
+}
+
+// validateSelectModelsInput validates the 'result' argument for SelectModels.
+// It ensures 'result' is a non-nil pointer to a slice whose elements are
+// structs or pointers to structs that implement model.Model.
+// It returns the underlying struct type of the slice elements.
+func validateSelectModelsInput(result interface{}) (reflect.Type, error) {
+	resultVal := reflect.ValueOf(result)
+	if resultVal.Kind() != reflect.Ptr || resultVal.IsNil() {
+		return nil, errors.New("result argument must be a non-nil pointer to a slice of models")
+	}
+	sliceVal := resultVal.Elem()
+	if sliceVal.Kind() != reflect.Slice {
+		return nil, errors.New("result argument must be a pointer to a slice of models")
+	}
+	modelType := sliceVal.Type().Elem() // Get the type of the slice elements
+
+	var elemStructType reflect.Type
+	if modelType.Kind() == reflect.Struct {
+		elemStructType = modelType
+	} else if modelType.Kind() == reflect.Ptr {
+		elemStructType = modelType.Elem()
+		if elemStructType.Kind() != reflect.Struct {
+			return nil, errors.New("result slice elements must be structs or pointers to structs")
+		}
+	} else {
+		return nil, errors.New("result slice elements must be structs or pointers to structs")
+	}
+
+	// Ensure element type implements model.Model
+	if !reflect.PointerTo(elemStructType).Implements(reflect.TypeOf((*model.Model)(nil)).Elem()) {
+		return nil, fmt.Errorf("result slice element type %s does not implement model.Model", elemStructType.String())
+	}
+	return elemStructType, nil
+}
+
+// buildOvsdbConditions converts model.Condition to ovsdb.Condition using the provided model instance 'm' for context.
+func buildOvsdbConditions(m model.Model, conditions []model.Condition, dbModel model.DatabaseModel, tableName string, logger *logr.Logger) ([]ovsdb.Condition, error) {
+	ovsdbConditions := make([]ovsdb.Condition, 0, len(conditions))
+	if len(conditions) == 0 {
+		return ovsdbConditions, nil
+	}
+
+	// Validate model instance m only if conditions are present
+	if m == nil {
+		return nil, fmt.Errorf("model instance m cannot be nil when conditions are provided")
+	}
+	mVal := reflect.ValueOf(m)
+	if mVal.Kind() != reflect.Ptr || mVal.IsNil() || mVal.Elem().Kind() != reflect.Struct {
+		return nil, fmt.Errorf("model instance m must be a non-nil pointer to a struct, got %T", m)
+	}
+	// Note: Type matching between m and result is implicitly handled by getColumnNameFromModelInstance
+
+	tableSchema := dbModel.Schema.Table(tableName)
+	if tableSchema == nil {
+		return nil, fmt.Errorf("internal error: could not find table schema for %s", tableName)
+	}
+
+	for i, mc := range conditions {
+		colName, err := getColumnNameFromModelInstance(m, mc.Field) // Use helper with m
+		if err != nil {
+			if logger != nil {
+				logger.Error(err, "Failed to map condition field pointer to column using model instance",
+					"modelType", reflect.TypeOf(m), "conditionFieldType", reflect.TypeOf(mc.Field), "conditionIndex", i)
+			}
+			return nil, fmt.Errorf("condition %d: failed to map field pointer using model instance: %w", i, err)
+		}
+
+		columnSchema := tableSchema.Column(colName)
+		if columnSchema == nil {
+			return nil, fmt.Errorf("condition %d: could not find column schema for '%s' in table '%s' using model instance context", i, colName, tableName)
+		}
+		ovsValue, err := ovsdb.NativeToOvs(columnSchema, mc.Value)
+		if err != nil {
+			return nil, fmt.Errorf("condition %d (column '%s'): failed to convert value: %w", i, colName, err)
+		}
+		ovsdbConditions = append(ovsdbConditions, ovsdb.Condition{
+			Column:   colName,
+			Function: mc.Function,
+			Value:    ovsValue,
+		})
+	}
+	return ovsdbConditions, nil
+}
+
+// mapResultsToSlice maps OVSDB rows to the target slice.
+func mapResultsToSlice(rows []ovsdb.Row, sliceVal reflect.Value, modelType reflect.Type, elemStructType reflect.Type, dbModel model.DatabaseModel) error {
+	numRows := len(rows)
+	newSlice := reflect.MakeSlice(sliceVal.Type(), numRows, numRows)
+
+	for i, row := range rows {
+		// Create a new element - always create a pointer first
+		newModelPtr := reflect.New(elemStructType)
+		newModelIntf := newModelPtr.Interface()
+
+		// We need ModelInfo based on the element's struct type for the mapper
+		rowModelInfo, err := dbModel.NewModelInfo(newModelIntf.(model.Model))
+		if err != nil {
+			return fmt.Errorf("failed to create model info for row %d type %s: %w", i, elemStructType.String(), err)
+		}
+
+		rowData := row // Capture row for the call
+		// GetRowData expects a pointer to the row map
+		if err := dbModel.Mapper.GetRowData(&rowData, rowModelInfo); err != nil {
+			return fmt.Errorf("failed to map row %d to model type %s: %w", i, elemStructType.String(), err)
+		}
+
+		// Assign the populated model to the slice
+		if modelType.Kind() == reflect.Ptr {
+			// Slice expects *modelType, assign the pointer we created
+			newSlice.Index(i).Set(newModelPtr)
+		} else {
+			// Slice expects modelType, assign the dereferenced pointer
+			newSlice.Index(i).Set(newModelPtr.Elem())
+		}
+	}
+
+	// Set Result Slice
+	sliceVal.Set(newSlice)
+	return nil
+}
+
+// Helper function to resolve field pointer to column name using a model instance
+func getColumnNameFromModelInstance(m model.Model, fieldPtr interface{}) (string, error) {
+	mVal := reflect.ValueOf(m)
+	// Ensure m is a non-nil pointer to a struct
+	if mVal.Kind() != reflect.Ptr || mVal.IsNil() || mVal.Elem().Kind() != reflect.Struct {
+		return "", fmt.Errorf("model instance m must be a non-nil pointer to a struct, got %T", m)
+	}
+
+	fieldPtrVal := reflect.ValueOf(fieldPtr)
+	if fieldPtrVal.Kind() != reflect.Ptr {
+		// Check if it's already a non-pointer type (should not happen with current model.Condition)
+		// For robustness, maybe handle this case, but strict check is safer now.
+		return "", ovsdb.NewErrWrongType("getColumnNameFromModelInstance", "pointer to a field in the model struct", fieldPtr)
+	}
+
+	// Calculate offset relative to the provided model instance's struct data
+	// Use UnsafeAddr for potentially unexported fields if necessary, but Pointer() should work for exported fields.
+	structAddr := mVal.Pointer()
+	fieldAddr := fieldPtrVal.Pointer()
+
+	// Ensure the field pointer points within the memory range of the model instance struct.
+	// This is a basic sanity check.
+	structSize := mVal.Elem().Type().Size()
+	if fieldAddr < structAddr || fieldAddr >= (structAddr+structSize) {
+		return "", fmt.Errorf("field pointer (0x%x) is outside the memory range (0x%x - 0x%x) of the model struct (%T)",
+			fieldAddr, structAddr, structAddr+structSize, m)
+	}
+
+	offset := fieldAddr - structAddr
+	modelType := mVal.Elem().Type() // Get the struct type
+
+	for j := 0; j < modelType.NumField(); j++ {
+		field := modelType.Field(j)
+		if field.Offset == uintptr(offset) { // Compare offset
+			columnTag := field.Tag.Get("ovsdb")
+			if columnTag == "" || columnTag == "-" {
+				// Pointer corresponds to a field, but it's not mapped to OVSDB or ignored.
+				// Return a specific error for this case.
+				return "", fmt.Errorf("field pointer (offset %d, name %s) corresponds to a field without a valid 'ovsdb' tag in model struct %s", offset, field.Name, modelType.Name())
+			}
+			// Found the field with matching offset and a valid tag
+			return columnTag, nil
+		}
+	}
+
+	// If the loop finishes, no field with the exact offset was found.
+	// This could happen if the pointer is to embedded struct, padding, or is invalid.
+	return "", fmt.Errorf("field pointer (offset %d) does not correspond to any mapped field in model struct %s", offset, modelType.Name())
 }

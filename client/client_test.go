@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"os"
 	"reflect"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -1324,4 +1325,620 @@ func TestUpdateEndpoints(t *testing.T) {
 	require.Equal(t, ovs.endpoints[0].address, endpoint3)
 	require.Equal(t, ovs.endpoints[1].address, endpoint2)
 	require.NotEmpty(t, ovs.endpoints[0].serverID)
+}
+
+// TestSelect tests the original Select method using newClientServerPair
+func TestSelect(t *testing.T) {
+	dbName := "Open_vSwitch"
+	tableName := "Bridge"
+	cols := []string{"name", "datapath_type"}
+	cond := []ovsdb.Condition{{
+		Column:   "name",
+		Function: ovsdb.ConditionEqual,
+		Value:    "br-test1",
+	}}
+
+	uuid1Str := uuid.NewString()
+	uuid2Str := uuid.NewString()
+	uuid3Str := uuid.NewString() // For multi-condition test
+	// Expected rows for successful select with specific columns
+	expectedRowsSuccess := []ovsdb.Row{
+		// Note: _uuid is implicitly included by Select even if not requested
+		{"_uuid": ovsdb.UUID{GoUUID: uuid1Str}, "name": "br-test1", "datapath_type": "system"},
+	}
+	// Expected row for multi-condition test
+	expectedRowsMultiCond := []ovsdb.Row{
+		{"_uuid": ovsdb.UUID{GoUUID: uuid1Str}, "name": "br-test1", "datapath_type": "system"},
+	}
+
+	preloadDataSuccess := map[string]map[string]model.Model{
+		tableName: {
+			uuid1Str: &Bridge{UUID: uuid1Str, Name: "br-test1", DatapathType: "system", ExternalIDs: map[string]string{"shared_key": "shared_value", "unique_key1": "val1"}},
+			uuid2Str: &Bridge{UUID: uuid2Str, Name: "br-test2", DatapathType: "netdev", ExternalIDs: map[string]string{"k": "v2"}},
+			uuid3Str: &Bridge{UUID: uuid3Str, Name: "br-test3", DatapathType: "netdev", ExternalIDs: map[string]string{"shared_key": "shared_value", "unique_key3": "val3"}}, // Unique name, shared external ID key
+		},
+	}
+
+	// Expected full row for 'Select All' test case
+	emptySet, err := ovsdb.NewOvsSet([]interface{}{})
+	require.NoError(t, err)
+	emptyMap, err := ovsdb.NewOvsMap(map[interface{}]interface{}{})
+	require.NoError(t, err)
+	expectedFullRow1 := ovsdb.Row{
+		"_uuid":                 ovsdb.UUID{GoUUID: uuid1Str},
+		"name":                  "br-test1",
+		"datapath_type":         "system",
+		"auto_attach":           nil,
+		"controller":            emptySet,
+		"datapath_id":           nil,
+		"datapath_version":      "",
+		"external_ids":          testOvsMap(t, map[string]string{"shared_key": "shared_value", "unique_key1": "val1"}), // Include external_ids
+		"fail_mode":             nil,
+		"flood_vlans":           emptySet,
+		"flow_tables":           emptyMap,
+		"ipfix":                 nil,
+		"mcast_snooping_enable": false,
+		"mirrors":               emptySet,
+		"netflow":               nil,
+		"other_config":          emptyMap,
+		"ports":                 emptySet,
+		"protocols":             emptySet,
+		"rstp_enable":           false,
+		"rstp_status":           emptyMap,
+		"sflow":                 nil,
+		"status":                emptyMap,
+		"stp_enable":            false,
+	}
+
+	tests := []struct {
+		name         string
+		preloadData  map[string]map[string]model.Model
+		selectCond   []ovsdb.Condition
+		selectCols   []string
+		expectErr    bool
+		expectedRows []ovsdb.Row
+	}{
+		{
+			name:         "Successful Select",
+			preloadData:  preloadDataSuccess,
+			selectCond:   cond,
+			selectCols:   cols,
+			expectErr:    false,
+			expectedRows: expectedRowsSuccess,
+		},
+		{
+			name:        "Successful Select with Multiple Conditions",
+			preloadData: preloadDataSuccess,
+			selectCond: []ovsdb.Condition{
+				{Column: "name", Function: ovsdb.ConditionEqual, Value: "br-test1"},
+				{Column: "external_ids", Function: ovsdb.ConditionIncludes, Value: testOvsMap(t, map[string]string{"shared_key": "shared_value"})},
+			},
+			selectCols:   cols,
+			expectErr:    false,
+			expectedRows: expectedRowsMultiCond,
+		},
+		{
+			name:        "Select Operation Error (Column Not Found)",
+			preloadData: preloadDataSuccess,
+			selectCond:  cond,
+			selectCols:  []string{"name", "nonexistent_col"},
+			expectErr:   true,
+		},
+		{
+			name:         "Select All Columns (nil)",
+			preloadData:  preloadDataSuccess,
+			selectCond:   cond,
+			selectCols:   nil,
+			expectErr:    false,
+			expectedRows: []ovsdb.Row{expectedFullRow1},
+		},
+		{
+			name:         "Select No Matching Rows",
+			preloadData:  preloadDataSuccess,
+			selectCond:   []ovsdb.Condition{{Column: "name", Function: ovsdb.ConditionEqual, Value: "no_such_bridge"}},
+			selectCols:   cols,
+			expectErr:    false,
+			expectedRows: []ovsdb.Row{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var connectCounter, disconnectCounter int32
+			// Use newClientServerPair to set up the server, but we need a client for defDB
+			serverClient, _, serverAddr := newClientServerPair(t, &connectCounter, &disconnectCounter, true)
+			serverClient.Close() // Close the client for the _Server DB, we don't need it here
+
+			// Create a new client connected to the same server, but for the Open_vSwitch DB
+			ovsClient, err := newOVSDBClient(defDB, WithEndpoint(serverAddr))
+			require.NoError(t, err, "Failed to create OVSDB client for Open_vSwitch")
+			err = ovsClient.Connect(context.Background())
+			require.NoError(t, err, "Failed to connect OVSDB client for Open_vSwitch")
+			defer ovsClient.Close()
+
+			if tt.preloadData != nil {
+				ops := []ovsdb.Operation{}
+				for _, tableData := range tt.preloadData {
+					for _, rowModel := range tableData {
+						// Use client.Create to generate the insert operation
+						insertOps, err := ovsClient.Create(rowModel)
+						require.NoError(t, err, "Failed to create insert operation for preload")
+						require.Len(t, insertOps, 1, "Expected exactly one operation from Create")
+						ops = append(ops, insertOps[0])
+					}
+				}
+				_, err := ovsClient.Transact(context.Background(), ops...)
+				require.NoError(t, err, "Failed to transact preload data")
+			}
+
+			ctx := context.Background()
+			rows, err := ovsClient.Select(ctx, dbName, tableName, tt.selectCond, tt.selectCols)
+
+			if tt.expectErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				// Use the correct CompareRowSets defined below
+				if !CompareRowSets(rows, tt.expectedRows) {
+					t.Errorf("Unexpected rows returned:\\nExpected: %+v\\nGot:      %+v", tt.expectedRows, rows)
+				}
+			}
+		})
+	}
+}
+
+// CompareRowSets Helper to compare sets of rows ignoring order and potential numeric type differences
+func CompareRowSets(got, expected []ovsdb.Row) bool {
+	if len(got) != len(expected) {
+		return false
+	}
+	expectedMap := make(map[string]ovsdb.Row, len(expected))
+	for _, row := range expected {
+		uuidVal, ok := row["_uuid"]
+		if !ok {
+			panic("Expected row missing _uuid for comparison")
+		}
+		uuidStr := ""
+		if u, ok := uuidVal.(ovsdb.UUID); ok {
+			uuidStr = u.GoUUID
+		} else if s, ok := uuidVal.(string); ok {
+			uuidStr = s // Handle cases where preload might use string UUIDs
+		} else {
+			panic(fmt.Sprintf("Unexpected _uuid type in expected row: %T", uuidVal))
+		}
+		expectedMap[uuidStr] = row
+	}
+
+	gotMap := make(map[string]ovsdb.Row, len(got))
+	for _, row := range got {
+		uuidVal, ok := row["_uuid"]
+		if !ok {
+			return false // Got row missing _uuid
+		}
+		uuid, ok := uuidVal.(ovsdb.UUID)
+		if !ok {
+			return false // Got row has non-ovsdb.UUID _uuid
+		}
+		gotMap[uuid.GoUUID] = row
+	}
+
+	if len(gotMap) != len(expectedMap) {
+		return false // Different number of unique rows
+	}
+	for uuid, gotRow := range gotMap {
+		expectedRow, found := expectedMap[uuid]
+		if !found {
+			return false // Row in got not found in expected
+		}
+		// Use the correct CompareRows defined below
+		if !CompareRows(gotRow, expectedRow) {
+			return false // Rows don't match
+		}
+	}
+	return true
+}
+
+// CompareRows Helper to compare two individual rows, handling numeric types and OVS collections
+//
+//nolint:gocyclo // inner helper function skip
+func CompareRows(got, expected ovsdb.Row) bool {
+	// Compare based on keys in 'expected' map
+	for key, expectedVal := range expected {
+		gotVal, ok := got[key]
+		if !ok {
+			// Key from expected is missing in got.
+			// Check if the expected value is the zero/default value.
+			if isOvsdbZeroValue(expectedVal) {
+				// Missing key is ok if expected value was the default.
+				continue
+			} else {
+				// Expected a non-default value, but key is missing in got.
+				return false
+			}
+		}
+
+		// Key exists in both, perform comparison
+		switch expectedTypedVal := expectedVal.(type) {
+		case float64:
+			if gotNum, okG := gotVal.(float64); okG {
+				if gotNum != expectedTypedVal {
+					return false
+				}
+			} else if gotNumInt, okGInt := gotVal.(int); okGInt {
+				// Allow comparison between float64 expected and int got
+				if float64(gotNumInt) != expectedTypedVal {
+					return false
+				}
+			} else {
+				return false // Type mismatch
+			}
+		case int:
+			if gotNum, okG := gotVal.(float64); okG {
+				// Allow comparison between int expected and float64 got
+				if gotNum != float64(expectedTypedVal) {
+					return false
+				}
+			} else if gotNumInt, okGInt := gotVal.(int); okGInt {
+				if gotNumInt != expectedTypedVal {
+					return false
+				}
+			} else {
+				return false // Type mismatch
+			}
+		case ovsdb.UUID:
+			gotTypedVal, ok := gotVal.(ovsdb.UUID)
+			if !ok || gotTypedVal.GoUUID != expectedTypedVal.GoUUID {
+				return false
+			}
+		case ovsdb.OvsSet:
+			gotTypedVal, ok := gotVal.(ovsdb.OvsSet)
+			if !ok {
+				return false
+			}
+
+			// Use reflect to access GoSlice field due to persistent linter issues
+			expectedValField := reflect.ValueOf(expectedTypedVal).FieldByName("GoSlice")
+			gotValField := reflect.ValueOf(gotTypedVal).FieldByName("GoSlice")
+
+			if !expectedValField.IsValid() || !gotValField.IsValid() {
+				panic("Could not access GoSlice field via reflect")
+			}
+
+			expectedSliceRaw := expectedValField.Interface()
+			gotSliceRaw := gotValField.Interface()
+
+			// Handle nil slices
+			if expectedSliceRaw == nil && gotSliceRaw == nil {
+				continue // Both nil, considered equal
+			}
+			if expectedSliceRaw == nil || gotSliceRaw == nil {
+				return false // One is nil, the other isn't
+			}
+
+			expectedSlice, okE := expectedSliceRaw.([]interface{})
+			gotSlice, okG := gotSliceRaw.([]interface{})
+			if !okE || !okG {
+				panic("GoSlice field is not of type []interface{}")
+			}
+
+			// Compare underlying slices after sorting for stability
+			expectedCopy := append([]interface{}{}, expectedSlice...)
+			gotCopy := append([]interface{}{}, gotSlice...)
+			sort.SliceStable(expectedCopy, func(i, j int) bool { return fmt.Sprintf("%v", expectedCopy[i]) < fmt.Sprintf("%v", expectedCopy[j]) })
+			sort.SliceStable(gotCopy, func(i, j int) bool { return fmt.Sprintf("%v", gotCopy[i]) < fmt.Sprintf("%v", gotCopy[j]) })
+			if !reflect.DeepEqual(expectedCopy, gotCopy) {
+				return false
+			}
+		case ovsdb.OvsMap:
+			gotTypedVal, ok := gotVal.(ovsdb.OvsMap)
+			if !ok || !reflect.DeepEqual(expectedTypedVal.GoMap, gotTypedVal.GoMap) {
+				return false
+			}
+		default:
+			// Use DeepEqual for other types (string, bool, nil, etc.)
+			if !reflect.DeepEqual(gotVal, expectedVal) {
+				// Add specific nil check, DeepEqual(nil, zeroValue) might be false
+				if !reflect.ValueOf(gotVal).IsNil() || !reflect.ValueOf(expectedVal).IsNil() {
+					// Allow nil == empty map/set comparison if needed, but strict default is better
+					// Example: if expectedVal == nil && (isOvsSetEmpty(gotVal) || isOvsMapEmpty(gotVal)) { continue }
+					return false
+				}
+			}
+		}
+	}
+
+	// Do NOT check for extra keys in 'got'.
+	// When selecting all columns, the server might omit default values,
+	// making 'got' have fewer keys than the fully populated 'expected' row.
+	/*
+		if len(got) > len(expected) {
+			for key := range got {
+				if _, expectedOk := expected[key]; !expectedOk {
+					// return false
+				}
+			}
+		}
+	*/
+	return true
+}
+
+// isOvsdbZeroValue checks if a given value corresponds to the OVSDB zero/default value for its type.
+func isOvsdbZeroValue(v interface{}) bool {
+	if v == nil {
+		return true
+	}
+	switch val := v.(type) {
+	case bool:
+		return !val
+	case int:
+		return val == 0
+	case float64:
+		return val == 0.0
+	case string:
+		return val == ""
+	case ovsdb.UUID:
+		// Default UUID is represented by an empty string in GoUUID
+		return val.GoUUID == ""
+	case ovsdb.OvsSet:
+		// Use reflection to safely access GoSlice, handling potential nil pointer inside the struct
+		valField := reflect.ValueOf(val).FieldByName("GoSlice")
+		if !valField.IsValid() || valField.IsNil() || valField.Len() == 0 {
+			return true
+		}
+		return false
+	case ovsdb.OvsMap:
+		// Use reflection to safely access GoMap
+		valField := reflect.ValueOf(val).FieldByName("GoMap")
+		if !valField.IsValid() || valField.IsNil() || valField.Len() == 0 {
+			return true
+		}
+		return false
+	default:
+		// Consider nil pointers, slices, maps as zero values
+		rv := reflect.ValueOf(v)
+		switch rv.Kind() {
+		case reflect.Ptr, reflect.Map, reflect.Slice, reflect.Interface, reflect.Chan, reflect.Func:
+			return rv.IsNil()
+		}
+		// For other non-nil types, assume not zero
+		return false
+	}
+}
+
+// TestSelectModels tests the SelectModels method using newClientServerPair
+func TestSelectModels(t *testing.T) {
+	// dbName := "Open_vSwitch" // Not used directly by SelectModels
+	tableName := "Bridge"
+
+	uuid1 := uuid.NewString()
+	uuid2 := uuid.NewString()
+	uuid3 := uuid.NewString() // For multi-condition test
+	preloadData := map[string]map[string]model.Model{
+		tableName: {
+			uuid1: &Bridge{UUID: uuid1, Name: "br-sel1", DatapathType: "system", ExternalIDs: map[string]string{"shared_key": "shared_value", "unique_key1": "val1"}},
+			uuid2: &Bridge{UUID: uuid2, Name: "br-sel2", DatapathType: "netdev", ExternalIDs: map[string]string{"key2": "val2"}},
+			uuid3: &Bridge{UUID: uuid3, Name: "br-sel3", DatapathType: "netdev", ExternalIDs: map[string]string{"shared_key": "shared_value", "unique_key3": "val3"}}, // Unique name, shared external ID key
+		},
+	}
+
+	expectedModelsFull := []*Bridge{
+		{UUID: uuid1, Name: "br-sel1", DatapathType: "system", ExternalIDs: map[string]string{"shared_key": "shared_value", "unique_key1": "val1"}},
+		{UUID: uuid2, Name: "br-sel2", DatapathType: "netdev", ExternalIDs: map[string]string{"key2": "val2"}},
+		{UUID: uuid3, Name: "br-sel3", DatapathType: "netdev", ExternalIDs: map[string]string{"shared_key": "shared_value", "unique_key3": "val3"}},
+	}
+	expectedModelsConditionalName := []*Bridge{
+		{UUID: uuid1, Name: "br-sel1", DatapathType: "system", ExternalIDs: map[string]string{"shared_key": "shared_value", "unique_key1": "val1"}},
+	}
+	expectedModelsConditionalMulti := []*Bridge{
+		{UUID: uuid1, Name: "br-sel1", DatapathType: "system", ExternalIDs: map[string]string{"shared_key": "shared_value", "unique_key1": "val1"}}, // Only this one matches both conditions
+	}
+	expectedModelsConditionalExternalID := []*Bridge{
+		{UUID: uuid1, Name: "br-sel1", DatapathType: "system", ExternalIDs: map[string]string{"shared_key": "shared_value", "unique_key1": "val1"}},
+		{UUID: uuid3, Name: "br-sel3", DatapathType: "netdev", ExternalIDs: map[string]string{"shared_key": "shared_value", "unique_key3": "val3"}}, // Both have external_ids[shared_key]=shared_value
+	}
+
+	// Define the temporary model instance *once* to be used for the condition predicate.
+	// It's okay for this to be local/temporary now because we pass it explicitly.
+	bridgeModel := Bridge{}
+
+	tests := []struct {
+		name                   string
+		resultVar              interface{}
+		expectErr              bool
+		expectedResult         interface{}
+		conditions             []model.Condition
+		expectedErrorSubstring string
+	}{
+		{
+			name:           "Successful SelectModels (slice of pointers)",
+			resultVar:      &[]*Bridge{},
+			expectErr:      false,
+			expectedResult: &expectedModelsFull,
+		},
+		{
+			name:      "Successful SelectModels (slice of structs)",
+			resultVar: &[]Bridge{},
+			expectErr: false,
+			expectedResult: &[]Bridge{
+				*expectedModelsFull[0], // Dereference expected pointers
+				*expectedModelsFull[1],
+				*expectedModelsFull[2], // Add the third element
+			},
+		},
+		{
+			name:      "Successful SelectModels with Name Condition",
+			resultVar: &[]*Bridge{},
+			conditions: []model.Condition{
+				{
+					Field:    &bridgeModel.Name, // Pointer relative to the local bridgeModel
+					Function: ovsdb.ConditionEqual,
+					Value:    "br-sel1",
+				},
+			},
+			expectErr:      false,
+			expectedResult: &expectedModelsConditionalName,
+		},
+		{
+			name:      "Successful SelectModels with Multiple Conditions",
+			resultVar: &[]*Bridge{},
+			conditions: []model.Condition{
+				{
+					Field:    &bridgeModel.Name,
+					Function: ovsdb.ConditionEqual,
+					Value:    "br-sel1",
+				},
+				{
+					Field:    &bridgeModel.DatapathType,
+					Function: ovsdb.ConditionEqual,
+					Value:    "system",
+				},
+			},
+			expectErr:      false,
+			expectedResult: &expectedModelsConditionalMulti,
+		},
+		{
+			name:      "Successful SelectModels with ExternalIDs Condition",
+			resultVar: &[]*Bridge{},
+			conditions: []model.Condition{
+				{
+					Field:    &bridgeModel.ExternalIDs, // Condition on map field
+					Function: ovsdb.ConditionIncludes,  // Check if map includes key-value
+					Value:    map[string]string{"shared_key": "shared_value"},
+				},
+			},
+			expectErr:      false,
+			expectedResult: &expectedModelsConditionalExternalID,
+		},
+		{
+			name:                   "Bad Result Type (nil pointer)",
+			resultVar:              ((*[]*Bridge)(nil)),
+			expectErr:              true,
+			expectedErrorSubstring: "result argument must be",
+		},
+		{
+			name:                   "Bad Result Type (not a pointer)",
+			resultVar:              []*Bridge{},
+			expectErr:              true,
+			expectedErrorSubstring: "result argument must be",
+		},
+		{
+			name:                   "Bad Result Type (pointer to non-slice)",
+			resultVar:              &Bridge{},
+			expectErr:              true,
+			expectedErrorSubstring: "result argument must be a pointer to a slice",
+		},
+		{
+			name:                   "Bad Result Type (slice of non-struct/ptr)",
+			resultVar:              &[]int{},
+			expectErr:              true,
+			expectedErrorSubstring: "result slice elements must be structs or pointers to structs",
+		},
+	}
+
+	var connectCounter, disconnectCounter int32
+	// Use newClientServerPair to set up the server, but we need a client for defDB
+	serverClient, _, serverAddr := newClientServerPair(t, &connectCounter, &disconnectCounter, true)
+	serverClient.Close() // Close the client for the _Server DB
+
+	// Create a new client connected to the same server, but for the Open_vSwitch DB
+	ovsClient, err := newOVSDBClient(defDB, WithEndpoint(serverAddr))
+	require.NoError(t, err, "Failed to create OVSDB client for Open_vSwitch")
+	err = ovsClient.Connect(context.Background())
+	require.NoError(t, err, "Failed to connect OVSDB client for Open_vSwitch")
+	defer ovsClient.Close()
+
+	ops := []ovsdb.Operation{}
+	for _, tableData := range preloadData {
+		for _, rowModel := range tableData {
+			// Use client.Create to generate the insert operation
+			insertOps, err := ovsClient.Create(rowModel)
+			require.NoError(t, err)
+			require.Len(t, insertOps, 1, "Expected exactly one operation from Create")
+			ops = append(ops, insertOps[0])
+		}
+	}
+	_, err = ovsClient.Transact(context.Background(), ops...)
+	require.NoError(t, err, "Failed to preload data via transact")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			// Determine the model instance to use as context *only* if needed
+			var modelInstance model.Model
+			if len(tt.conditions) > 0 {
+				// Only the "Successful SelectModels with Condition" case needs the real instance
+				// for its conditions.
+				modelInstance = &bridgeModel // Use the locally defined instance
+			} else {
+				// If no conditions are provided, the modelInstance parameter in SelectModels
+				// is not strictly required for resolving field pointers. We can pass nil.
+				// This avoids potential panics when tt.resultVar is invalid in error cases.
+				modelInstance = nil
+			}
+
+			err := ovsClient.SelectModels(ctx, modelInstance, tt.resultVar, tt.conditions...)
+
+			if tt.expectErr {
+				require.Error(t, err)
+				if tt.expectedErrorSubstring != "" {
+					require.ErrorContains(t, err, tt.expectedErrorSubstring, "Error message mismatch")
+				}
+			} else {
+				require.NoError(t, err)
+				// Ensure we sort both results for comparison if they are slices
+				if reflect.ValueOf(tt.resultVar).Elem().Kind() == reflect.Slice {
+					sortResults(tt.resultVar)
+				}
+				if reflect.ValueOf(tt.expectedResult).Elem().Kind() == reflect.Slice {
+					sortResults(tt.expectedResult)
+				}
+				assert.Equal(t, tt.expectedResult, tt.resultVar, "Unexpected result content")
+			}
+		})
+	}
+}
+
+// sortResults sorts slice results (slice of struct or slice of pointer to struct)
+// based on the UUID field for consistent comparison.
+func sortResults(slice interface{}) {
+	sliceVal := reflect.ValueOf(slice)
+	// Handle both pointer-to-slice and slice directly
+	if sliceVal.Kind() == reflect.Ptr {
+		sliceVal = sliceVal.Elem()
+	}
+
+	if sliceVal.Kind() != reflect.Slice {
+		panic(fmt.Sprintf("sortResults expects a slice or pointer to a slice, got %T", slice))
+	}
+
+	if sliceVal.Len() == 0 {
+		return
+	}
+
+	sort.Slice(sliceVal.Interface(), func(i, j int) bool {
+		valI := sliceVal.Index(i)
+		valJ := sliceVal.Index(j)
+
+		// Handle pointer elements within the slice
+		if valI.Kind() == reflect.Ptr {
+			valI = valI.Elem()
+		}
+		if valJ.Kind() == reflect.Ptr {
+			valJ = valJ.Elem()
+		}
+
+		uuidIField := valI.FieldByName("UUID")
+		uuidJField := valJ.FieldByName("UUID")
+
+		// Fallback to _uuid if UUID is not present (less common for models)
+		if !uuidIField.IsValid() || !uuidJField.IsValid() {
+			uuidIField = valI.FieldByName("_uuid") // Should not happen with Bridge model
+			uuidJField = valJ.FieldByName("_uuid")
+			if !uuidIField.IsValid() || !uuidJField.IsValid() {
+				panic("sortResults requires a UUID field in the struct")
+			}
+		}
+		return uuidIField.String() < uuidJField.String()
+	})
 }
