@@ -81,6 +81,12 @@ type ConditionalAPI interface {
 	// Wait returns the operations needed to perform the wait specified
 	// by the until condition, timeout, row and columns based on provided parameters.
 	Wait(ovsdb.WaitCondition, *int, model.Model, ...any) ([]ovsdb.Operation, error)
+
+	// Select generates the OVSDB select operation based on the condition.
+	// It determines the target table and columns from the condition context.
+	// Returns an error if the condition was built using WhereAny or WhereCache.
+	// Specific columns can be provided, otherwise all columns will be selected.
+	Select(columns ...string) ([]ovsdb.Operation, error)
 }
 
 // ErrWrongType is used to report the user provided parameter has the wrong type
@@ -222,7 +228,23 @@ func (a api) conditionFromModels(models []model.Model) Conditional {
 	if tableName == "" {
 		return newErrorConditional(err)
 	}
-	conditional, err := newEqualityConditional(tableName, a.cache, models)
+
+	// Check if it's potentially a "select all" call: single zero-value model
+	isSelectAll := false
+	if len(models) == 1 {
+		modelVal := reflect.ValueOf(models[0])
+		// Check if the underlying element (if pointer) or the value itself is zero
+		if modelVal.Kind() == reflect.Ptr {
+			if !modelVal.IsNil() && modelVal.Elem().IsZero() {
+				isSelectAll = true
+			}
+		} else if modelVal.IsZero() {
+			// Handle non-pointer struct case if models can be non-pointers
+			isSelectAll = true
+		}
+	}
+
+	conditional, err := newEqualityConditional(tableName, a.cache, models, isSelectAll)
 	if err != nil {
 		return newErrorConditional(err)
 	}
@@ -590,4 +612,99 @@ func newConditionalAPI(cache *cache.TableCache, cond Conditional, logger *logr.L
 		cond:   cond,
 		logger: logger,
 	}
+}
+
+// Select generates the OVSDB select operation based on the conditions previously set
+// using Where, WhereAll, or WhereCache.
+// It determines the target table and columns from the condition context.
+// Returns an error if called after WhereAny, as OVSDB select only supports
+// a single set of ANDed conditions.
+func (a api) Select(columns ...string) ([]ovsdb.Operation, error) {
+	// Select now requires a condition to be set via WhereXxx first.
+	if a.cond == nil {
+		return nil, fmt.Errorf("Select called on API with no condition set (use Where or WhereAll first)")
+	}
+
+	if _, ok := a.cond.(*predicateConditional); ok {
+		// Prevent select based on cache predicate function which cannot be translated
+		return nil, fmt.Errorf("cannot generate OVSDB select operation from a cache predicate function (WhereCache)")
+	} else if a.cond.IsDisjunction() { // Check if condition is OR (from WhereAny)
+		return nil, fmt.Errorf("Select cannot be used with WhereAny conditions, use separate Select calls or Transact")
+	}
+
+	// Get table name directly from the condition
+	tableName := a.cond.Table()
+	if tableName == "" {
+		// This might happen with errorConditional or uninitialized conditions
+		return nil, fmt.Errorf("cannot determine table name from the condition for Select")
+	}
+
+	ovsdbConditionsList, err := a.cond.Generate()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate conditions for select: %w", err)
+	}
+
+	// OVSDB Select only supports one set of conditions (implicitly ANDed).
+	// The IsDisjunction check above handles WhereAny. This check is a safeguard
+	// in case a future Conditional type could generate multiple lists without
+	// being a disjunction.
+	if len(ovsdbConditionsList) > 1 {
+		return nil, fmt.Errorf("internal error: condition generated multiple condition lists unexpectedly for Select")
+	}
+
+	var whereClause []ovsdb.Condition
+	if len(ovsdbConditionsList) == 1 {
+		whereClause = ovsdbConditionsList[0]
+	} else {
+		// No conditions specified or generated, select all rows
+		whereClause = []ovsdb.Condition{}
+	}
+
+	// Determine columns to select
+	if a.cache == nil || !a.cache.DatabaseModel().Valid() {
+		return nil, fmt.Errorf("database model/schema info not available for select")
+	}
+	dbModel := a.cache.DatabaseModel()
+	tableSchema := dbModel.Schema.Table(tableName)
+	if tableSchema == nil {
+		return nil, fmt.Errorf("internal error: could not find table schema for %s to determine columns", tableName)
+	}
+	var columnsToSelect []string
+	if len(columns) == 0 {
+		// Default to all columns
+		columnsToSelect = make([]string, 0, len(tableSchema.Columns)+1)
+		columnsToSelect = append(columnsToSelect, "_uuid") // Always include UUID
+		for colName := range tableSchema.Columns {
+			if colName != "_uuid" { // Avoid adding twice if explicitly in schema
+				columnsToSelect = append(columnsToSelect, colName)
+			}
+		}
+	} else {
+		// Use user-provided columns, with validation
+		columnSet := make(map[string]struct{}, len(columns)+1)
+		columnsToSelect = make([]string, 0, len(columns)+1)
+
+		// Always include _uuid for model identification
+		columnsToSelect = append(columnsToSelect, "_uuid")
+		columnSet["_uuid"] = struct{}{}
+
+		for _, col := range columns {
+			if _, ok := tableSchema.Columns[col]; !ok && col != "_uuid" {
+				return nil, fmt.Errorf("column '%s' not found in table '%s'", col, tableName)
+			}
+			if _, ok := columnSet[col]; !ok {
+				columnsToSelect = append(columnsToSelect, col)
+				columnSet[col] = struct{}{}
+			}
+		}
+	}
+
+	selectOp := ovsdb.Operation{
+		Op:      ovsdb.OperationSelect,
+		Table:   tableName,
+		Where:   whereClause,
+		Columns: columnsToSelect,
+	}
+
+	return []ovsdb.Operation{selectOp}, nil
 }
