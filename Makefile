@@ -1,5 +1,7 @@
 OVS_VERSION ?= v2.16.0
 
+TESTS ?=
+
 .PHONY: all
 all: lint build test integration-test coverage
 
@@ -14,19 +16,19 @@ prebuild: modelgen ovsdb/serverdb/_server.ovsschema example/vswitchd/ovs.ovssche
 	@go generate -v ./...
 
 .PHONY: build
-build: prebuild 
+build: prebuild
 	@echo "+ $@"
 	@go build -v ./...
 
 .PHONY: test
 test: prebuild
 	@echo "+ $@"
-	@go test -race -coverprofile=unit.cov -test.short -timeout 30s -v ./...
+	@go test -race -coverprofile=unit.cov -test.short -timeout 30s -v $(if $(TESTS),-run $(TESTS)) ./...
 
 .PHONY: integration-test
 integration-test:
 	@echo "+ $@"
-	@go test -race -coverprofile=integration.cov -coverpkg=github.com/ovn-org/libovsdb/... -timeout 60s -v ./test/ovs
+	@go test -race -coverprofile=integration.cov -coverpkg=github.com/ovn-org/libovsdb/... -timeout 60s -v $(if $(TESTS),-run $(TESTS)) ./test/ovs
 
 .PHONY: coverage
 coverage: test integration-test
