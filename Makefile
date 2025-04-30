@@ -44,7 +44,7 @@ bench: install-deps prebuild
 .PHONY: install-deps
 install-deps:
 	@echo "+ $@"
-	@go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.49.0
+	@go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.1.5
 	@golangci-lint --version
 	@go install golang.org/x/perf/cmd/benchstat@latest
 
