@@ -931,10 +931,10 @@ func (o *ovsdbClient) monitor(ctx context.Context, cookie MonitorCookie, reconne
 		for _, err := range monitor.Errors {
 			errString = append(errString, err.Error())
 		}
-		return fmt.Errorf(strings.Join(errString, ". "))
+		return errors.New(strings.Join(errString, ". "))
 	}
 	if len(monitor.Tables) == 0 {
-		return fmt.Errorf("at least one table should be monitored")
+		return errors.New("at least one table should be monitored")
 	}
 	dbName := cookie.DatabaseName
 	db := o.databases[dbName]

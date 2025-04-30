@@ -1367,7 +1367,7 @@ func (suite *OVSIntegrationSuite) TestMultipleOpsSameRow() {
 }
 
 func (suite *OVSIntegrationSuite) TestReferentialIntegrity() {
-	t := suite.Suite.T()
+	t := suite.T()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 

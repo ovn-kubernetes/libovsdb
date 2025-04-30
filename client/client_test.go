@@ -1135,7 +1135,6 @@ loop1:
 }
 
 func TestClientReconnectLeaderOnly(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 
 	var connected1, connected2, disConnected1, disConnected2 int32
 	cli1, row1, endpoint1 := newClientServerPair(t, &connected1, &disConnected1, true)
@@ -1261,7 +1260,6 @@ func TestNewMonitorRequest(t *testing.T) {
 }
 
 func TestUpdateEndpoints(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 
 	var connected1, connected2, connected3, disConnected1, disConnected2, disConnected3 int32
 	_, _, endpoint1 := newClientServerPair(t, &connected1, &disConnected1, true)

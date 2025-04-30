@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"go/format"
-	"io/ioutil"
 	"log"
+	"os"
 	"text/template"
 )
 
@@ -47,11 +47,11 @@ func (g *generator) Generate(filename string, tmpl *template.Template, args inte
 		fmt.Print("\n")
 		return nil
 	}
-	content, err := ioutil.ReadFile(filename)
+	content, err := os.ReadFile(filename)
 	if err == nil && bytes.Equal(content, src) {
 		return nil
 	}
-	return ioutil.WriteFile(filename, src, 0644)
+	return os.WriteFile(filename, src, 0644)
 }
 
 // NewGenerator returns a new Generator
