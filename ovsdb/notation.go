@@ -43,6 +43,10 @@ type Operation struct {
 	Lock      *string     `json:"lock,omitempty"`
 	UUID      string      `json:"uuid,omitempty"`
 	UUIDName  string      `json:"uuid-name,omitempty"`
+
+	// CorrelationID is a client-side mechanism to correlate a set of operations
+	// with their results. It is not serialized.
+	CorrelationID string `json:"-"`
 }
 
 // MarshalJSON marshalls 'Operation' to a byte array

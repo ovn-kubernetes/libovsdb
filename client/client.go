@@ -65,6 +65,10 @@ type Client interface {
 	NewMonitor(...MonitorOption) *Monitor
 	CurrentEndpoint() string
 	API
+	// GetSelectResults parses the results of a transaction containing select operations
+	// and populates the target slices. The targets map is keyed by the correlation ID
+	// returned from the Select operation. The value is a pointer to a slice of models.
+	GetSelectResults(ops []ovsdb.Operation, results []ovsdb.OperationResult, targets map[string]interface{}) error
 }
 
 type bufferedUpdate struct {
@@ -1470,4 +1474,95 @@ func (o *ovsdbClient) WhereAll(m model.Model, conditions ...model.Condition) Con
 // WhereCache implements the API interface's WhereCache function
 func (o *ovsdbClient) WhereCache(predicate any) ConditionalAPI {
 	return o.primaryDB().api.WhereCache(predicate)
+}
+
+// GetSelectResults parses the results of a transaction containing select operations
+// and populates the target slices. The targets map is keyed by the correlation ID
+// returned from the Select operation. The value is a pointer to a slice of models.
+func (o *ovsdbClient) GetSelectResults(ops []ovsdb.Operation, results []ovsdb.OperationResult, targets map[string]interface{}) error {
+	if len(ops) != len(results) {
+		return fmt.Errorf("number of operations (%d) and results (%d) must match", len(ops), len(results))
+	}
+
+	groupedResults := make(map[string][]ovsdb.OperationResult)
+	for i, op := range ops {
+		if op.Op == ovsdb.OperationSelect && op.CorrelationID != "" {
+			groupedResults[op.CorrelationID] = append(groupedResults[op.CorrelationID], results[i])
+		}
+	}
+
+	db := o.primaryDB()
+	db.modelMutex.RLock()
+	defer db.modelMutex.RUnlock()
+
+	for id, targetSlice := range targets {
+		opResults, ok := groupedResults[id]
+		if !ok {
+			// It's possible a correlation ID was provided for a non-select op
+			// or an op that didn't generate results. This is not an error.
+			continue
+		}
+
+		slicePtr := reflect.ValueOf(targetSlice)
+		if slicePtr.Type().Kind() != reflect.Ptr || slicePtr.IsNil() {
+			return &ErrWrongType{slicePtr.Type(), "target must be a non-nil pointer to a slice of models"}
+		}
+
+		sliceVal := reflect.Indirect(slicePtr)
+		if sliceVal.Type().Kind() != reflect.Slice {
+			return &ErrWrongType{slicePtr.Type(), "target must be a pointer to a slice of models"}
+		}
+
+		modelType := sliceVal.Type().Elem()
+		isPtr := modelType.Kind() == reflect.Ptr
+		if isPtr {
+			modelType = modelType.Elem()
+		}
+
+		// Create a map to store merged results for this correlation ID
+		mergedRows := make(map[string]reflect.Value)
+
+		for _, result := range opResults {
+			if result.Error != "" {
+				return fmt.Errorf("operation error for correlation ID %s: %s: %s", id, result.Error, result.Details)
+			}
+
+			for _, rowData := range result.Rows {
+				newModelVal := reflect.New(modelType)
+				newModel := newModelVal.Interface().(model.Model)
+
+				info, err := db.model.NewModelInfo(newModel)
+				if err != nil {
+					return fmt.Errorf("failed to get model info: %w", err)
+				}
+
+				if err := db.model.Mapper.GetRowData(&rowData, info); err != nil {
+					return fmt.Errorf("failed to convert row to model: %w", err)
+				}
+
+				uuid, err := info.FieldByColumn("_uuid")
+				if err != nil {
+					return fmt.Errorf("failed to get UUID from model: %w", err)
+				}
+				mergedRows[uuid.(string)] = newModelVal
+			}
+		}
+
+		// Populate the target slice
+		if sliceVal.IsNil() || sliceVal.Cap() == 0 {
+			sliceVal.Set(reflect.MakeSlice(sliceVal.Type(), 0, len(mergedRows)))
+		} else {
+			// Respect existing slice but reset length
+			sliceVal.SetLen(0)
+		}
+
+		for _, modelVal := range mergedRows {
+			if isPtr {
+				sliceVal.Set(reflect.Append(sliceVal, modelVal))
+			} else {
+				sliceVal.Set(reflect.Append(sliceVal, reflect.Indirect(modelVal)))
+			}
+		}
+	}
+	return nil
 }
