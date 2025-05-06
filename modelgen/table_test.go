@@ -74,10 +74,10 @@ var (
 // AtomicTable defines an object in atomicTable table
 type AtomicTable struct {
 	UUID      string               ` + "`" + `ovsdb:"_uuid"` + "`" + `
-	EventType AtomicTableEventType ` + "`" + `ovsdb:"event_type"` + "`" + `
+	EventType AtomicTableEventType ` + "`" + `ovsdb:"event_type" validate:"oneof='empty_lb_backends'"` + "`" + `
 	Float     float64              ` + "`" + `ovsdb:"float"` + "`" + `
 	Int       int                  ` + "`" + `ovsdb:"int"` + "`" + `
-	Protocol  *AtomicTableProtocol ` + "`" + `ovsdb:"protocol"` + "`" + `
+	Protocol  *AtomicTableProtocol ` + "`" + `ovsdb:"protocol" validate:"omitempty,oneof='tcp' 'udp' 'sctp'"` + "`" + `
 	Str       string               ` + "`" + `ovsdb:"str"` + "`" + `
 }
 `,
@@ -97,10 +97,10 @@ const AtomicTableTable = "atomicTable"
 // AtomicTable defines an object in atomicTable table
 type AtomicTable struct {
 	UUID      string  ` + "`" + `ovsdb:"_uuid"` + "`" + `
-	EventType string  ` + "`" + `ovsdb:"event_type"` + "`" + `
+	EventType string  ` + "`" + `ovsdb:"event_type" validate:"oneof='empty_lb_backends'"` + "`" + `
 	Float     float64 ` + "`" + `ovsdb:"float"` + "`" + `
 	Int       int     ` + "`" + `ovsdb:"int"` + "`" + `
-	Protocol  *string ` + "`" + `ovsdb:"protocol"` + "`" + `
+	Protocol  *string ` + "`" + `ovsdb:"protocol" validate:"omitempty,oneof='tcp' 'udp' 'sctp'"` + "`" + `
 	Str       string  ` + "`" + `ovsdb:"str"` + "`" + `
 }
 `,
@@ -138,10 +138,10 @@ var (
 // AtomicTable defines an object in atomicTable table
 type AtomicTable struct {
 	UUID      string               ` + "`" + `ovsdb:"_uuid"` + "`" + `
-	EventType AtomicTableEventType ` + "`" + `ovsdb:"event_type"` + "`" + `
+	EventType AtomicTableEventType ` + "`" + `ovsdb:"event_type" validate:"oneof='empty_lb_backends'"` + "`" + `
 	Float     float64              ` + "`" + `ovsdb:"float"` + "`" + `
 	Int       int                  ` + "`" + `ovsdb:"int"` + "`" + `
-	Protocol  *AtomicTableProtocol ` + "`" + `ovsdb:"protocol"` + "`" + `
+	Protocol  *AtomicTableProtocol ` + "`" + `ovsdb:"protocol" validate:"omitempty,oneof='tcp' 'udp' 'sctp'"` + "`" + `
 	Str       string               ` + "`" + `ovsdb:"str"` + "`" + `
 
 	OtherUUID      string
@@ -182,10 +182,10 @@ var (
 // AtomicTable defines an object in atomicTable table
 type AtomicTable struct {
 	UUID      string               ` + "`" + `ovsdb:"_uuid"` + "`" + `
-	EventType AtomicTableEventType ` + "`" + `ovsdb:"event_type"` + "`" + `
+	EventType AtomicTableEventType ` + "`" + `ovsdb:"event_type" validate:"oneof='empty_lb_backends'"` + "`" + `
 	Float     float64              ` + "`" + `ovsdb:"float"` + "`" + `
 	Int       int                  ` + "`" + `ovsdb:"int"` + "`" + `
-	Protocol  *AtomicTableProtocol ` + "`" + `ovsdb:"protocol"` + "`" + `
+	Protocol  *AtomicTableProtocol ` + "`" + `ovsdb:"protocol" validate:"omitempty,oneof='tcp' 'udp' 'sctp'"` + "`" + `
 	Str       string               ` + "`" + `ovsdb:"str"` + "`" + `
 }
 
@@ -340,10 +340,10 @@ var (
 // AtomicTable defines an object in atomicTable table
 type AtomicTable struct {
 	UUID      string               ` + "`" + `ovsdb:"_uuid"` + "`" + `
-	EventType AtomicTableEventType ` + "`" + `ovsdb:"event_type"` + "`" + `
+	EventType AtomicTableEventType ` + "`" + `ovsdb:"event_type" validate:"oneof='empty_lb_backends'"` + "`" + `
 	Float     float64              ` + "`" + `ovsdb:"float"` + "`" + `
 	Int       int                  ` + "`" + `ovsdb:"int"` + "`" + `
-	Protocol  *AtomicTableProtocol ` + "`" + `ovsdb:"protocol"` + "`" + `
+	Protocol  *AtomicTableProtocol ` + "`" + `ovsdb:"protocol" validate:"omitempty,oneof='tcp' 'udp' 'sctp'"` + "`" + `
 	Str       string               ` + "`" + `ovsdb:"str"` + "`" + `
 
 	OtherUUID      string
@@ -476,10 +476,10 @@ const AtomicTableTable = "atomicTable"
 // AtomicTable defines an object in atomicTable table
 type AtomicTable struct {
 	UUID      string  ` + "`" + `ovsdb:"_uuid"` + "`" + `
-	EventType string  ` + "`" + `ovsdb:"event_type"` + "`" + `
+	EventType string  ` + "`" + `ovsdb:"event_type" validate:"oneof='empty_lb_backends'"` + "`" + `
 	Float     float64 ` + "`" + `ovsdb:"float"` + "`" + `
 	Int       int     ` + "`" + `ovsdb:"int"` + "`" + `
-	Protocol  *string ` + "`" + `ovsdb:"protocol"` + "`" + `
+	Protocol  *string ` + "`" + `ovsdb:"protocol" validate:"omitempty,oneof='tcp' 'udp' 'sctp'"` + "`" + `
 	Str       string  ` + "`" + `ovsdb:"str"` + "`" + `
 }
 
@@ -599,10 +599,10 @@ var (
 // AtomicTable defines an object in atomicTable table
 type AtomicTable struct {
 	UUID      string               ` + "`" + `ovsdb:"_uuid"` + "`" + `
-	EventType AtomicTableEventType ` + "`" + `ovsdb:"event_type"` + "`" + `
+	EventType AtomicTableEventType ` + "`" + `ovsdb:"event_type" validate:"oneof='empty_lb_backends'"` + "`" + `
 	Float     float64              ` + "`" + `ovsdb:"float"` + "`" + `
 	Int       int                  ` + "`" + `ovsdb:"int"` + "`" + `
-	Protocol  *AtomicTableProtocol ` + "`" + `ovsdb:"protocol"` + "`" + `
+	Protocol  *AtomicTableProtocol ` + "`" + `ovsdb:"protocol" validate:"omitempty,oneof='tcp' 'udp' 'sctp'"` + "`" + `
 	Str       string               ` + "`" + `ovsdb:"str"` + "`" + `
 }
 
@@ -847,6 +847,203 @@ func TestExtendedGenComparableModel(t *testing.T) {
 		_, ok := a.(model.ComparableModel)
 		assert.True(t, ok, "is not comparable")
 	}(a)
+}
+
+func TestValidationTag(t *testing.T) {
+	// Helper to create ColumnSchema from JSON definition
+	schemaFromJSON := func(jsonDef string) ovsdb.ColumnSchema {
+		var schema ovsdb.ColumnSchema
+		err := json.Unmarshal([]byte(jsonDef), &schema)
+		require.NoError(t, err, "Failed to unmarshal schema JSON: %s", jsonDef)
+		return schema
+	}
+
+	tests := []struct {
+		name   string
+		schema ovsdb.ColumnSchema
+		expect string
+	}{
+		{
+			name:   "Simple Integer (no constraints)",
+			schema: schemaFromJSON(`{"type": "integer"}`),
+			expect: "", // Defaults shouldn't add tags
+		},
+		{
+			name:   "Integer with min=0 max=100",
+			schema: schemaFromJSON(`{"type": {"key": {"type": "integer", "minInteger": 0, "maxInteger": 100}}}`),
+			expect: ` validate:"min=0,max=100"`,
+		},
+		{
+			name:   "Integer with only min=0",
+			schema: schemaFromJSON(`{"type": {"key": {"type": "integer", "minInteger": 0}}}`),
+			expect: ` validate:"min=0"`, // max=MaxInt64 is default
+		},
+		{
+			name:   "Integer with only max=1000",
+			schema: schemaFromJSON(`{"type": {"key": {"type": "integer", "maxInteger": 1000}}}`),
+			expect: ` validate:"max=1000"`, // min=-2^63 is default
+		},
+		{
+			name:   "Simple Real (no constraints)",
+			schema: schemaFromJSON(`{"type": "real"}`),
+			expect: "",
+		},
+		{
+			name:   "Real with min=0.5 max=99.9",
+			schema: schemaFromJSON(`{"type": {"key": {"type": "real", "minReal": 0.5, "maxReal": 99.9}}}`),
+			expect: ` validate:"min=0.500000,max=99.900000"`, // Note float formatting
+		},
+		{
+			name:   "Simple String (no constraints)",
+			schema: schemaFromJSON(`{"type": "string"}`),
+			expect: "",
+		},
+		{
+			name:   "String with maxLength=64",
+			schema: schemaFromJSON(`{"type": {"key": {"type": "string", "maxLength": 64}}}`),
+			expect: ` validate:"max=64"`,
+		},
+		{
+			name:   "String Enum",
+			schema: schemaFromJSON(`{"type": {"key": {"type": "string", "enum": ["set", ["allow", "deny"]]}}}`),
+			expect: ` validate:"oneof='allow' 'deny'"`,
+		},
+		{
+			name:   "String Enum with maxLength",
+			schema: schemaFromJSON(`{"type": {"key": {"type": "string", "maxLength": 10, "enum": ["set", ["allow", "deny"]]}}}`),
+			expect: ` validate:"max=10,oneof='allow' 'deny'"`,
+		},
+		{
+			name:   "Simple UUID",
+			schema: schemaFromJSON(`{"type": "uuid"}`),
+			expect: ``,
+		},
+		{
+			name:   "UUID in Set Key",
+			schema: schemaFromJSON(`{"type": {"key": {"type": "uuid"}, "min": 0, "max": "unlimited"}}`),
+			expect: ``,
+		},
+		{
+			name:   "Set of Strings, min=1 max=5",
+			schema: schemaFromJSON(`{"type": {"key": "string", "min": 1, "max": 5}}`),
+			expect: ` validate:"min=1,max=5"`, // min=1 is now explicit, max=5 was already there
+		},
+		{
+			name:   "Set of Strings, explicitly min=0 max=3",
+			schema: schemaFromJSON(`{"type": {"key": "string", "min": 0, "max": 3}}`),
+			expect: ` validate:"max=3"`,
+		},
+		{
+			name:   "Set of Strings, explicitly min=1 max=unlimited",
+			schema: schemaFromJSON(`{"type": {"key": "string", "min": 1, "max": "unlimited"}}`),
+			expect: ` validate:"min=1"`, // min=1 is now explicit, max=unlimited is default so no tag
+		},
+		{
+			name:   "Map String->Int, max=10",
+			schema: schemaFromJSON(`{"type": {"key": "string", "value": "integer", "min": 0, "max": 10}}`),
+			expect: ` validate:"max=10"`,
+		},
+		{
+			name:   "Optional Integer (Set min=0, max=1)",
+			schema: schemaFromJSON(`{"type": {"key": {"type": "integer", "minInteger": 0, "maxInteger": 100}, "min": 0, "max": 1}}`),
+			expect: ` validate:"omitempty,min=0,max=100"`, // omitempty for optional, then key's value constraints
+		},
+		{
+			name:   "Boolean",
+			schema: schemaFromJSON(`{"type": "boolean"}`),
+			expect: "",
+		},
+		{
+			name:   "Optional Boolean (Set min=0, max=1)",
+			schema: schemaFromJSON(`{"type": {"key": "boolean", "min": 0, "max": 1}}`),
+			expect: ``,
+		},
+		// --- New test cases based on OVN SB Schema ---
+		{
+			name:   "OVN SB: Logical_Flow.table_id (Integer 0-32)",
+			schema: schemaFromJSON(`{"type": {"key": {"type": "integer", "minInteger": 0, "maxInteger": 32}}}`),
+			expect: ` validate:"min=0,max=32"`,
+		},
+		{
+			name:   "OVN SB: Datapath_Binding.tunnel_key (Integer 1-16777215)",
+			schema: schemaFromJSON(`{"type": {"key": {"type": "integer", "minInteger": 1, "maxInteger": 16777215}}}`),
+			expect: ` validate:"min=1,max=16777215"`,
+		},
+		{
+			name:   "OVN SB: integer with default constraints", // e.g., SB_Global.nb_cfg simplified
+			schema: schemaFromJSON(`{"type": {"key": "integer"}}`),
+			expect: "", // Default min/max shouldn't add tags
+		},
+		{
+			name:   "OVN SB: Encap.type (String Enum)",
+			schema: schemaFromJSON(`{"type": {"key": {"type": "string", "enum": ["set", ["geneve", "stt", "vxlan"]]}}}`),
+			expect: ` validate:"oneof='geneve' 'stt' 'vxlan'"`,
+		},
+		{
+			name:   "OVN SB: SB_Global.connections (Set UUID min=0 max=unlimited)",
+			schema: schemaFromJSON(`{"type": {"key": {"type": "uuid", "refTable": "Connection"}, "min": 0, "max": "unlimited"}}`),
+			expect: ``,
+		},
+		{
+			name:   "OVN SB: Chassis.encaps (Set UUID min=1 max=unlimited)",
+			schema: schemaFromJSON(`{"type": {"key": {"type": "uuid", "refTable": "Encap"}, "min": 1, "max": "unlimited"}}`),
+			expect: ` validate:"min=1"`, // uuid for key, min=1 for set size
+		},
+		{
+			name:   "OVN SB: SB_Global.ssl (Optional UUID min=0 max=1)",
+			schema: schemaFromJSON(`{"type": {"key": {"type": "uuid", "refTable": "SSL"}, "min": 0, "max": 1}}`),
+			expect: ``,
+		},
+		{
+			name:   "OVN SB: SB_Global.ipsec (Boolean)",
+			schema: schemaFromJSON(`{"type": "boolean"}`),
+			expect: "",
+		},
+		{
+			name:   "OVN SB: Port_Binding.up (Optional Boolean min=0 max=1)",
+			schema: schemaFromJSON(`{"type": {"key": "boolean", "min": 0, "max": 1}}`),
+			expect: ``,
+		},
+		{
+			name:   "OVN SB: SB_Global.external_ids (Map String->String min=0 max=unlimited)",
+			schema: schemaFromJSON(`{"type": {"key": "string", "value": "string", "min": 0, "max": "unlimited"}}`),
+			expect: ``, // max=unlimited is default
+		},
+		{
+			name:   "OVN SB: Address_Set.addresses (Set String min=0 max=unlimited)",
+			schema: schemaFromJSON(`{"type": {"key": {"type": "string"}, "min": 0, "max": "unlimited"}}`),
+			expect: ``, // Key is simple string (no constraints), min=0 for set size. dive not needed for no element constraints.
+		},
+		// --- New test cases based on OVS vSwitch Schema ---
+		{
+			name:   "OVS VS: Interface.ingress_policing_rate (Integer min=0)",
+			schema: schemaFromJSON(`{"type": {"key": {"type": "integer", "minInteger": 0}}}`),
+			expect: ` validate:"min=0"`, // max is default
+		},
+		{
+			name:   "OVS VS: Bridge.flood_vlans (Set Integer 0-4095, size 0-4096)",
+			schema: schemaFromJSON(`{"type": {"key": {"type": "integer", "minInteger": 0, "maxInteger": 4095}, "min": 0, "max": 4096}}`),
+			expect: ` validate:"max=4096,dive,min=0,max=4095"`,
+		},
+		{
+			name:   "OVS VS: Bridge.flow_tables (Map Integer 0-254 -> UUID, size min=0)",
+			schema: schemaFromJSON(`{"type": {"key": {"type": "integer", "minInteger": 0, "maxInteger": 254}, "value": {"type": "uuid", "refTable": "Flow_Table"}, "min": 0, "max": "unlimited"}}`),
+			expect: ` validate:"dive,keys,min=0,max=254"`,
+		},
+		{
+			name:   "OVS VS: Bridge.fail_mode (Optional String Enum min=0 max=1)",
+			schema: schemaFromJSON(`{"type": {"key": {"type": "string", "enum": ["set", ["standalone", "secure"]]}, "min": 0, "max": 1}}`),
+			expect: ` validate:"omitempty,oneof='standalone' 'secure'"`,
+		},
+		// --- End of new test cases ---
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ValidationTag(&tt.schema)
+			assert.Equal(t, tt.expect, got)
+		})
+	}
 }
 
 func doGenDeepCopy(data model.CloneableModel, _ *testing.B) {

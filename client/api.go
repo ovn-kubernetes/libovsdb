@@ -7,9 +7,11 @@ import (
 	"reflect"
 
 	"github.com/go-logr/logr"
+	"github.com/go-playground/validator/v10"
 	"github.com/ovn-kubernetes/libovsdb/cache"
 	"github.com/ovn-kubernetes/libovsdb/model"
 	"github.com/ovn-kubernetes/libovsdb/ovsdb"
+	"github.com/ovn-org/libovsdb/mapper"
 )
 
 // API defines basic operations to interact with the database
@@ -280,67 +282,163 @@ func (a api) Get(_ context.Context, m model.Model) error {
 // Create is a generic function capable of creating any row in the DB
 // A valid Model (pointer to object) must be provided.
 func (a api) Create(models ...model.Model) ([]ovsdb.Operation, error) {
+	if len(models) == 0 {
+		return nil, nil
+	}
+
+	// Validate models before proceeding
+	for _, m := range models {
+		if err := validateModel(m); err != nil {
+			return nil, err
+		}
+	}
+
 	var operations []ovsdb.Operation
+	var tableName string
+	var err error
 
-	for _, model := range models {
-		var realUUID, namedUUID string
-		var err error
+	for _, m := range models {
+		var namedUUID string // Store named UUID if found
 
-		tableName, err := a.getTableFromModel(model)
-		if err != nil {
-			return nil, err
-		}
-
-		// Read _uuid field, and use it as named-uuid
-		info, err := a.cache.DatabaseModel().NewModelInfo(model)
-		if err != nil {
-			return nil, err
-		}
-		if uuid, err := info.FieldByColumn("_uuid"); err == nil {
-			tmpUUID := uuid.(string)
-			if ovsdb.IsNamedUUID(tmpUUID) {
-				namedUUID = tmpUUID
-			} else if ovsdb.IsValidUUID(tmpUUID) {
-				realUUID = tmpUUID
+		if tableName == "" {
+			tableName, err = a.getTableFromModel(m)
+			if err != nil {
+				return nil, err
 			}
 		} else {
+			currentTable, err := a.getTableFromModel(m)
+			if err != nil {
+				return nil, err
+			}
+			if currentTable != tableName {
+				return nil, fmt.Errorf("models must belong to the same table for a single Create operation (%s != %s)", currentTable, tableName)
+			}
+		}
+
+		// Use the DatabaseModel associated with the cache to get info
+		info, err := a.cache.DatabaseModel().NewModelInfo(m)
+		if err != nil {
 			return nil, err
 		}
 
+		// Check for named UUID in the _uuid field before creating the row
+		if uuidField, err := info.FieldByColumn("_uuid"); err == nil {
+			if uuidStr, ok := uuidField.(string); ok {
+				if ovsdb.IsNamedUUID(uuidStr) {
+					namedUUID = uuidStr
+				}
+			}
+		} else if !errors.Is(err, &mapper.ErrColumnNotFound{}) {
+			// Error other than column not found when accessing _uuid
+			return nil, fmt.Errorf("error accessing _uuid field: %w", err)
+		}
+
+		// Use the Mapper associated with the cache to create the row
 		row, err := a.cache.Mapper().NewRow(info)
 		if err != nil {
 			return nil, err
 		}
-		// UUID is given in the operation, not the object
-		delete(row, "_uuid")
 
-		operations = append(operations, ovsdb.Operation{
+		// If a named UUID was found, remove the _uuid field from the row data
+		if namedUUID != "" {
+			delete(row, "_uuid")
+		}
+
+		op := ovsdb.Operation{
 			Op:       ovsdb.OperationInsert,
 			Table:    tableName,
 			Row:      row,
-			UUID:     realUUID,
 			UUIDName: namedUUID,
-		})
+		}
+		operations = append(operations, op)
 	}
 	return operations, nil
 }
 
 // Mutate returns the operations needed to transform the one Model into another one
 func (a api) Mutate(model model.Model, mutationObjs ...model.Mutation) ([]ovsdb.Operation, error) {
-	var mutations []ovsdb.Mutation
-	var operations []ovsdb.Operation
-
 	if len(mutationObjs) < 1 {
 		return nil, fmt.Errorf("at least one Mutation must be provided")
 	}
-
-	tableName := a.cache.DatabaseModel().FindTable(reflect.ValueOf(model).Type())
-	if tableName == "" {
-		return nil, fmt.Errorf("table not found for object")
+	if a.cond == nil {
+		return nil, fmt.Errorf("mutate requires a condition. Use Where() first")
 	}
-	table := a.cache.Mapper().Schema.Table(tableName)
-	if table == nil {
-		return nil, fmt.Errorf("schema error: table not found in Database Model for type %s", reflect.TypeOf(model))
+
+	tableName, err := a.getTableFromModel(model)
+	if err != nil {
+		return nil, err
+	}
+	tableSchema := a.cache.DatabaseModel().Schema.Table(tableName)
+	if tableSchema == nil {
+		return nil, fmt.Errorf("schema not found for table %s", tableName)
+	}
+	info, err := a.cache.DatabaseModel().NewModelInfo(model)
+	if err != nil {
+		return nil, err
+	}
+
+	// Validate each mutation value against the field's constraints
+	modelType := reflect.TypeOf(model).Elem()
+	modelNameStr := modelType.String()
+	for _, mutation := range mutationObjs {
+		columnName, err := info.ColumnByPtr(mutation.Field)
+		if err != nil {
+			return nil, fmt.Errorf("could not get column for mutation field: %w", err)
+		}
+		if !tableSchema.Columns[columnName].Mutable() {
+			return nil, &ValidationError{
+				ModelName:    modelNameStr,
+				GeneralError: fmt.Errorf("unable to update field %s of table %s as it is not mutable", columnName, tableName),
+			}
+		}
+		// Find the struct field corresponding to the column name
+		var structField reflect.StructField
+		var found bool
+		for i := 0; i < modelType.NumField(); i++ {
+			if modelType.Field(i).Tag.Get("ovsdb") == columnName {
+				structField = modelType.Field(i)
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("could not find struct field for column %s", columnName)
+		}
+
+		// Extract the validate tag
+		validateTag := structField.Tag.Get("validate")
+
+		// Validate the mutation value if a tag exists
+		if validateTag != "" {
+			err = validate.Var(mutation.Value, validateTag)
+			if err != nil {
+				if validationErrs, ok := err.(validator.ValidationErrors); ok {
+					return nil, &ValidationError{
+						ModelName:             modelNameStr,
+						FieldValidationErrors: validationErrs,
+						GeneralError:          fmt.Errorf("mutation on column '%s'", columnName),
+					}
+				}
+				return nil, &ValidationError{
+					ModelName:    modelNameStr,
+					GeneralError: fmt.Errorf("validation for mutation value on column '%s' failed: %w", columnName, err),
+				}
+			}
+		}
+	}
+
+	// Convert model.Mutation to ovsdb.Mutation and store them
+	var ovsMutations []ovsdb.Mutation
+	for _, mutation := range mutationObjs {
+		columnName, err := info.ColumnByPtr(mutation.Field)
+		if err != nil {
+			return nil, fmt.Errorf("could not get column for mutation field: %w", err)
+		}
+		ovsMutation, err := a.cache.Mapper().NewMutation(info, columnName, mutation.Mutator, mutation.Value)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create OVSDB mutation for column '%s': %w", columnName, err)
+		}
+		ovsMutations = append(ovsMutations, *ovsMutation)
 	}
 
 	conditions, err := a.cond.Generate()
@@ -348,30 +446,14 @@ func (a api) Mutate(model model.Model, mutationObjs ...model.Mutation) ([]ovsdb.
 		return nil, err
 	}
 
-	info, err := a.cache.DatabaseModel().NewModelInfo(model)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, mobj := range mutationObjs {
-		col, err := info.ColumnByPtr(mobj.Field)
-		if err != nil {
-			return nil, err
-		}
-
-		mutation, err := a.cache.Mapper().NewMutation(info, col, mobj.Mutator, mobj.Value)
-		if err != nil {
-			return nil, err
-		}
-		mutations = append(mutations, *mutation)
-	}
+	var operations []ovsdb.Operation
 	for _, condition := range conditions {
 		operations = append(operations,
 			ovsdb.Operation{
 				Op:        ovsdb.OperationMutate,
 				Table:     tableName,
-				Mutations: mutations,
 				Where:     condition,
+				Mutations: ovsMutations,
 			},
 		)
 	}
@@ -383,12 +465,20 @@ func (a api) Mutate(model model.Model, mutationObjs ...model.Mutation) ([]ovsdb.
 // Additional fields can be passed (variadic opts) to indicate fields to be updated
 // All immutable fields will be ignored
 func (a api) Update(model model.Model, fields ...any) ([]ovsdb.Operation, error) {
-	var operations []ovsdb.Operation
-	table, err := a.getTableFromModel(model)
+	if a.cond == nil {
+		return nil, fmt.Errorf("update requires a condition. Use Where() first")
+	}
+
+	if err := validateModel(model); err != nil {
+		return nil, err
+	}
+
+	tableName, err := a.getTableFromModel(model)
 	if err != nil {
 		return nil, err
 	}
-	tableSchema := a.cache.Mapper().Schema.Table(table)
+
+	tableSchema := a.cache.DatabaseModel().Schema.Table(tableName)
 	info, err := a.cache.DatabaseModel().NewModelInfo(model)
 	if err != nil {
 		return nil, err
@@ -401,8 +491,42 @@ func (a api) Update(model model.Model, fields ...any) ([]ovsdb.Operation, error)
 				return nil, err
 			}
 			if !tableSchema.Columns[colName].Mutable() {
-				return nil, fmt.Errorf("unable to update field %s of table %s as it is not mutable", colName, table)
+				modelType := reflect.TypeOf(model).Elem()
+				modelNameStr := modelType.String()
+				return nil, &ValidationError{
+					ModelName:    modelNameStr,
+					GeneralError: fmt.Errorf("unable to update field %s of table %s as it is not mutable", colName, tableName),
+				}
 			}
+		}
+	}
+
+	// Convert the model to a row, considering only specified fields if provided
+	row, err := a.cache.Mapper().NewRow(info, fields...)
+	if err != nil {
+		return nil, err
+	}
+
+	// Remove immutable fields from the row
+	for colName, column := range tableSchema.Columns {
+		if !column.Mutable() {
+			// Only delete if the key actually exists in the row map
+			if _, exists := row[colName]; exists {
+				a.logger.V(2).Info("removing immutable field from update row", "name", colName)
+				delete(row, colName)
+			}
+		}
+	}
+	// Also remove _uuid explicitly if it exists
+	delete(row, "_uuid")
+
+	// Check if the row is empty after removing immutable fields
+	if len(row) == 0 {
+		modelType := reflect.TypeOf(model).Elem()
+		modelNameStr := modelType.String()
+		return nil, &ValidationError{
+			ModelName:    modelNameStr,
+			GeneralError: fmt.Errorf("attempted to update using an empty row. please check that all fields you wish to update are mutable"),
 		}
 	}
 
@@ -411,28 +535,12 @@ func (a api) Update(model model.Model, fields ...any) ([]ovsdb.Operation, error)
 		return nil, err
 	}
 
-	row, err := a.cache.Mapper().NewRow(info, fields...)
-	if err != nil {
-		return nil, err
-	}
-
-	for colName, column := range tableSchema.Columns {
-		if !column.Mutable() {
-			a.logger.V(2).Info("removing immutable field", "name", colName)
-			delete(row, colName)
-		}
-	}
-	delete(row, "_uuid")
-
-	if len(row) == 0 {
-		return nil, fmt.Errorf("attempted to update using an empty row. please check that all fields you wish to update are mutable")
-	}
-
+	var operations []ovsdb.Operation
 	for _, condition := range conditions {
 		operations = append(operations,
 			ovsdb.Operation{
 				Op:    ovsdb.OperationUpdate,
-				Table: table,
+				Table: tableName,
 				Row:   row,
 				Where: condition,
 			},

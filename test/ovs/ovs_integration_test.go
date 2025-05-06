@@ -154,16 +154,16 @@ var (
 
 // bridgeType is the simplified ORM model of the Bridge table
 type bridgeType struct {
-	UUID           string            `ovsdb:"_uuid"`
-	Name           string            `ovsdb:"name"`
-	OtherConfig    map[string]string `ovsdb:"other_config"`
-	ExternalIDs    map[string]string `ovsdb:"external_ids"`
-	Ports          []string          `ovsdb:"ports"`
-	Status         map[string]string `ovsdb:"status"`
-	BridgeFailMode *BridgeFailMode   `ovsdb:"fail_mode"`
-	IPFIX          *string           `ovsdb:"ipfix"`
-	DatapathID     *string           `ovsdb:"datapath_id"`
-	Mirrors        []string          `ovsdb:"mirrors"`
+	UUID        string            `ovsdb:"_uuid"`
+	Name        string            `ovsdb:"name"`
+	OtherConfig map[string]string `ovsdb:"other_config"`
+	ExternalIDs map[string]string `ovsdb:"external_ids"`
+	Ports       []string          `ovsdb:"ports"`
+	Status      map[string]string `ovsdb:"status"`
+	FailMode    *BridgeFailMode   `ovsdb:"fail_mode" validate:"omitempty,oneof='standalone' 'secure'"`
+	IPFIX       *string           `ovsdb:"ipfix"`
+	DatapathID  *string           `ovsdb:"datapath_id"`
+	Mirrors     []string          `ovsdb:"mirrors"`
 }
 
 // ovsType is the ORM model of the OVS table
@@ -191,19 +191,19 @@ type ovsType struct {
 // ipfixType is a simplified ORM model for the IPFIX table
 type ipfixType struct {
 	UUID    string   `ovsdb:"_uuid"`
-	Targets []string `ovsdb:"targets"`
+	Targets []string `ovsdb:"targets" validate:"min=0"`
 }
 
 // queueType is the simplified ORM model of the Queue table
 type queueType struct {
 	UUID string `ovsdb:"_uuid"`
-	DSCP *int   `ovsdb:"dscp"`
+	DSCP *int   `ovsdb:"dscp" validate:"omitempty,min=0,max=63"`
 }
 
 type portType struct {
 	UUID       string   `ovsdb:"_uuid"`
 	Name       string   `ovsdb:"name"`
-	Interfaces []string `ovsdb:"interfaces"`
+	Interfaces []string `ovsdb:"interfaces" validate:"min=1"`
 }
 
 type interfaceType struct {
@@ -214,7 +214,7 @@ type interfaceType struct {
 type mirrorType struct {
 	UUID          string   `ovsdb:"_uuid"`
 	Name          string   `ovsdb:"name"`
-	SelectSrcPort []string `ovsdb:"select_src_port"`
+	SelectSrcPort []string `ovsdb:"select_src_port" validate:"min=0"`
 }
 
 var defDB, _ = model.NewClientDBModel("Open_vSwitch", map[string]model.Model{
@@ -841,7 +841,7 @@ func (suite *OVSIntegrationSuite) createBridge(bridgeName string) (string, error
 			"go":     "awesome",
 			"docker": "made-for-each-other",
 		},
-		BridgeFailMode: &BridgeFailModeSecure,
+		FailMode: &BridgeFailModeSecure,
 	}
 
 	insertOp, err := suite.clientWithoutInactvityCheck.Create(&br)
@@ -945,19 +945,19 @@ func (suite *OVSIntegrationSuite) TestWait() {
 
 	// Use wait to verify bridge's existence
 	bridgeRow = &bridgeType{
-		Name:           brName,
-		BridgeFailMode: &BridgeFailModeSecure,
+		Name:     brName,
+		FailMode: &BridgeFailModeSecure,
 	}
 	conditions = []model.Condition{
 		{
-			Field:    &bridgeRow.BridgeFailMode,
+			Field:    &bridgeRow.FailMode,
 			Function: ovsdb.ConditionEqual,
 			Value:    &BridgeFailModeSecure,
 		},
 	}
 	timeout = 2 * 1000 // 2 seconds (in milliseconds)
 	ops, err = suite.clientWithoutInactvityCheck.WhereAny(bridgeRow, conditions...).Wait(
-		ovsdb.WaitConditionEqual, &timeout, bridgeRow, &bridgeRow.BridgeFailMode)
+		ovsdb.WaitConditionEqual, &timeout, bridgeRow, &bridgeRow.FailMode)
 	suite.Require().NoError(err)
 	reply, err = suite.clientWithoutInactvityCheck.Transact(context.Background(), ops...)
 	suite.Require().NoError(err)
@@ -967,7 +967,7 @@ func (suite *OVSIntegrationSuite) TestWait() {
 	// Use wait to get a txn error due to until condition that is not happening
 	timeout = 222 // milliseconds
 	ops, err = suite.clientWithoutInactvityCheck.WhereAny(bridgeRow, conditions...).Wait(
-		ovsdb.WaitConditionNotEqual, &timeout, bridgeRow, &bridgeRow.BridgeFailMode)
+		ovsdb.WaitConditionNotEqual, &timeout, bridgeRow, &bridgeRow.FailMode)
 	suite.Require().NoError(err)
 	reply, err = suite.clientWithoutInactvityCheck.Transact(context.Background(), ops...)
 	suite.Require().NoError(err)
@@ -1039,7 +1039,7 @@ func (suite *OVSIntegrationSuite) TestOpsWaitForReconnect() {
 }
 
 func (suite *OVSIntegrationSuite) TestUnsetOptional() {
-	// Create the default bridge which has an optional BridgeFailMode set
+	// Create the default bridge which has an optional FailMode set
 	uuid, err := suite.createBridge("br-with-optional-unset")
 	suite.Require().NoError(err)
 
@@ -1050,28 +1050,28 @@ func (suite *OVSIntegrationSuite) TestUnsetOptional() {
 		UUID: uuid,
 	}
 
-	// verify the bridge has BridgeFailMode set
+	// verify the bridge has FailMode set
 	err = suite.clientWithoutInactvityCheck.Get(ctx, &br)
 	suite.Require().NoError(err)
-	suite.NotNil(br.BridgeFailMode)
+	suite.NotNil(br.FailMode)
 
 	// modify bridge to unset BridgeFailMode
-	br.BridgeFailMode = nil
-	ops, err := suite.clientWithoutInactvityCheck.Where(&br).Update(&br, &br.BridgeFailMode)
+	br.FailMode = nil
+	ops, err := suite.clientWithoutInactvityCheck.Where(&br).Update(&br, &br.FailMode)
 	suite.Require().NoError(err)
 	r, err := suite.clientWithoutInactvityCheck.Transact(ctx, ops...)
 	suite.Require().NoError(err)
 	_, err = ovsdb.CheckOperationResults(r, ops)
 	suite.Require().NoError(err)
 
-	// verify the bridge has BridgeFailMode unset
+	// verify the bridge has FailMode unset
 	err = suite.clientWithoutInactvityCheck.Get(ctx, &br)
 	suite.Require().NoError(err)
-	suite.Nil(br.BridgeFailMode)
+	suite.Nil(br.FailMode)
 }
 
 func (suite *OVSIntegrationSuite) TestUpdateOptional() {
-	// Create the default bridge which has an optional BridgeFailMode set
+	// Create the default bridge which has an optional FailMode set
 	uuid, err := suite.createBridge("br-with-optional-update")
 	suite.Require().NoError(err)
 
@@ -1082,24 +1082,24 @@ func (suite *OVSIntegrationSuite) TestUpdateOptional() {
 		UUID: uuid,
 	}
 
-	// verify the bridge has BridgeFailMode set
+	// verify the bridge has FailMode set
 	err = suite.clientWithoutInactvityCheck.Get(ctx, &br)
 	suite.Require().NoError(err)
-	suite.Equal(&BridgeFailModeSecure, br.BridgeFailMode)
+	suite.Equal(&BridgeFailModeSecure, br.FailMode)
 
 	// modify bridge to update BridgeFailMode
-	br.BridgeFailMode = &BridgeFailModeStandalone
-	ops, err := suite.clientWithoutInactvityCheck.Where(&br).Update(&br, &br.BridgeFailMode)
+	br.FailMode = &BridgeFailModeStandalone
+	ops, err := suite.clientWithoutInactvityCheck.Where(&br).Update(&br, &br.FailMode)
 	suite.Require().NoError(err)
 	r, err := suite.clientWithoutInactvityCheck.Transact(ctx, ops...)
 	suite.Require().NoError(err)
 	_, err = ovsdb.CheckOperationResults(r, ops)
 	suite.Require().NoError(err)
 
-	// verify the bridge has BridgeFailMode updated
+	// verify the bridge has FailMode updated
 	err = suite.clientWithoutInactvityCheck.Get(ctx, &br)
 	suite.Require().NoError(err)
-	suite.Equal(&BridgeFailModeStandalone, br.BridgeFailMode)
+	suite.Equal(&BridgeFailModeStandalone, br.FailMode)
 }
 
 func (suite *OVSIntegrationSuite) TestMultipleOpsSameRow() {

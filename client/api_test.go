@@ -2014,3 +2014,645 @@ func TestAPIWait(t *testing.T) {
 		})
 	}
 }
+
+func TestAPIValidationCreate(t *testing.T) {
+	tcache := apiTestCache(t, nil)
+	api := newAPI(tcache, &discardLogger)
+
+	// Helper to create a minimally valid Bridge object
+	newValidBaseBridge := func() *testBridge {
+		// Based on schema, Name, DatapathType, DatapathVersion seem required.
+		// Others have defaults or are optional.
+		return &testBridge{
+			UUID:                uuid.NewString(),
+			Name:                "valid-br-" + uuid.NewString()[:8], // Ensure unique name
+			DatapathType:        "system",
+			DatapathVersion:     "1.0",
+			McastSnoopingEnable: false,
+			RSTPEnable:          false,
+			STPEnable:           false,
+			// Initialize collections to avoid nil pointer issues if accessed
+			Controller:  []string{},
+			ExternalIDs: map[string]string{},
+			FloodVLANs:  []int{},
+			FlowTables:  map[int]string{},
+			Mirrors:     []string{},
+			OtherConfig: map[string]string{},
+			Ports:       []string{},
+			Protocols:   []string{},
+			RSTPStatus:  map[string]string{},
+			Status:      map[string]string{},
+		}
+	}
+
+	type createTestCase struct {
+		name          string
+		bridge        *testBridge // Model to create
+		expectedError string      // Substring expected in the error message, empty if no error expected
+	}
+
+	testCases := []createTestCase{
+		// --- Valid Cases ---
+		{
+			name:   "minimal valid Bridge",
+			bridge: newValidBaseBridge(),
+			// No error expected
+		},
+		{
+			name: "valid Bridge with standard UUID",
+			bridge: func() *testBridge {
+				br := newValidBaseBridge()
+				br.UUID = aUUID0 // Use a standard UUID format
+				br.Name = "valid-br-std-uuid"
+				return br
+			}(),
+			// No error expected
+		},
+		{
+			name: "valid Bridge with named UUID",
+			bridge: func() *testBridge {
+				br := newValidBaseBridge()
+				br.UUID = "my-named-uuid-for-bridge-create" // Use a named UUID
+				br.Name = "valid-br-named-uuid"
+				return br
+			}(),
+			// No error expected
+		},
+		{
+			name: "valid Bridge with specific FailMode",
+			bridge: func() *testBridge {
+				br := newValidBaseBridge()
+				br.Name = "valid-br-failmode"
+				fm := BridgeFailModeSecure
+				br.FailMode = &fm
+				return br
+			}(),
+			// No error expected
+		},
+		{
+			name: "valid Bridge with Protocols",
+			bridge: func() *testBridge {
+				br := newValidBaseBridge()
+				br.Name = "valid-br-protocols"
+				br.Protocols = []string{BridgeProtocolsOpenflow13, BridgeProtocolsOpenflow15}
+				return br
+			}(),
+			// No error expected
+		},
+		{
+			name: "valid Bridge with FloodVLANs within range",
+			bridge: func() *testBridge {
+				br := newValidBaseBridge()
+				br.Name = "valid-br-floodvlans"
+				br.FloodVLANs = []int{10, 20, 4095} // Valid range 0-4095
+				return br
+			}(),
+			// No error expected
+		},
+		{
+			name: "valid Bridge with FlowTables within key range",
+			bridge: func() *testBridge {
+				br := newValidBaseBridge()
+				br.Name = "valid-br-flowtables"
+				br.FlowTables = map[int]string{0: uuid.NewString(), 254: uuid.NewString()} // Valid key range 0-254
+				return br
+			}(),
+			// No error expected
+		},
+
+		// --- Invalid Cases (Based on current 'validate' tags) ---
+		{
+			name: "invalid FailMode",
+			bridge: func() *testBridge {
+				br := newValidBaseBridge()
+				br.Name = "invalid-br-failmode"
+				invalidFm := "unknown"
+				br.FailMode = &invalidFm // Violates oneof='standalone' 'secure'
+				return br
+			}(),
+			expectedError: `field 'testBridge.FailMode' (value: 'unknown') failed on rule 'oneof' (param: 'standalone' 'secure')`,
+		},
+		{
+			name: "invalid Protocol",
+			bridge: func() *testBridge {
+				br := newValidBaseBridge()
+				br.Name = "invalid-br-protocol"
+				// Protocols uses dive, so validation checks each element
+				br.Protocols = []string{BridgeProtocolsOpenflow13, "InvalidProtocol"} // Violates dive, oneof
+				return br
+			}(),
+			expectedError: `field 'testBridge.Protocols[1]' (value: 'InvalidProtocol') failed on rule 'oneof' (param: 'OpenFlow10' 'OpenFlow11' 'OpenFlow12' 'OpenFlow13' 'OpenFlow14' 'OpenFlow15')`,
+		},
+		{
+			name: "too many FloodVLANs",
+			bridge: func() *testBridge {
+				br := newValidBaseBridge()
+				br.Name = "invalid-br-floodvlans-len"
+				br.FloodVLANs = make([]int, 4097) // Violates max=4096 slice length
+				return br
+			}(),
+			expectedError: "failed on rule 'max' (param: 4096)", // suppress full representation
+		},
+		{
+			name: "invalid FloodVLAN value (too low)",
+			bridge: func() *testBridge {
+				br := newValidBaseBridge()
+				br.Name = "invalid-br-floodvlan-low"
+				// FloodVLANs uses dive, validation checks element value
+				br.FloodVLANs = []int{10, -1, 20} // Violates dive, min=0
+				return br
+			}(),
+			expectedError: "field 'testBridge.FloodVLANs[1]' (value: '-1') failed on rule 'min' (param: 0)",
+		},
+		{
+			name: "invalid FloodVLAN value (too high)",
+			bridge: func() *testBridge {
+				br := newValidBaseBridge()
+				br.Name = "invalid-br-floodvlan-high"
+				br.FloodVLANs = []int{10, 4096, 20} // Violates dive, max=4095
+				return br
+			}(),
+			expectedError: "field 'testBridge.FloodVLANs[1]' (value: '4096') failed on rule 'max' (param: 4095)",
+		},
+		{
+			name: "invalid FlowTable key (too low)",
+			bridge: func() *testBridge {
+				br := newValidBaseBridge()
+				br.Name = "invalid-br-flowtable-keylow"
+				// FlowTables uses dive, keys, validation checks map keys
+				br.FlowTables = map[int]string{0: uuid.NewString(), -1: uuid.NewString()} // Violates dive, keys, min=0
+				return br
+			}(),
+			expectedError: "field 'testBridge.FlowTables[-1]' (value: '-1') failed on rule 'min' (param: 0)",
+		},
+		{
+			name: "invalid FlowTable key (too high)",
+			bridge: func() *testBridge {
+				br := newValidBaseBridge()
+				br.Name = "invalid-br-flowtable-keyhigh"
+				br.FlowTables = map[int]string{0: uuid.NewString(), 255: uuid.NewString()} // Violates dive, keys, max=254
+				return br
+			}(),
+			expectedError: "field 'testBridge.FlowTables[255]' (value: '255') failed on rule 'max' (param: 254)",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run("Create_"+tc.name, func(t *testing.T) {
+			ops, err := api.Create(tc.bridge)
+
+			if tc.expectedError != "" {
+				require.Error(t, err, "Expected an error for test case: %s", tc.name)
+				var validationErr *ValidationError
+				// Check if the error is of type ValidationError
+				if assert.ErrorAs(t, err, &validationErr, "Error should be a ValidationError for: %s", tc.name) {
+					// Check if the error message (now from ValidationError.Error()) contains the expected substring
+					assert.Contains(t, validationErr.Error(), tc.expectedError, "Error message mismatch for: %s. New error: %s", tc.name, validationErr.Error())
+				}
+				assert.Nil(t, ops, "Operations should be nil on validation error for: %s", tc.name)
+			} else {
+				require.NoError(t, err, "Expected no error for test case: %s", tc.name)
+				assert.NotNil(t, ops, "Operations should not be nil for valid case: %s", tc.name)
+				assert.Len(t, ops, 1, "Expected one operation for valid case: %s", tc.name)
+				// Additional checks specific to Bridge creation if needed
+				if ovsdb.IsNamedUUID(tc.bridge.UUID) {
+					assert.Equal(t, tc.bridge.UUID, ops[0].UUIDName, "UUIDName mismatch for named UUID case: %s", tc.name)
+					_, uuidInRow := ops[0].Row["_uuid"]
+					assert.False(t, uuidInRow, "_uuid should not be in Row for named UUID case: %s", tc.name)
+				} else if tc.bridge.UUID != "" {
+					assert.Empty(t, ops[0].UUIDName, "UUIDName should be empty for standard UUID case: %s", tc.name)
+					assert.NotNil(t, ops[0].Row["_uuid"], "_uuid should be in Row for standard UUID case: %s", tc.name)
+				} else {
+					// Create doesn't auto-generate UUID, it relies on named UUID or standard UUID in row
+					// If UUID is empty string, it should result in server-generated UUID, so UUIDName is empty and _uuid not in row
+					assert.Empty(t, ops[0].UUIDName, "UUIDName should be empty for empty UUID case: %s", tc.name)
+					_, uuidInRow := ops[0].Row["_uuid"]
+					assert.False(t, uuidInRow, "_uuid should not be in Row for empty UUID case: %s", tc.name)
+				}
+			}
+		})
+	}
+}
+
+func TestAPIValidationMutate(t *testing.T) {
+	initialBridgeUUID := uuid.NewString()
+	initialBridge := &testBridge{
+		UUID:            initialBridgeUUID,
+		Name:            "initial-br-for-mutate-test",
+		DatapathType:    "system",
+		DatapathVersion: "1.0",
+		Controller:      []string{uuid.NewString()},          // Start with one
+		ExternalIDs:     map[string]string{"k1": "v1"},       // Start with one
+		FloodVLANs:      []int{10, 20},                       // Start with some
+		FlowTables:      map[int]string{5: uuid.NewString()}, // Start with one
+		Protocols:       []string{BridgeProtocolsOpenflow13}, // Start with one
+		// Other fields omitted for brevity, assuming they are not mutated in tests below
+	}
+	bridgeCacheData := map[string]model.Model{initialBridge.UUID: initialBridge}
+	testCacheData := cache.Data{"Bridge": bridgeCacheData}
+	tcache := apiTestCache(t, testCacheData)
+	api := newAPI(tcache, &discardLogger)
+
+	// Pointers to fields for use in Mutations
+	// var bridgeForFieldPointers testBridge -- Removed, use initialBridge directly
+
+	type mutateTestCase struct {
+		name              string
+		mutations         []model.Mutation // Mutations to apply
+		expectedError     string           // Substring expected in the error message
+		isValidationError bool             // Flag to indicate if the error is expected to be a ValidationError
+	}
+
+	testCases := []mutateTestCase{
+		// --- Valid Mutations ---
+		{
+			name: "insert into Protocols (valid value)",
+			mutations: []model.Mutation{
+				{Field: &initialBridge.Protocols, Mutator: ovsdb.MutateOperationInsert, Value: []string{BridgeProtocolsOpenflow14}},
+			},
+			// No error expected from validation
+		},
+		{
+			name: "delete from Protocols (valid value)",
+			mutations: []model.Mutation{
+				{Field: &initialBridge.Protocols, Mutator: ovsdb.MutateOperationDelete, Value: []string{BridgeProtocolsOpenflow13}},
+			},
+			// No error expected from validation
+		},
+		{
+			name: "insert into FloodVLANs (valid value)",
+			mutations: []model.Mutation{
+				{Field: &initialBridge.FloodVLANs, Mutator: ovsdb.MutateOperationInsert, Value: []int{30, 4095}},
+			},
+			// No error expected from validation
+		},
+		{
+			name: "delete from FloodVLANs (valid value)",
+			mutations: []model.Mutation{
+				{Field: &initialBridge.FloodVLANs, Mutator: ovsdb.MutateOperationDelete, Value: []int{10}},
+			},
+			// No error expected from validation
+		},
+		{
+			name: "insert into FlowTables (valid key)",
+			mutations: []model.Mutation{
+				{Field: &initialBridge.FlowTables, Mutator: ovsdb.MutateOperationInsert, Value: map[int]string{254: uuid.NewString()}},
+			},
+			// No error expected from validation
+		},
+		{
+			name: "delete from FlowTables (valid key)",
+			mutations: []model.Mutation{
+				{Field: &initialBridge.FlowTables, Mutator: ovsdb.MutateOperationDelete, Value: map[int]string{5: ""}}, // Key matters for delete
+			},
+			// No error expected from validation
+		},
+		{
+			name: "insert into ExternalIDs",
+			mutations: []model.Mutation{
+				{Field: &initialBridge.ExternalIDs, Mutator: ovsdb.MutateOperationInsert, Value: map[string]string{"new_key": "new_val"}},
+			},
+			// No error expected from validation
+		},
+		{
+			name: "delete from ExternalIDs",
+			mutations: []model.Mutation{
+				{Field: &initialBridge.ExternalIDs, Mutator: ovsdb.MutateOperationDelete, Value: map[string]string{"k1": ""}},
+			},
+			// No error expected from validation
+		},
+
+		// --- Invalid Mutations (Value violates constraint) ---
+		// Note: Mutate validation checks the *value being mutated*, not the resulting state size/limit.
+		// Immutability check happens *before* value validation.
+		{
+			name: "mutate immutable field (Name)",
+			mutations: []model.Mutation{
+				// Attempt to insert into Name (string) - fundamentally wrong mutation, but should hit immutable check first.
+				{Field: &initialBridge.Name, Mutator: ovsdb.MutateOperationInsert, Value: "should-fail-immutable"},
+			},
+			expectedError:     "unable to update field name of table Bridge as it is not mutable",
+			isValidationError: true, // Now wrapped in ValidationError
+		},
+		{
+			name: "insert invalid Protocol value",
+			mutations: []model.Mutation{
+				{Field: &initialBridge.Protocols, Mutator: ovsdb.MutateOperationInsert, Value: []string{"InvalidProto"}}, // Violates oneof
+			},
+			expectedError:     `mutation on column 'protocols'; details: [field '[0]' (value: 'InvalidProto') failed on rule 'oneof' (param: 'OpenFlow10' 'OpenFlow11' 'OpenFlow12' 'OpenFlow13' 'OpenFlow14' 'OpenFlow15')]`,
+			isValidationError: true,
+		},
+		{
+			name: "insert invalid FloodVLAN value (too high)",
+			mutations: []model.Mutation{
+				{Field: &initialBridge.FloodVLANs, Mutator: ovsdb.MutateOperationInsert, Value: []int{4096}}, // Violates max=4095
+			},
+			expectedError:     `mutation on column 'flood_vlans'; details: [field '[0]' (value: '4096') failed on rule 'max' (param: 4095)]`,
+			isValidationError: true,
+		},
+		{
+			name: "insert invalid FloodVLAN value (too low)",
+			mutations: []model.Mutation{
+				{Field: &initialBridge.FloodVLANs, Mutator: ovsdb.MutateOperationInsert, Value: []int{-1}}, // Violates min=0
+			},
+			expectedError:     `mutation on column 'flood_vlans'; details: [field '[0]' (value: '-1') failed on rule 'min' (param: 0)]`,
+			isValidationError: true,
+		},
+		{
+			name: "insert invalid FlowTable key (too high)",
+			mutations: []model.Mutation{
+				{Field: &initialBridge.FlowTables, Mutator: ovsdb.MutateOperationInsert, Value: map[int]string{255: uuid.NewString()}}, // Violates keys, max=254
+			},
+			expectedError:     `mutation on column 'flow_tables'; details: [field '[255]' (value: '255') failed on rule 'max' (param: 254)]`,
+			isValidationError: true,
+		},
+		{
+			name: "insert invalid FlowTable key (too low)",
+			mutations: []model.Mutation{
+				{Field: &initialBridge.FlowTables, Mutator: ovsdb.MutateOperationInsert, Value: map[int]string{-1: uuid.NewString()}}, // Violates keys, min=0
+			},
+			expectedError:     `mutation on column 'flow_tables'; details: [field '[-1]' (value: '-1') failed on rule 'min' (param: 0)]`,
+			isValidationError: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run("Mutate_"+tc.name, func(t *testing.T) {
+			// Condition to select the object to mutate
+			condAPI := api.Where(&testBridge{UUID: initialBridgeUUID})
+			ops, err := condAPI.Mutate(initialBridge, tc.mutations...)
+
+			if tc.expectedError != "" {
+				require.Error(t, err, "Expected an error for test case: %s", tc.name)
+				var validationErr *ValidationError
+				// All errors should now be ValidationError
+				if assert.ErrorAs(t, err, &validationErr, "Error should be a ValidationError for: %s", tc.name) {
+					// Check if the error message contains the expected substring
+					assert.Contains(t, validationErr.Error(), tc.expectedError, "ValidationError message mismatch for: %s. New error: %s", tc.name, validationErr.Error())
+				} else {
+					// This branch should rarely if ever be taken now
+					assert.Contains(t, err.Error(), tc.expectedError, "Error message mismatch for: %s", tc.name)
+				}
+				assert.Nil(t, ops, "Operations should be nil on error for: %s", tc.name)
+			} else {
+				require.NoError(t, err, "Expected no error for test case: %s", tc.name)
+				assert.NotNil(t, ops, "Operations should not be nil for valid case: %s", tc.name)
+				require.GreaterOrEqual(t, len(ops), 1, "Need at least one operation for: %s", tc.name)
+				// Check mutations format if needed
+				assert.Equal(t, string(ovsdb.OperationMutate), ops[0].Op, "Operation should be mutate for: %s", tc.name)
+				assert.NotNil(t, ops[0].Mutations, "Mutations should not be nil for: %s", tc.name)
+				assert.Len(t, ops[0].Mutations, len(tc.mutations), "Number of mutations mismatch for: %s", tc.name)
+			}
+		})
+	}
+}
+
+func TestAPIValidationUpdate(t *testing.T) {
+
+	initialBridgeUUID := uuid.NewString()
+	initialBridge := &testBridge{
+		UUID:                initialBridgeUUID,
+		Name:                "initial-br-for-update-test",
+		DatapathType:        "system",
+		DatapathVersion:     "1.0",
+		McastSnoopingEnable: false,
+		RSTPEnable:          false,
+		STPEnable:           false,
+		Controller:          []string{uuid.NewString()}, // Start with one controller
+		ExternalIDs:         map[string]string{"initial_key": "initial_val"},
+		FloodVLANs:          []int{100, 200},
+		FlowTables:          map[int]string{10: uuid.NewString()},
+		Mirrors:             []string{},
+		OtherConfig:         map[string]string{"initial_other": "initial_other_val"},
+		Ports:               []string{uuid.NewString()},
+		Protocols:           []string{BridgeProtocolsOpenflow13},
+		RSTPStatus:          map[string]string{},
+		Status:              map[string]string{},
+		// FailMode is initially nil
+	}
+	bridgeCacheData := map[string]model.Model{initialBridge.UUID: initialBridge}
+	testCacheData := cache.Data{"Bridge": bridgeCacheData}
+	tcache := apiTestCache(t, testCacheData)
+	api := newAPI(tcache, &discardLogger)
+
+	// Helper to get a fresh copy of the initialBridge state from cache
+	getFreshBridgeStateFromCache := func(t *testing.T) *testBridge {
+		br := &testBridge{UUID: initialBridgeUUID}
+		err := api.Get(context.Background(), br)
+		require.NoError(t, err, "Failed to get initial Bridge state from cache")
+		return br
+	}
+
+	type updateTestCase struct {
+		name          string
+		updateModelFn func(currentBridge *testBridge) *testBridge // Fn to create the model for Update()
+		expectedError string                                      // Substring expected in the error message
+		// For Update, all validation errors are expected to be ValidationError
+		useFieldNames []string // Optional field names to use as specific update targets
+	}
+
+	testCases := []updateTestCase{
+		// --- Valid Cases ---
+		{
+			name: "update DatapathType and add Protocol",
+			updateModelFn: func(current *testBridge) *testBridge {
+				modelToUpdate := *current // Copy base state
+				modelToUpdate.DatapathType = "netdev"
+				modelToUpdate.Protocols = append(modelToUpdate.Protocols, BridgeProtocolsOpenflow14)
+				return &modelToUpdate
+			},
+			// No error expected
+		},
+		{
+			name: "update set FailMode",
+			updateModelFn: func(current *testBridge) *testBridge {
+				modelToUpdate := *current
+				validFm := BridgeFailModeStandalone
+				modelToUpdate.FailMode = &validFm
+				return &modelToUpdate
+			},
+			// No error expected
+		},
+		{
+			name: "update clear FailMode",
+			updateModelFn: func(current *testBridge) *testBridge {
+				modelToUpdate := *current
+				// Set it first to ensure clearing works
+				fm := BridgeFailModeSecure
+				modelToUpdate.FailMode = &fm
+				// Now create the actual update model where it's nil
+				updateModel := *current
+				updateModel.FailMode = nil
+				return &updateModel
+			},
+			// No error expected
+		},
+		{
+			name: "update FloodVLANs (valid range and size)",
+			updateModelFn: func(current *testBridge) *testBridge {
+				modelToUpdate := *current
+				modelToUpdate.FloodVLANs = []int{0, 4095} // Valid values and count within max=4096
+				return &modelToUpdate
+			},
+			// No error expected
+		},
+		{
+			name: "update FlowTables (valid key)",
+			updateModelFn: func(current *testBridge) *testBridge {
+				modelToUpdate := *current
+				modelToUpdate.FlowTables = map[int]string{254: uuid.NewString()} // Valid key
+				return &modelToUpdate
+			},
+			// No error expected
+		},
+
+		// --- Invalid Cases (Based on current 'validate' tags) ---
+		{
+			name: "update invalid FailMode",
+			updateModelFn: func(current *testBridge) *testBridge {
+				modelToUpdate := *current
+				invalidFm := "invalid-mode"
+				modelToUpdate.FailMode = &invalidFm // Violates oneof
+				return &modelToUpdate
+			},
+			expectedError: `field 'testBridge.FailMode' (value: 'invalid-mode') failed on rule 'oneof' (param: 'standalone' 'secure')`,
+		},
+		{
+			name: "update invalid Protocol",
+			updateModelFn: func(current *testBridge) *testBridge {
+				modelToUpdate := *current
+				modelToUpdate.Protocols = []string{"BadProto"} // Violates dive, oneof
+				return &modelToUpdate
+			},
+			expectedError: `field 'testBridge.Protocols[0]' (value: 'BadProto') failed on rule 'oneof' (param: 'OpenFlow10' 'OpenFlow11' 'OpenFlow12' 'OpenFlow13' 'OpenFlow14' 'OpenFlow15')`,
+		},
+		{
+			name: "update too many FloodVLANs",
+			updateModelFn: func(current *testBridge) *testBridge {
+				modelToUpdate := *current
+				modelToUpdate.FloodVLANs = make([]int, 4097) // Violates max=4096 length
+				return &modelToUpdate
+			},
+			expectedError: `failed on rule 'max' (param: 4096)`, // suppress full representation
+		},
+		{
+			name: "update invalid FloodVLAN value (too high)",
+			updateModelFn: func(current *testBridge) *testBridge {
+				modelToUpdate := *current
+				modelToUpdate.FloodVLANs = []int{4096} // Violates dive, max=4095
+				return &modelToUpdate
+			},
+			expectedError: `field 'testBridge.FloodVLANs[0]' (value: '4096') failed on rule 'max' (param: 4095)`,
+		},
+		{
+			name: "update invalid FlowTable key (too high)",
+			updateModelFn: func(current *testBridge) *testBridge {
+				modelToUpdate := *current
+				modelToUpdate.FlowTables = map[int]string{255: uuid.NewString()} // Violates dive, keys, max=254
+				return &modelToUpdate
+			},
+			expectedError: `field 'testBridge.FlowTables[255]' (value: '255') failed on rule 'max' (param: 254)`,
+		},
+		// Test immutable field update attempt
+		{
+			name: "update immutable field (Name)",
+			updateModelFn: func(current *testBridge) *testBridge {
+				modelToUpdate := *current
+				modelToUpdate.Name = "attempt-to-change-immutable-name" // Name is mutable: false in schema
+				return &modelToUpdate
+			},
+			// Update API call itself does not error on immutable checks during model validation step.
+			// The immutable field is silently removed from the row before OVS op generation.
+			// If *all* fields in the update are immutable (or non-existent), then it might error with "empty row".
+			// In this specific case, other valid fields like DatapathType would still be in the model, so validateModel passes.
+			// The 'Name' field will just be omitted from the actual OVSDB update operation.
+			expectedError: "", // No error expected from validateModel for this specific case.
+		},
+		{
+			name: "update with only immutable field",
+			updateModelFn: func(current *testBridge) *testBridge {
+				// Model with a non-default immutable field and default mutable fields
+				modelToUpdate := &testBridge{
+					UUID: current.UUID,                     // For Where() condition
+					Name: "attempting-to-change-name-only", // This is immutable
+				}
+				return modelToUpdate
+			},
+			// When we specify Name field for Update, it will check if Name is mutable first
+			// This will return a ValidationError now
+			expectedError: "unable to update field name of table Bridge as it is not mutable",
+			useFieldNames: []string{"Name"},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run("Update_"+tc.name, func(t *testing.T) {
+			currentBridgeState := getFreshBridgeStateFromCache(t)
+			modelToUpdateWith := tc.updateModelFn(currentBridgeState)
+
+			// Prepare field pointers if specific field names were specified
+			var fieldPointers []interface{}
+			if len(tc.useFieldNames) > 0 {
+				for _, fieldName := range tc.useFieldNames {
+					switch fieldName {
+					case "Name":
+						fieldPointers = append(fieldPointers, &modelToUpdateWith.Name)
+					case "DatapathType":
+						fieldPointers = append(fieldPointers, &modelToUpdateWith.DatapathType)
+					case "DatapathVersion":
+						fieldPointers = append(fieldPointers, &modelToUpdateWith.DatapathVersion)
+					case "FailMode":
+						fieldPointers = append(fieldPointers, &modelToUpdateWith.FailMode)
+					case "STPEnable":
+						fieldPointers = append(fieldPointers, &modelToUpdateWith.STPEnable)
+					case "FloodVLANs":
+						fieldPointers = append(fieldPointers, &modelToUpdateWith.FloodVLANs)
+					case "FlowTables":
+						fieldPointers = append(fieldPointers, &modelToUpdateWith.FlowTables)
+					case "Protocols":
+						fieldPointers = append(fieldPointers, &modelToUpdateWith.Protocols)
+						// Add other fields as needed
+					}
+				}
+			}
+
+			// Condition to select the object to update
+			condAPI := api.Where(&testBridge{UUID: initialBridgeUUID}) // Use initial UUID for condition
+
+			var ops []ovsdb.Operation
+			var err error
+
+			// Use fieldPointers if provided, otherwise do standard update
+			if len(fieldPointers) > 0 {
+				ops, err = condAPI.Update(modelToUpdateWith, fieldPointers...)
+			} else {
+				ops, err = condAPI.Update(modelToUpdateWith)
+			}
+
+			if tc.expectedError != "" {
+				require.Error(t, err, "Expected an error for test case: %s", tc.name)
+				var validationErr *ValidationError
+				// Check for ValidationError type - now all the immutable field errors
+				// and validation-related errors should use this type
+				if assert.ErrorAs(t, err, &validationErr, "Error should be a ValidationError for: %s", tc.name) {
+					assert.Contains(t, validationErr.Error(), tc.expectedError, "ValidationError message mismatch for: %s. New error: %s", tc.name, validationErr.Error())
+				} else {
+					// For non-validation errors (should be rare now)
+					assert.Contains(t, err.Error(), tc.expectedError, "Error message mismatch for: %s", tc.name)
+				}
+				assert.Nil(t, ops, "Operations should be nil on error for: %s", tc.name)
+			} else {
+				require.NoError(t, err, "Expected no error for test case: %s", tc.name)
+				assert.NotNil(t, ops, "Operations should not be nil for valid case: %s", tc.name)
+				require.GreaterOrEqual(t, len(ops), 1, "Need at least one operation for: %s", tc.name)
+				assert.Equal(t, string(ovsdb.OperationUpdate), ops[0].Op, "Operation should be update for: %s", tc.name)
+				// Further checks for row content, ensuring immutable fields are not in ops[0].Row etc.
+				// For example, Name should not be in ops[0].Row if it was in modelToUpdateWith for a valid case.
+				if modelToUpdateWith.Name != initialBridge.Name { // If an attempt was made to change Name
+					_, nameInOpRow := ops[0].Row["name"]
+					assert.False(t, nameInOpRow, "Immutable field 'Name' should not be in the update operation row for: %s", tc.name)
+				}
+			}
+		})
+	}
+}
