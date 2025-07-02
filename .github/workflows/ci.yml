@@ -2,72 +2,71 @@ name: libovsdb-ci
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   build:
     name: Build & Unit Test
     runs-on: ubuntu-latest
     steps:
+      - name: Set up Go 1.18
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.18
+        id: go
 
-    - name: Set up Go 1.18
-      uses: actions/setup-go@v2
-      with:
-        go-version: 1.18
-      id: go
+      - name: Install benchstat
+        run: go install golang.org/x/perf/cmd/benchstat@latest
 
-    - name: Install benchstat
-      run:  go install golang.org/x/perf/cmd/benchstat@latest
+      - name: Check out code into the Go module directory
+        uses: actions/checkout@v4
 
-    - name: Check out code into the Go module directory
-      uses: actions/checkout@v2
+      - name: Generate Code
+        run: make prebuild
 
-    - name: Generate Code
-      run: make prebuild
+      # This cannot be run in parallel because we require running go-generate first
+      # We need to skip the go installation and caching to avoid "File exists" errors in tbe logs
+      - name: Lint
+        run: make lint
 
-    # This cannot be run in parallel because we require running go-generate first
-    # We need to skip the go installation and caching to avoid "File exists" errors in tbe logs
-    - name: Lint
-      run: make lint
+      - name: Build
+        run: make build
 
-    - name: Build
-      run: make build
+      - name: Test
+        run: make test
 
-    - name: Test
-      run: make test
+      - name: Test
+        run: make integration-test
 
-    - name: Test
-      run: make integration-test
+      - name: Generate coverage
+        run: make coverage
 
-    - name: Generate coverage
-      run: make coverage
+      - name: Upload test coverage
+        uses: shogo82148/actions-goveralls@v1
+        with:
+          path-to-profile: profile.cov
 
-    - name: Upload test coverage
-      uses: shogo82148/actions-goveralls@v1
-      with:
-        path-to-profile: profile.cov
+      - name: Benchmark
+        run: make bench
 
-    - name: Benchmark
-      run: make bench
+      - name: Restore Latest Main Benchmark
+        id: old-benchmark
+        uses: actions/cache@v4
+        with:
+          path: bench-main.out
+          key: benchmark-main-${{ hashfiles('**/*.go') }}
+          restore-keys: |
+            benchmark-main-
 
-    - name: Restore Latest Main Benchmark
-      id: old-benchmark
-      uses: actions/cache@v2
-      with:
-        path: bench-main.out
-        key: benchmark-main-${{ hashfiles('**/*.go') }}
-        restore-keys: |
-          benchmark-main-
+      - name: Compare Benchmarks
+        if: hashFiles('bench-main.out') != ''
+        run: benchstat bench-main.out bench.out
 
-    - name: Compare Benchmarks
-      if: hashFiles('bench-main.out') != ''
-      run: benchstat bench-main.out bench.out
-
-    - name: Create New Main Benchmark On Cache Miss
-      if: steps.old-benchmark.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
-      run: cp -f bench.out bench-main.out
+      - name: Create New Main Benchmark On Cache Miss
+        if: steps.old-benchmark.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+        run: cp -f bench.out bench-main.out
 
   test:
     name: Integration Test
@@ -80,18 +79,18 @@ jobs:
           - 2.13.0
 
     runs-on: ubuntu-latest
-    
+
     steps:
-    - name: Set up Go 1.18
-      uses: actions/setup-go@v1
-      with:
-        go-version: 1.18
-      id: go
+      - name: Set up Go 1.18
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.18
+        id: go
 
-    - name: Check out code into the Go module directory
-      uses: actions/checkout@v2
+      - name: Check out code into the Go module directory
+        uses: actions/checkout@v4
 
-    - name: Integration Test
-      run: make integration-test
-      env:
-        OVS_IMAGE_TAG: ${{ matrix.ovs_version }}
+      - name: Integration Test
+        run: make integration-test
+        env:
+          OVS_IMAGE_TAG: ${{ matrix.ovs_version }}
