@@ -18,7 +18,7 @@ jobs:
         id: go
 
       - name: Install benchstat
-        run: go install golang.org/x/perf/cmd/benchstat@latest
+        run: go install golang.org/x/perf/cmd/benchstat@35ce918200397a6ae0d8cf3f7699c1a965346eda
 
       - name: Check out code into the Go module directory
         uses: actions/checkout@v4
