@@ -9,8 +9,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/ovn-org/libovsdb/modelgen"
-	"github.com/ovn-org/libovsdb/ovsdb"
+	"github.com/ovn-kubernetes/libovsdb/modelgen"
+	"github.com/ovn-kubernetes/libovsdb/ovsdb"
 )
 
 func usage() {

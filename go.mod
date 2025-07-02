@@ -1,4 +1,4 @@
-module github.com/ovn-org/libovsdb
+module github.com/ovn-kubernetes/libovsdb
 
 go 1.18
 

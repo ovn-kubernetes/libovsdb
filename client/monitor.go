@@ -5,8 +5,8 @@ import (
 	"reflect"
 
 	"github.com/google/uuid"
-	"github.com/ovn-org/libovsdb/model"
-	"github.com/ovn-org/libovsdb/ovsdb"
+	"github.com/ovn-kubernetes/libovsdb/model"
+	"github.com/ovn-kubernetes/libovsdb/ovsdb"
 )
 
 const emptyUUID = "00000000-0000-0000-0000-000000000000"

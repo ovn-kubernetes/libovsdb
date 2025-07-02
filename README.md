@@ -1,7 +1,6 @@
-libovsdb
-========
+# libovsdb
 
-[![libovsdb-ci](https://github.com/ovn-org/libovsdb/actions/workflows/ci.yml/badge.svg)](https://github.com/ovn-org/libovsdb/actions/workflows/ci.yml) [![Coverage Status](https://coveralls.io/repos/github/ovn-org/libovsdb/badge.svg?branch=main)](https://coveralls.io/github/ovn-org/libovsdb?branch=main) [![Go Report Card](https://goreportcard.com/badge/github.com/ovn-org/libovsdb)](https://goreportcard.com/report/github.com/ovn-org/libovsdb)
+[![libovsdb-ci](https://github.com/ovn-kubernetes/libovsdb/actions/workflows/ci.yml/badge.svg)](https://github.com/ovn-kubernetes/libovsdb/actions/workflows/ci.yml) [![Coverage Status](https://coveralls.io/repos/github/ovn-org/libovsdb/badge.svg?branch=main)](https://coveralls.io/github/ovn-org/libovsdb?branch=main) [![Go Report Card](https://goreportcard.com/badge/github.com/ovn-kubernetes/libovsdb)](https://goreportcard.com/report/github.com/ovn-kubernetes/libovsdb)
 
 An OVSDB Library written in Go
 
@@ -38,12 +37,10 @@ A Open vSwitch Database is modeled using a ClientDBModel which is a created by a
                 "Logical_Switch": &MyLogicalSwitch{},
     })
 
-
 Finally, a client object can be created:
 
     ovs, _ := client.Connect(context.Background(), dbModelReq, client.WithEndpoint("tcp:172.18.0.4:6641"))
     client.MonitorAll(nil) // Only needed if you want to use the built-in cache
-
 
 Once the client object is created, a generic API can be used to interact with the Database. Some API calls can be performed on the generic API: `List`, `Get`, `Create`.
 
@@ -68,10 +65,10 @@ to a Model's field, a `ovsdb.ConditionFunction` and a value. The type of the val
           Value: map[string]string{"foo": "bar"},
       }).Delete()
 
-The resulting `ConditionalAPI` will create one operation per condition, so all the rows that match *any* of the specified conditions will be affected.
+The resulting `ConditionalAPI` will create one operation per condition, so all the rows that match _any_ of the specified conditions will be affected.
 
-**WhereAll()**: `WhereAll()` behaves like `WhereAny()` but with *AND* semantics. The resulting `ConditionalAPI` will put all the
-conditions into a single operation. Therefore the operation will affect the rows that satisfy *all* the conditions.
+**WhereAll()**: `WhereAll()` behaves like `WhereAny()` but with _AND_ semantics. The resulting `ConditionalAPI` will put all the
+conditions into a single operation. Therefore the operation will affect the rows that satisfy _all_ the conditions.
 
 **WhereCache()**: `WhereCache()` uses a function callback to filter on the local cache. It's primary use is to perform cache operations such as
 `List()`. However, it can also be used to create server-side operations (such as `Delete()`, `Update()` or `Delete()`). If used this way, it will
@@ -91,6 +88,7 @@ The client will track schema indexes and use them when appropriate in `Get`, `Wh
 
 Additional indexes can be specified for a client instance to track. Just as schema indexes, client indexes are specified in sets per table.
 where each set consists of the columns that compose the index. However, unlike schema indexes, client indexes:
+
 - can be used with columns that are maps, where specific map keys can be indexed (see example below).
 - can be used with columns that are optional, where no-value columns are indexed as well.
 
@@ -125,35 +123,35 @@ can now be improved with:
 
 This package is divided into several sub-packages. Documentation for each sub-package is available at [pkg.go.dev][doc]:
 
-* **client**: ovsdb client and API [![godoc for libovsdb/client][clientbadge]][clientdoc]
-* **mapper**: mapping from tagged structs to ovsdb types [![godoc for libovsdb/mapper][mapperbadge]][mapperdoc]
-* **model**: model and database model used for mapping [![godoc for libovsdb/model][modelbadge]][modeldoc]
-* **ovsdb**: low level OVS types [![godoc for libovsdb/ovsdb][ovsdbbadge]][ovsdbdoc]
-* **cache**: model-based cache [![godoc for libovsdb/cache][cachebadge]][cachedoc]
-* **modelgen**: common code-generator functions  [![godoc for libovsdb/modelgen][genbadge]][gendoc]
-* **server**: ovsdb test server [![godoc for libovsdb/server][serverbadge]][serverdoc]
-* **database**: database related types, interfaces and implementations [![godoc for libovsdb/database][dbbadge]][dbdoc]
-* **updates**: common code to handle model updates [![godoc for libovsdb/updates][updatesbadge]][updatesdoc]
+- **client**: ovsdb client and API [![godoc for libovsdb/client][clientbadge]][clientdoc]
+- **mapper**: mapping from tagged structs to ovsdb types [![godoc for libovsdb/mapper][mapperbadge]][mapperdoc]
+- **model**: model and database model used for mapping [![godoc for libovsdb/model][modelbadge]][modeldoc]
+- **ovsdb**: low level OVS types [![godoc for libovsdb/ovsdb][ovsdbbadge]][ovsdbdoc]
+- **cache**: model-based cache [![godoc for libovsdb/cache][cachebadge]][cachedoc]
+- **modelgen**: common code-generator functions [![godoc for libovsdb/modelgen][genbadge]][gendoc]
+- **server**: ovsdb test server [![godoc for libovsdb/server][serverbadge]][serverdoc]
+- **database**: database related types, interfaces and implementations [![godoc for libovsdb/database][dbbadge]][dbdoc]
+- **updates**: common code to handle model updates [![godoc for libovsdb/updates][updatesbadge]][updatesdoc]
 
 [doc]: https://pkg.go.dev/
-[clientbadge]: https://pkg.go.dev/badge/github.com/ovn-org/libovsdb/client
-[mapperbadge]: https://pkg.go.dev/badge/github.com/ovn-org/libovsdb/mapper
-[modelbadge]: https://pkg.go.dev/badge/github.com/ovn-org/libovsdb/model
-[ovsdbbadge]: https://pkg.go.dev/badge/github.com/ovn-org/libovsdb/ovsdb
-[cachebadge]: https://pkg.go.dev/badge/github.com/ovn-org/libovsdb/cache
-[genbadge]: https://pkg.go.dev/badge/github.com/ovn-org/libovsdb/modelgen
-[serverbadge]: https://pkg.go.dev/badge/github.com/ovn-org/libovsdb/server
-[dbbadge]: https://pkg.go.dev/badge/github.com/ovn-org/libovsdb/database
-[updatesbadge]: https://pkg.go.dev/badge/github.com/ovn-org/libovsdb/server
-[clientdoc]: https://pkg.go.dev/github.com/ovn-org/libovsdb/client
-[mapperdoc]: https://pkg.go.dev/github.com/ovn-org/libovsdb/mapper
-[modeldoc]: https://pkg.go.dev/github.com/ovn-org/libovsdb/model
-[ovsdbdoc]: https://pkg.go.dev/github.com/ovn-org/libovsdb/ovsdb
-[cachedoc]: https://pkg.go.dev/github.com/ovn-org/libovsdb/cache
-[gendoc]: https://pkg.go.dev/github.com/ovn-org/libovsdb/modelgen
-[serverdoc]: https://pkg.go.dev/github.com/ovn-org/libovsdb/server
-[dbdoc]: https://pkg.go.dev/github.com/ovn-org/libovsdb/database
-[updatesdoc]: https://pkg.go.dev/github.com/ovn-org/libovsdb/updates
+[clientbadge]: https://pkg.go.dev/badge/github.com/ovn-kubernetes/libovsdb/client
+[mapperbadge]: https://pkg.go.dev/badge/github.com/ovn-kubernetes/libovsdb/mapper
+[modelbadge]: https://pkg.go.dev/badge/github.com/ovn-kubernetes/libovsdb/model
+[ovsdbbadge]: https://pkg.go.dev/badge/github.com/ovn-kubernetes/libovsdb/ovsdb
+[cachebadge]: https://pkg.go.dev/badge/github.com/ovn-kubernetes/libovsdb/cache
+[genbadge]: https://pkg.go.dev/badge/github.com/ovn-kubernetes/libovsdb/modelgen
+[serverbadge]: https://pkg.go.dev/badge/github.com/ovn-kubernetes/libovsdb/server
+[dbbadge]: https://pkg.go.dev/badge/github.com/ovn-kubernetes/libovsdb/database
+[updatesbadge]: https://pkg.go.dev/badge/github.com/ovn-kubernetes/libovsdb/server
+[clientdoc]: https://pkg.go.dev/github.com/ovn-kubernetes/libovsdb/client
+[mapperdoc]: https://pkg.go.dev/github.com/ovn-kubernetes/libovsdb/mapper
+[modeldoc]: https://pkg.go.dev/github.com/ovn-kubernetes/libovsdb/model
+[ovsdbdoc]: https://pkg.go.dev/github.com/ovn-kubernetes/libovsdb/ovsdb
+[cachedoc]: https://pkg.go.dev/github.com/ovn-kubernetes/libovsdb/cache
+[gendoc]: https://pkg.go.dev/github.com/ovn-kubernetes/libovsdb/modelgen
+[serverdoc]: https://pkg.go.dev/github.com/ovn-kubernetes/libovsdb/server
+[dbdoc]: https://pkg.go.dev/github.com/ovn-kubernetes/libovsdb/database
+[updatesdoc]: https://pkg.go.dev/github.com/ovn-kubernetes/libovsdb/updates
 
 ## Quick API Examples
 
@@ -248,14 +246,13 @@ You can also register a notification handler to get notified every time an eleme
     }
     ovs.Cache.AddEventHandler(handler)
 
-
 ## modelgen
 
 In this repository there is also a code-generator capable of generating all the Model types for a given ovsdb schema (json) file.
 
 It can be used as follows:
 
-    go install github.com/ovn-org/libovsdb/cmd/modelgen
+    go install github.com/ovn-kubernetes/libovsdb/cmd/modelgen
 
     $GOPATH/bin/modelgen -p ${PACKAGE_NAME} -o {OUT_DIR} ${OVSDB_SCHEMA}
     Usage of modelgen:
@@ -285,16 +282,15 @@ Run `go generate`
     EOF
     go generate ./...
 
-
 In your application, load the ClientDBModel, connect to the server and start interacting with the database:
 
     import (
         "fmt"
-        "github.com/ovn-org/libovsdb/client"
+        "github.com/ovn-kubernetes/libovsdb/client"
 
         generated "example.com/example/mypackage"
     )
-    
+
     func main() {
         dbModelReq, _ := generated.FullDatabaseModel()
         ovs, _ := client.Connect(context.Background(), dbModelReq, client.WithEndpoint("tcp:localhost:6641"))
@@ -307,7 +303,6 @@ In your application, load the ClientDBModel, connect to the server and start int
         ovs.Get(lr)
         fmt.Printf("My Router has UUID: %s and %d Ports\n", lr.UUID, len(lr.Ports))
     }
-
 
 ## Running the tests
 
@@ -328,5 +323,5 @@ is shown above. In other words, it will start the two containers and execute
 
 ## Contact
 
-The libovsdb community is part of ovn-org and can be contacted in the *#libovsdb* channel in
+The libovsdb community is part of ovn-org and can be contacted in the _#libovsdb_ channel in
 [ovn-org Slack server](https://ovn-org.slack.com)

@@ -3,9 +3,9 @@ package updates
 import (
 	"fmt"
 
-	"github.com/ovn-org/libovsdb/database"
-	"github.com/ovn-org/libovsdb/model"
-	"github.com/ovn-org/libovsdb/ovsdb"
+	"github.com/ovn-kubernetes/libovsdb/database"
+	"github.com/ovn-kubernetes/libovsdb/model"
+	"github.com/ovn-kubernetes/libovsdb/ovsdb"
 )
 
 // ReferenceProvider should be implemented by a database that tracks references

@@ -1,12 +1,11 @@
-HACKING
-=======
+# HACKING
 
 ## Getting Set Up
 
 Assuming you already have a Go environment set up.
 
-    go get github.com/ovn-org/libovsdb
-    cd $GOPATH/src/github.com/ovn-org/libovsdb
+    go get github.com/ovn-kubernetes/libovsdb
+    cd $GOPATH/src/github.com/ovn-kubernetes/libovsdb
 
 You can use [`hub`](https://hub.github.com) to fork the repo
 
@@ -19,9 +18,7 @@ You can use [`hub`](https://hub.github.com) to fork the repo
 ## Hacking
 
 Pull a local branch before you start developing.
-Convention for branches is
-    - `bug/1234` for a branch that addresses a specific bug
-    - `feature/awesome` for a branch that implements an awesome feature
+Convention for branches is - `bug/1234` for a branch that addresses a specific bug - `feature/awesome` for a branch that implements an awesome feature
 
 If your work is a minor, you can call the branch whatever you like (within reason).
 
