@@ -1,6 +1,6 @@
 module github.com/ovn-kubernetes/libovsdb
 
-go 1.18
+go 1.22.0
 
 require (
 	github.com/cenkalti/backoff/v4 v4.1.3
