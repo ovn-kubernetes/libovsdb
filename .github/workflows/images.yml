@@ -17,12 +17,12 @@ jobs:
         image:
           - ovs_version: master
             tag: latest
-          - ovs_version: v2.15.0
-            tag: 2.15.0
-          - ovs_version: v2.14.0
-            tag: 2.14.0
-          - ovs_version: v2.13.0
-            tag: 2.13.0
+          - ovs_version: v3.5.0
+            tag: 3.5.0
+          - ovs_version: v3.4.0
+            tag: 3.4.0
+          - ovs_version: v3.3.0
+            tag: 3.3.0
 
     steps:
       - name: Check Out Repo
