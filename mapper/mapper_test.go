@@ -7,6 +7,7 @@ import (
 
 	"github.com/ovn-kubernetes/libovsdb/ovsdb"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -226,10 +227,10 @@ func TestMapperGetData(t *testing.T) {
 		NonTagged: "something",
 	}
 	testInfo, err := NewInfo("TestTable", schema.Table("TestTable"), &test)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	err = mapper.GetRowData(&ovsRow, testInfo)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	/*End code under test*/
 
 	if err != nil {
@@ -246,7 +247,7 @@ func TestMapperNewRow(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		objInput    interface{}
+		objInput    any
 		expectedRow ovsdb.Row
 		shoulderr   bool
 	}{{
@@ -256,7 +257,7 @@ func TestMapperNewRow(t *testing.T) {
 		}{
 			AString: aString,
 		},
-		expectedRow: ovsdb.Row(map[string]interface{}{"aString": aString}),
+		expectedRow: ovsdb.Row(map[string]any{"aString": aString}),
 	}, {
 		name: "set",
 		objInput: &struct {
@@ -264,7 +265,7 @@ func TestMapperNewRow(t *testing.T) {
 		}{
 			SomeSet: aSet,
 		},
-		expectedRow: ovsdb.Row(map[string]interface{}{"aSet": testOvsSet(t, aSet)}),
+		expectedRow: ovsdb.Row(map[string]any{"aSet": testOvsSet(t, aSet)}),
 	}, {
 		name: "emptySet with no column specification",
 		objInput: &struct {
@@ -272,7 +273,7 @@ func TestMapperNewRow(t *testing.T) {
 		}{
 			EmptySet: []string{},
 		},
-		expectedRow: ovsdb.Row(map[string]interface{}{}),
+		expectedRow: ovsdb.Row(map[string]any{}),
 	}, {
 		name: "UUID",
 		objInput: &struct {
@@ -280,7 +281,7 @@ func TestMapperNewRow(t *testing.T) {
 		}{
 			MyUUID: aUUID0,
 		},
-		expectedRow: ovsdb.Row(map[string]interface{}{"aUUID": ovsdb.UUID{GoUUID: aUUID0}}),
+		expectedRow: ovsdb.Row(map[string]any{"aUUID": ovsdb.UUID{GoUUID: aUUID0}}),
 	}, {
 		name: "aUUIDSet",
 		objInput: &struct {
@@ -288,7 +289,7 @@ func TestMapperNewRow(t *testing.T) {
 		}{
 			MyUUIDSet: []string{aUUID0, aUUID1},
 		},
-		expectedRow: ovsdb.Row(map[string]interface{}{"aUUIDSet": testOvsSet(t, []ovsdb.UUID{{GoUUID: aUUID0}, {GoUUID: aUUID1}})}),
+		expectedRow: ovsdb.Row(map[string]any{"aUUIDSet": testOvsSet(t, []ovsdb.UUID{{GoUUID: aUUID0}, {GoUUID: aUUID1}})}),
 	}, {
 		name: "aIntSet",
 		objInput: &struct {
@@ -296,7 +297,7 @@ func TestMapperNewRow(t *testing.T) {
 		}{
 			MyIntSet: []int{0, 42},
 		},
-		expectedRow: ovsdb.Row(map[string]interface{}{"aIntSet": testOvsSet(t, []int{0, 42})}),
+		expectedRow: ovsdb.Row(map[string]any{"aIntSet": testOvsSet(t, []int{0, 42})}),
 	}, {
 		name: "aFloat",
 		objInput: &struct {
@@ -304,7 +305,7 @@ func TestMapperNewRow(t *testing.T) {
 		}{
 			MyFloat: 42.42,
 		},
-		expectedRow: ovsdb.Row(map[string]interface{}{"aFloat": 42.42}),
+		expectedRow: ovsdb.Row(map[string]any{"aFloat": 42.42}),
 	}, {
 		name: "aFloatSet",
 		objInput: &struct {
@@ -312,7 +313,7 @@ func TestMapperNewRow(t *testing.T) {
 		}{
 			MyFloatSet: aFloatSet,
 		},
-		expectedRow: ovsdb.Row(map[string]interface{}{"aFloatSet": testOvsSet(t, aFloatSet)}),
+		expectedRow: ovsdb.Row(map[string]any{"aFloatSet": testOvsSet(t, aFloatSet)}),
 	}, {
 		name: "Enum",
 		objInput: &struct {
@@ -320,7 +321,7 @@ func TestMapperNewRow(t *testing.T) {
 		}{
 			MyEnum: aEnum,
 		},
-		expectedRow: ovsdb.Row(map[string]interface{}{"aEnum": aEnum}),
+		expectedRow: ovsdb.Row(map[string]any{"aEnum": aEnum}),
 	}, {
 		name: "untagged fields should not affect row",
 		objInput: &struct {
@@ -330,7 +331,7 @@ func TestMapperNewRow(t *testing.T) {
 			AString: aString,
 			MyStuff: map[string]string{"this is": "private"},
 		},
-		expectedRow: ovsdb.Row(map[string]interface{}{"aString": aString}),
+		expectedRow: ovsdb.Row(map[string]any{"aString": aString}),
 	}, {
 		name: "Maps",
 		objInput: &struct {
@@ -338,19 +339,19 @@ func TestMapperNewRow(t *testing.T) {
 		}{
 			MyMap: aMap,
 		},
-		expectedRow: ovsdb.Row(map[string]interface{}{"aMap": testOvsMap(t, aMap)}),
+		expectedRow: ovsdb.Row(map[string]any{"aMap": testOvsMap(t, aMap)}),
 	},
 	}
 	for _, test := range tests {
 		t.Run(fmt.Sprintf("NewRow: %s", test.name), func(t *testing.T) {
 			mapper := NewMapper(schema)
 			info, err := NewInfo("TestTable", schema.Table("TestTable"), test.objInput)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			row, err := mapper.NewRow(info)
 			if test.shoulderr {
-				assert.NotNil(t, err)
+				require.Error(t, err)
 			} else {
-				assert.Nil(t, err)
+				require.NoError(t, err)
 				assert.Equalf(t, test.expectedRow, row, "NewRow should match expected")
 			}
 		})
@@ -375,45 +376,45 @@ func TestMapperNewRowFields(t *testing.T) {
 		name        string
 		prepare     func(*obj)
 		expectedRow ovsdb.Row
-		fields      []interface{}
+		fields      []any
 		err         bool
 	}{{
 		name: "string",
 		prepare: func(o *obj) {
 			o.MyString = aString
 		},
-		expectedRow: ovsdb.Row(map[string]interface{}{"aString": aString}),
+		expectedRow: ovsdb.Row(map[string]any{"aString": aString}),
 	}, {
 		name: "empty string with field specification",
 		prepare: func(o *obj) {
 			o.MyString = ""
 		},
-		fields:      []interface{}{&testObj.MyString},
-		expectedRow: ovsdb.Row(map[string]interface{}{"aString": ""}),
+		fields:      []any{&testObj.MyString},
+		expectedRow: ovsdb.Row(map[string]any{"aString": ""}),
 	}, {
 		name: "empty set without field specification",
-		prepare: func(o *obj) {
+		prepare: func(_ *obj) {
 		},
-		expectedRow: ovsdb.Row(map[string]interface{}{}),
+		expectedRow: ovsdb.Row(map[string]any{}),
 	}, {
 		name: "empty set without field specification",
-		prepare: func(o *obj) {
+		prepare: func(_ *obj) {
 		},
-		fields:      []interface{}{&testObj.MySet},
-		expectedRow: ovsdb.Row(map[string]interface{}{"aSet": testOvsSet(t, []string{})}),
+		fields:      []any{&testObj.MySet},
+		expectedRow: ovsdb.Row(map[string]any{"aSet": testOvsSet(t, []string{})}),
 	}, {
 		name: "empty maps",
 		prepare: func(o *obj) {
 			o.MyString = "foo"
 		},
-		expectedRow: ovsdb.Row(map[string]interface{}{"aString": aString}),
+		expectedRow: ovsdb.Row(map[string]any{"aString": aString}),
 	}, {
 		name: "empty maps with field specification",
 		prepare: func(o *obj) {
 			o.MyString = "foo"
 		},
-		fields:      []interface{}{&testObj.MyMap},
-		expectedRow: ovsdb.Row(map[string]interface{}{"aMap": testOvsMap(t, map[string]string{})}),
+		fields:      []any{&testObj.MyMap},
+		expectedRow: ovsdb.Row(map[string]any{"aMap": testOvsMap(t, map[string]string{})}),
 	}, {
 		name: "Complex object with field selection",
 		prepare: func(o *obj) {
@@ -422,8 +423,8 @@ func TestMapperNewRowFields(t *testing.T) {
 			o.MySet = aSet
 			o.MyFloat = aFloat
 		},
-		fields:      []interface{}{&testObj.MyMap, &testObj.MySet},
-		expectedRow: ovsdb.Row(map[string]interface{}{"aMap": testOvsMap(t, aMap), "aSet": testOvsSet(t, aSet)}),
+		fields:      []any{&testObj.MyMap, &testObj.MySet},
+		expectedRow: ovsdb.Row(map[string]any{"aMap": testOvsMap(t, aMap), "aSet": testOvsSet(t, aSet)}),
 	},
 	}
 
@@ -438,12 +439,12 @@ func TestMapperNewRowFields(t *testing.T) {
 
 			test.prepare(&testObj)
 			info, err := NewInfo("TestTable", schema.Table("TestTable"), &testObj)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			row, err := mapper.NewRow(info, test.fields...)
 			if test.err {
-				assert.NotNil(t, err)
+				require.Error(t, err)
 			} else {
-				assert.Nil(t, err)
+				require.NoError(t, err)
 				assert.Equalf(t, test.expectedRow, row, "NewRow should match expected")
 			}
 		})
@@ -502,7 +503,7 @@ func TestMapperCondition(t *testing.T) {
 		name     string
 		prepare  func(*testType)
 		expected []ovsdb.Condition
-		index    []interface{}
+		index    []any
 		err      bool
 	}
 	testObj := testType{}
@@ -517,7 +518,7 @@ func TestMapperCondition(t *testing.T) {
 				t.Comp1 = ""
 				t.Comp2 = ""
 			},
-			index:    []interface{}{},
+			index:    []any{},
 			expected: []ovsdb.Condition{{Column: "name", Function: ovsdb.ConditionEqual, Value: "foo"}},
 			err:      false,
 		},
@@ -530,7 +531,7 @@ func TestMapperCondition(t *testing.T) {
 				t.Comp1 = ""
 				t.Comp2 = ""
 			},
-			index:    []interface{}{},
+			index:    []any{},
 			expected: []ovsdb.Condition{{Column: "_uuid", Function: ovsdb.ConditionEqual, Value: ovsdb.UUID{GoUUID: aUUID0}}},
 			err:      false,
 		},
@@ -543,7 +544,7 @@ func TestMapperCondition(t *testing.T) {
 				t.Comp1 = ""
 				t.Comp2 = ""
 			},
-			index:    []interface{}{&testObj.MyName},
+			index:    []any{&testObj.MyName},
 			expected: []ovsdb.Condition{{Column: "name", Function: ovsdb.ConditionEqual, Value: "foo"}},
 			err:      false,
 		},
@@ -559,7 +560,7 @@ func TestMapperCondition(t *testing.T) {
 			expected: []ovsdb.Condition{
 				{Column: "composed_1", Function: ovsdb.ConditionEqual, Value: "foo"},
 				{Column: "composed_2", Function: ovsdb.ConditionEqual, Value: "bar"}},
-			index: []interface{}{},
+			index: []any{},
 			err:   false,
 		},
 		{
@@ -572,7 +573,7 @@ func TestMapperCondition(t *testing.T) {
 				t.Comp2 = "bar"
 			},
 			expected: []ovsdb.Condition{{Column: "name", Function: ovsdb.ConditionEqual, Value: "something"}},
-			index:    []interface{}{},
+			index:    []any{},
 			err:      false,
 		},
 		{
@@ -584,7 +585,7 @@ func TestMapperCondition(t *testing.T) {
 				t.Comp1 = ""
 				t.Comp2 = ""
 			},
-			index: []interface{}{},
+			index: []any{},
 			err:   true,
 		},
 	}
@@ -592,7 +593,7 @@ func TestMapperCondition(t *testing.T) {
 		t.Run(fmt.Sprintf("newEqualityCondition_%s", tt.name), func(t *testing.T) {
 			tt.prepare(&testObj)
 			info, err := NewInfo("TestTable", schema.Table("TestTable"), &testObj)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 
 			conds, err := mapper.NewEqualityCondition(info, tt.index...)
 			if tt.err {
@@ -846,11 +847,11 @@ func TestMapperEqualIndexes(t *testing.T) {
 	for _, test := range tests {
 		t.Run(fmt.Sprintf("Equal %s", test.name), func(t *testing.T) {
 			info1, err := NewInfo("TestTable", schema.Table("TestTable"), &test.obj1)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			info2, err := NewInfo("TestTable", schema.Table("TestTable"), &test.obj2)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			eq, err := mapper.equalIndexes(info1, info2, test.indexes...)
-			assert.Nil(t, err)
+			require.NoError(t, err)
 			assert.Equalf(t, test.expected, eq, "equal value should match expected")
 		})
 	}
@@ -873,15 +874,15 @@ func TestMapperEqualIndexes(t *testing.T) {
 		Int2:   25,
 	}
 	info1, err := NewInfo("TestTable", schema.Table("TestTable"), &obj1)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	info2, err := NewInfo("TestTable", schema.Table("TestTable"), &obj2)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	eq, err := mapper.EqualFields(info1, info2, &obj1.Int1, &obj1.Int2)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 	assert.True(t, eq)
 	// Using pointers to second value is not supported
 	_, err = mapper.EqualFields(info1, info2, &obj2.Int1, &obj2.Int2)
-	assert.NotNil(t, err)
+	require.Error(t, err)
 
 }
 
@@ -945,7 +946,7 @@ func TestMapperMutation(t *testing.T) {
 		obj      testType
 		expected *ovsdb.Mutation
 		mutator  ovsdb.Mutator
-		value    interface{}
+		value    any
 		err      bool
 	}
 	tests := []Test{
@@ -1031,7 +1032,7 @@ func TestMapperMutation(t *testing.T) {
 	for _, test := range tests {
 		t.Run(fmt.Sprintf("newMutation%s", test.name), func(t *testing.T) {
 			info, err := NewInfo("TestTable", schema.Table("TestTable"), &test.obj)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 
 			mutation, err := mapper.NewMutation(info, test.column, test.mutator, test.value)
 			if test.err {
@@ -1049,14 +1050,14 @@ func TestMapperMutation(t *testing.T) {
 	}
 }
 
-func testOvsSet(t *testing.T, set interface{}) ovsdb.OvsSet {
+func testOvsSet(t *testing.T, set any) ovsdb.OvsSet {
 	oSet, err := ovsdb.NewOvsSet(set)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 	return oSet
 }
 
-func testOvsMap(t *testing.T, set interface{}) ovsdb.OvsMap {
+func testOvsMap(t *testing.T, set any) ovsdb.OvsMap {
 	oMap, err := ovsdb.NewOvsMap(set)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 	return oMap
 }

@@ -493,22 +493,22 @@ var schema = `{
 	}
   }`
 
-func testOvsSet(t *testing.T, set interface{}) ovsdb.OvsSet {
+func testOvsSet(t *testing.T, set any) ovsdb.OvsSet {
 	oSet, err := ovsdb.NewOvsSet(set)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 	return oSet
 }
 
-func testOvsMap(t *testing.T, set interface{}) ovsdb.OvsMap {
+func testOvsMap(t *testing.T, set any) ovsdb.OvsMap {
 	oMap, err := ovsdb.NewOvsMap(set)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 	return oMap
 }
 
 func updateBenchmark(ovs *ovsdbClient, updates []byte, b *testing.B) {
 	for n := 0; n < b.N; n++ {
 		params := []json.RawMessage{[]byte(`{"databaseName":"Open_vSwitch","id":"v1"}`), updates}
-		var reply []interface{}
+		var reply []any
 		err := ovs.update(params, &reply)
 		if err != nil {
 			b.Fatal(err)
@@ -714,8 +714,8 @@ func BenchmarkUpdate8(b *testing.B) {
 }
 
 func TestEcho(t *testing.T) {
-	req := []interface{}{"hi"}
-	var reply []interface{}
+	req := []any{"hi"}
+	var reply []any
 	ovs, err := newOVSDBClient(defDB)
 	require.NoError(t, err)
 	err = ovs.echo(req, &reply)
@@ -742,7 +742,7 @@ func TestUpdate(t *testing.T) {
 	require.Empty(t, errs)
 	ovs.primaryDB().cache, err = cache.NewTableCache(dbModel, nil, nil)
 	require.NoError(t, err)
-	var reply []interface{}
+	var reply []any
 	update := []byte(`{
 		"Open_vSwitch": {
 			"ovs": {"new": ` + newOvsRow("foo") + `}
@@ -838,7 +838,7 @@ func TestTransactionLogger(t *testing.T) {
 
 	bridge1 := test.BridgeType{
 		Name: "foo",
-		ExternalIds: map[string]string{
+		ExternalIDs: map[string]string{
 			"foo":   "bar",
 			"baz":   "quux",
 			"waldo": "fred",
@@ -847,7 +847,7 @@ func TestTransactionLogger(t *testing.T) {
 	bridgeInfo1, err := dbModel.NewModelInfo(&bridge1)
 	require.NoError(t, err)
 	bridgeRow1, err := m.NewRow(bridgeInfo1)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	bridgeUUID1 := uuid.NewString()
 	operation1 := ovsdb.Operation{
 		Op:    ovsdb.OperationInsert,
@@ -860,7 +860,7 @@ func TestTransactionLogger(t *testing.T) {
 
 	bridge2 := test.BridgeType{
 		Name: "bar",
-		ExternalIds: map[string]string{
+		ExternalIDs: map[string]string{
 			"foo":   "bar",
 			"baz":   "quux",
 			"waldo": "fred",
@@ -869,7 +869,7 @@ func TestTransactionLogger(t *testing.T) {
 	bridgeInfo2, err := dbModel.NewModelInfo(&bridge2)
 	require.NoError(t, err)
 	bridgeRow2, err := m.NewRow(bridgeInfo2)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	bridgeUUID2 := uuid.NewString()
 	operation2 := ovsdb.Operation{
 		Op:    ovsdb.OperationInsert,
@@ -892,7 +892,7 @@ func TestOperationWhenNotConnected(t *testing.T) {
 	require.NoError(t, err)
 	var errs []error
 	fullModel, errs := model.NewDatabaseModel(s, ovs.primaryDB().model.Client())
-	require.Equalf(t, len(errs), 0, "expected no error but some occurred: %+v", errs)
+	require.Emptyf(t, errs, "expected no error but some occurred: %+v", errs)
 	ovs.primaryDB().model = fullModel
 
 	tests := []struct {
@@ -955,11 +955,12 @@ func newOVSDBServer(t *testing.T, dbModel model.ClientDBModel, schema ovsdb.Data
 	serverDBModel, err := serverdb.FullDatabaseModel()
 	require.NoError(t, err)
 	serverSchema := serverdb.Schema()
+	logger := logr.Discard()
 
 	db := inmemory.NewDatabase(map[string]model.ClientDBModel{
 		schema.Name:       dbModel,
 		serverSchema.Name: serverDBModel,
-	})
+	}, &logger)
 
 	dbMod, errs := model.NewDatabaseModel(schema, dbModel)
 	require.Empty(t, errs)
@@ -967,7 +968,7 @@ func newOVSDBServer(t *testing.T, dbModel model.ClientDBModel, schema ovsdb.Data
 	servMod, errs := model.NewDatabaseModel(serverSchema, serverDBModel)
 	require.Empty(t, errs)
 
-	server, err := server.NewOvsdbServer(db, dbMod, servMod)
+	server, err := server.NewOvsdbServer(db, &logger, dbMod, servMod)
 	require.NoError(t, err)
 
 	tmpfile := fmt.Sprintf("/tmp/ovsdb-%d.sock", rand.Intn(10000))
@@ -1023,9 +1024,9 @@ func newClientServerPair(t *testing.T, connectCounter, disConnectCounter *int32,
 		Sid:       &sid,
 	}
 	ops, err := cli.Create(row)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	reply, err := cli.Transact(context.Background(), ops...)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 	opErr, err := ovsdb.CheckOperationResults(reply, ops)
 	assert.NoErrorf(t, err, "%+v", opErr)
 
@@ -1036,9 +1037,9 @@ func newClientServerPair(t *testing.T, connectCounter, disConnectCounter *int32,
 func setLeader(t *testing.T, cli Client, row *serverdb.Database, isLeader bool) {
 	row.Leader = isLeader
 	ops, err := cli.Where(row).Update(row, &row.Leader)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	reply, err := cli.Transact(context.Background(), ops...)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	opErr, err := ovsdb.CheckOperationResults(reply, ops)
 	assert.NoErrorf(t, err, "%+v", opErr)
 }
@@ -1134,8 +1135,6 @@ loop1:
 }
 
 func TestClientReconnectLeaderOnly(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
-
 	var connected1, connected2, disConnected1, disConnected2 int32
 	cli1, row1, endpoint1 := newClientServerPair(t, &connected1, &disConnected1, true)
 	cli2, row2, endpoint2 := newClientServerPair(t, &connected2, &disConnected2, false)
@@ -1250,7 +1249,7 @@ func TestNewMonitorRequest(t *testing.T) {
 	require.NoError(t, err)
 	testTable := &testType{}
 	info, err := mapper.NewInfo("TestTable", schema.Table("TestTable"), testTable)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	mr, err := newMonitorRequest(info, nil, nil)
 	require.NoError(t, err)
 	assert.ElementsMatch(t, mr.Columns, []string{"name", "config", "composed_1", "composed_2", "int1", "int2"})
@@ -1260,7 +1259,6 @@ func TestNewMonitorRequest(t *testing.T) {
 }
 
 func TestUpdateEndpoints(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 
 	var connected1, connected2, connected3, disConnected1, disConnected2, disConnected3 int32
 	_, _, endpoint1 := newClientServerPair(t, &connected1, &disConnected1, true)

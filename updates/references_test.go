@@ -267,11 +267,11 @@ type testReferenceProvider struct {
 	references database.References
 }
 
-func (rp *testReferenceProvider) GetReferences(database, table, uuid string) (database.References, error) {
+func (rp *testReferenceProvider) GetReferences(_, table, uuid string) (database.References, error) {
 	return rp.references.GetReferences(table, uuid), nil
 }
 
-func (rp *testReferenceProvider) Get(database, table string, uuid string) (model.Model, error) {
+func (rp *testReferenceProvider) Get(_, _ string, uuid string) (model.Model, error) {
 	return rp.models[uuid], nil
 }
 
@@ -530,10 +530,10 @@ func TestProcessReferences(t *testing.T) {
 
 			gotModelUpdates, gotReferenceModelUpdates, gotReferenceUpdates, err := ProcessReferences(referencesTestDBModel, &rp, onUpdates)
 			if tt.wantErr {
-				assert.NotNil(t, err, "expected an error but got none")
+				require.Errorf(t, err, "expected an error but got none")
 				return
 			}
-			assert.NoError(t, err, "got a different error than expected")
+			require.NoError(t, err, "got a different error than expected")
 
 			//gotModelUpdates := gotUpdates.(modelUpdatesWithReferences).ModelUpdates
 			wantModelUpdates, err := getUpdates(td.existingModels, td.finalModels)
@@ -572,7 +572,7 @@ func getUpdates(existing, updated []model.Model) (ModelUpdates, error) {
 
 	// helpers
 	tables := map[string]string{}
-	getRow := func(model model.Model, fields ...interface{}) (ovsdb.Row, error) {
+	getRow := func(model model.Model, fields ...any) (ovsdb.Row, error) {
 		info, err := referencesTestDBModel.NewModelInfo(model)
 		if err != nil {
 			return nil, err
@@ -585,22 +585,22 @@ func getUpdates(existing, updated []model.Model) (ModelUpdates, error) {
 		return row, nil
 	}
 
-	getUpdateOp := func(old, new model.Model) (ovsdb.Operation, error) {
+	getUpdateOp := func(old, newModel model.Model) (ovsdb.Operation, error) {
 		var err error
 		var row ovsdb.Row
 
 		// insert
 		if old == nil {
-			row, err := getRow(new)
+			row, err := getRow(newModel)
 			return ovsdb.Operation{
 				Op:    ovsdb.OperationInsert,
-				Table: tables[getUUID(new)],
+				Table: tables[getUUID(newModel)],
 				Row:   row,
 			}, err
 		}
 
 		// delete
-		if new == nil {
+		if newModel == nil {
 			// lazy, just to cache the table of the row
 			_, err := getRow(old)
 
@@ -612,8 +612,8 @@ func getUpdates(existing, updated []model.Model) (ModelUpdates, error) {
 		}
 
 		// update, just with the fields that have been changed
-		fields := []interface{}{}
-		xv := reflect.ValueOf(new).Elem()
+		fields := []any{}
+		xv := reflect.ValueOf(newModel).Elem()
 		xt := xv.Type()
 		for i := 0; i < xt.NumField(); i++ {
 			if !reflect.DeepEqual(xv.Field(i).Interface(), reflect.ValueOf(old).Elem().Field(i).Interface()) {
@@ -621,12 +621,12 @@ func getUpdates(existing, updated []model.Model) (ModelUpdates, error) {
 			}
 		}
 
-		row, err = getRow(new, fields...)
+		row, err = getRow(newModel, fields...)
 		return ovsdb.Operation{
 			Op:    ovsdb.OperationUpdate,
-			Table: tables[getUUID(new)],
+			Table: tables[getUUID(newModel)],
 			Row:   row,
-			Where: []ovsdb.Condition{ovsdb.NewCondition("_uuid", ovsdb.ConditionEqual, ovsdb.UUID{GoUUID: getUUID(new)})},
+			Where: []ovsdb.Condition{ovsdb.NewCondition("_uuid", ovsdb.ConditionEqual, ovsdb.UUID{GoUUID: getUUID(newModel)})},
 		}, err
 
 	}

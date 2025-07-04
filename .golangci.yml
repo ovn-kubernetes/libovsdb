@@ -1,17 +1,33 @@
+version: "2"
 linters:
-  disable-all: true
+  default: none
   enable:
-    - deadcode
     - errcheck
     - gocyclo
-    - goimports
-    - gosimple
     - govet
     - ineffassign
     - misspell
     - revive
     - staticcheck
-    - structcheck
-    - typecheck
+    - testifylint
     - unused
-    - varcheck
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

@@ -39,7 +39,7 @@ func TestDbModelTemplate(t *testing.T) {
 	}`)
 	test := []struct {
 		name      string
-		extend    func(tmpl *template.Template, data map[string]interface{})
+		extend    func(tmpl *template.Template, data map[string]any)
 		expected  string
 		err       bool
 		formatErr bool
@@ -131,13 +131,13 @@ func Schema() ovsdb.DatabaseSchema {
 			tmpl := NewDBTemplate()
 			data := GetDBTemplateData("test", schema)
 			if tt.err {
-				assert.NotNil(t, err)
+				require.Error(t, err)
 			} else {
 				g, err := NewGenerator()
 				require.NoError(t, err)
 				b, err := g.Format(tmpl, data)
 				if tt.formatErr {
-					assert.NotNil(t, err)
+					require.Error(t, err)
 				} else {
 					require.NoError(t, err)
 					assert.Equal(t, tt.expected, string(b))

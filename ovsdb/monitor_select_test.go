@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewMonitorSelect(t *testing.T) {
@@ -92,11 +93,11 @@ func TestMonitorSelectMarshalUnmarshalJSON(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := json.Marshal(tt.ms)
-			assert.Nil(t, err)
+			require.NoError(t, err)
 			assert.JSONEq(t, tt.want, string(got))
 			var ms2 MonitorSelect
 			err = json.Unmarshal(got, &ms2)
-			assert.Nil(t, err)
+			require.NoError(t, err)
 			assert.Equal(t, tt.ms, &ms2)
 		})
 	}

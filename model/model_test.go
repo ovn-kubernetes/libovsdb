@@ -8,6 +8,7 @@ import (
 
 	"github.com/ovn-kubernetes/libovsdb/ovsdb"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type modelA struct {
@@ -53,11 +54,11 @@ func TestClientDBModel(t *testing.T) {
 		t.Run(fmt.Sprintf("TestNewModel_%s", tt.name), func(t *testing.T) {
 			db, err := NewClientDBModel(tt.name, tt.obj)
 			if tt.valid {
-				assert.Nil(t, err)
+				require.NoError(t, err)
 				assert.Len(t, db.types, len(tt.obj))
 				assert.Equal(t, tt.name, db.Name())
 			} else {
-				assert.NotNil(t, err)
+				require.Error(t, err)
 			}
 		})
 	}
@@ -65,23 +66,23 @@ func TestClientDBModel(t *testing.T) {
 
 func TestNewModel(t *testing.T) {
 	db, err := NewClientDBModel("testTable", map[string]Model{"Test_A": &modelA{}, "Test_B": &modelB{}})
-	assert.Nil(t, err)
+	require.NoError(t, err)
 	_, err = db.newModel("Unknown")
-	assert.NotNilf(t, err, "Creating model from unknown table should fail")
+	require.Errorf(t, err, "Creating model from unknown table should fail")
 	model, err := db.newModel("Test_A")
-	assert.Nilf(t, err, "Creating model from valid table should succeed")
-	assert.IsTypef(t, model, &modelA{}, "model creation should return the appropriate type")
+	require.NoErrorf(t, err, "Creating model from valid table should succeed")
+	assert.IsTypef(t, &modelA{}, model, "model creation should return the appropriate type")
 }
 
 func TestSetUUID(t *testing.T) {
 	var err error
 	a := modelA{}
 	err = modelSetUUID(&a, "foo")
-	assert.Nilf(t, err, "Setting UUID should succeed")
+	require.NoErrorf(t, err, "Setting UUID should succeed")
 	assert.Equal(t, "foo", a.UUID)
 	b := modelB{}
 	err = modelSetUUID(&b, "foo")
-	assert.Nilf(t, err, "Setting UUID should succeed")
+	require.NoErrorf(t, err, "Setting UUID should succeed")
 	assert.Equal(t, "foo", b.UID)
 
 }
@@ -97,7 +98,7 @@ func TestValidate(t *testing.T) {
 			aMap    map[string]string `ovsdb:"aMap"`
 		}{},
 	})
-	assert.Nil(t, err)
+	require.NoError(t, err)
 
 	tests := []struct {
 		name   string
@@ -324,12 +325,12 @@ func TestValidate(t *testing.T) {
 		t.Run(fmt.Sprintf("TestValidate %s", tt.name), func(t *testing.T) {
 			var schema ovsdb.DatabaseSchema
 			err := json.Unmarshal(tt.schema, &schema)
-			assert.Nil(t, err)
+			require.NoError(t, err)
 			errors := model.validate(schema)
 			if tt.err {
-				assert.Greater(t, len(errors), 0)
+				assert.NotEmpty(t, errors, "expected validation errors for schema %s", tt.name)
 			} else {
-				assert.Len(t, errors, 0)
+				assert.Empty(t, errors)
 			}
 		})
 	}
@@ -380,7 +381,7 @@ func TestCloneIntoViaMarshalling(t *testing.T) {
 
 func TestCloneViaCloneable(t *testing.T) {
 	a := &modelC{modelB: modelB{UID: "foo", Foo: "bar", Bar: "baz"}, NoClone: "noClone"}
-	func(a interface{}) {
+	func(a any) {
 		_, ok := a.(CloneableModel)
 		assert.True(t, ok, "is not cloneable")
 	}(a)
@@ -398,7 +399,7 @@ func TestCloneViaCloneable(t *testing.T) {
 
 func TestCloneIntoViaCloneable(t *testing.T) {
 	a := &modelC{modelB: modelB{UID: "foo", Foo: "bar", Bar: "baz"}, NoClone: "noClone"}
-	func(a interface{}) {
+	func(a any) {
 		_, ok := a.(CloneableModel)
 		assert.True(t, ok, "is not cloneable")
 	}(a)
@@ -425,7 +426,7 @@ func TestEqualViaDeepEqual(t *testing.T) {
 
 func TestEqualViaComparable(t *testing.T) {
 	a := &modelC{modelB: modelB{UID: "foo", Foo: "bar", Bar: "baz"}, NoClone: "noClone"}
-	func(a interface{}) {
+	func(a any) {
 		_, ok := a.(ComparableModel)
 		assert.True(t, ok, "is not comparable")
 	}(a)

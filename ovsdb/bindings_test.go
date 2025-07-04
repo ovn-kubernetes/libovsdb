@@ -94,9 +94,9 @@ func TestOvsToNativeAndNativeToOvs(t *testing.T) {
 	tests := []struct {
 		name   string
 		schema []byte
-		input  interface{}
-		native interface{}
-		ovs    interface{}
+		input  any
+		native any
+		ovs    any
 	}{
 		{
 			name:   "String",
@@ -466,7 +466,7 @@ func TestOvsToNativeErr(t *testing.T) {
 	tests := []struct {
 		name   string
 		schema []byte
-		input  interface{}
+		input  any
 	}{
 		{
 			name:   "Wrong Atomic Type",
@@ -536,7 +536,7 @@ func TestNativeToOvsErr(t *testing.T) {
 	tests := []struct {
 		name   string
 		schema []byte
-		input  interface{}
+		input  any
 	}{
 		{
 			name:   "Wrong Atomic Type",
@@ -614,7 +614,7 @@ func TestIsDefault(t *testing.T) {
 	type Test struct {
 		name     string
 		column   []byte
-		elem     interface{}
+		elem     any
 		expected bool
 	}
 	tests := []Test{
@@ -815,7 +815,7 @@ func TestMutationValidation(t *testing.T) {
 		name     string
 		column   []byte
 		mutators []Mutator
-		value    interface{}
+		value    any
 		valid    bool
 	}
 	tests := []Test{
@@ -1032,9 +1032,9 @@ func TestMutationValidation(t *testing.T) {
 			for _, m := range test.mutators {
 				result := ValidateMutation(&column, m, test.value)
 				if test.valid {
-					assert.Nil(t, result)
+					require.NoError(t, result)
 				} else {
-					assert.NotNil(t, result)
+					require.Error(t, result)
 				}
 			}
 		})
@@ -1046,7 +1046,7 @@ func TestConditionValidation(t *testing.T) {
 		name      string
 		column    []byte
 		functions []ConditionFunction
-		value     interface{}
+		value     any
 		valid     bool
 	}
 	tests := []Test{
@@ -1153,14 +1153,14 @@ func TestConditionValidation(t *testing.T) {
 		t.Run(fmt.Sprintf("ConditionValidation: %s", test.name), func(t *testing.T) {
 			var column ColumnSchema
 			err := json.Unmarshal(test.column, &column)
-			assert.Nil(t, err)
+			require.NoError(t, err)
 
 			for _, f := range test.functions {
 				result := ValidateCondition(&column, f, test.value)
 				if test.valid {
-					assert.Nil(t, result)
+					require.NoError(t, result)
 				} else {
-					assert.NotNil(t, result)
+					require.Error(t, result)
 				}
 			}
 		})

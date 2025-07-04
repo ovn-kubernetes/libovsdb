@@ -16,9 +16,9 @@ func TestDifference(t *testing.T) {
 	var nilSet []string
 	tests := []struct {
 		name     string
-		a        interface{}
-		b        interface{}
-		expected interface{}
+		a        any
+		b        any
+		expected any
 	}{
 		{
 			"value, different",
@@ -141,13 +141,13 @@ func BenchmarkSetDifference(t *testing.B) {
 
 func Test_applyDifference(t *testing.T) {
 	type args struct {
-		v interface{}
-		d interface{}
+		v any
+		d any
 	}
 	tests := []struct {
 		name     string
 		args     args
-		expected interface{}
+		expected any
 		changed  bool
 	}{
 		{
@@ -239,14 +239,14 @@ func Test_applyDifference(t *testing.T) {
 
 func Test_mergeMapDifference(t *testing.T) {
 	type args struct {
-		o interface{}
-		a interface{}
-		b interface{}
+		o any
+		a any
+		b any
 	}
 	tests := []struct {
 		name     string
 		args     args
-		expected interface{}
+		expected any
 		changed  bool
 	}{
 		{

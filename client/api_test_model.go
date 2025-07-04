@@ -8,6 +8,7 @@ import (
 	"github.com/ovn-kubernetes/libovsdb/model"
 	"github.com/ovn-kubernetes/libovsdb/ovsdb"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var apiTestSchema = []byte(`{
@@ -113,7 +114,7 @@ var apiTestSchema = []byte(`{
 type testLogicalSwitch struct {
 	UUID             string            `ovsdb:"_uuid"`
 	Ports            []string          `ovsdb:"ports"`
-	ExternalIds      map[string]string `ovsdb:"external_ids"`
+	ExternalIDs      map[string]string `ovsdb:"external_ids"`
 	Name             string            `ovsdb:"name"`
 	QosRules         []string          `ovsdb:"qos_rules"`
 	LoadBalancer     []string          `ovsdb:"load_balancer"`
@@ -128,7 +129,7 @@ func (*testLogicalSwitch) Table() string {
 	return "Logical_Switch"
 }
 
-//LogicalSwitchPort struct defines an object in Logical_Switch_Port table
+// LogicalSwitchPort struct defines an object in Logical_Switch_Port table
 type testLogicalSwitchPort struct {
 	UUID             string            `ovsdb:"_uuid"`
 	Up               *bool             `ovsdb:"up"`
@@ -143,7 +144,7 @@ type testLogicalSwitchPort struct {
 	TagRequest       *int              `ovsdb:"tag_request"`
 	Tag              *int              `ovsdb:"tag"`
 	PortSecurity     []string          `ovsdb:"port_security"`
-	ExternalIds      map[string]string `ovsdb:"external_ids"`
+	ExternalIDs      map[string]string `ovsdb:"external_ids"`
 	Type             string            `ovsdb:"type"`
 	ParentName       *string           `ovsdb:"parent_name"`
 }
@@ -156,12 +157,12 @@ func (*testLogicalSwitchPort) Table() string {
 func apiTestCache(t testing.TB, data map[string]map[string]model.Model) *cache.TableCache {
 	var schema ovsdb.DatabaseSchema
 	err := json.Unmarshal(apiTestSchema, &schema)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 	db, err := model.NewClientDBModel("OVN_Northbound", map[string]model.Model{"Logical_Switch": &testLogicalSwitch{}, "Logical_Switch_Port": &testLogicalSwitchPort{}})
-	assert.Nil(t, err)
+	require.NoError(t, err)
 	dbModel, errs := model.NewDatabaseModel(schema, db)
 	assert.Empty(t, errs)
 	cache, err := cache.NewTableCache(dbModel, data, nil)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 	return cache
 }

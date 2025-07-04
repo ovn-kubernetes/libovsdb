@@ -31,22 +31,22 @@ func TestAPIListSimple(t *testing.T) {
 		&testLogicalSwitch{
 			UUID:        aUUID0,
 			Name:        "ls0",
-			ExternalIds: map[string]string{"foo": "bar"},
+			ExternalIDs: map[string]string{"foo": "bar"},
 		},
 		&testLogicalSwitch{
 			UUID:        aUUID1,
 			Name:        "ls1",
-			ExternalIds: map[string]string{"foo": "baz"},
+			ExternalIDs: map[string]string{"foo": "baz"},
 		},
 		&testLogicalSwitch{
 			UUID:        aUUID2,
 			Name:        "ls2",
-			ExternalIds: map[string]string{"foo": "baz"},
+			ExternalIDs: map[string]string{"foo": "baz"},
 		},
 		&testLogicalSwitch{
 			UUID:        aUUID3,
 			Name:        "ls4",
-			ExternalIds: map[string]string{"foo": "baz"},
+			ExternalIDs: map[string]string{"foo": "baz"},
 			Ports:       []string{"port0", "port1"},
 		},
 	}
@@ -91,7 +91,7 @@ func TestAPIListSimple(t *testing.T) {
 			err:        false,
 		},
 	}
-	hasDups := func(a interface{}) bool {
+	hasDups := func(a any) bool {
 		l := map[string]struct{}{}
 		switch v := a.(type) {
 		case []testLogicalSwitch:
@@ -119,9 +119,9 @@ func TestAPIListSimple(t *testing.T) {
 			api := newAPI(tcache, &discardLogger)
 			err := api.List(context.Background(), &result)
 			if tt.err {
-				assert.NotNil(t, err)
+				require.Error(t, err)
 			} else {
-				assert.Nil(t, err)
+				require.NoError(t, err)
 				assert.Lenf(t, result, tt.resultLen, "Length should match expected")
 				assert.Equal(t, cap(result), tt.resultCap, "Capability should match expected")
 				assert.Subsetf(t, tt.content, result, "Result should be a subset of expected")
@@ -139,9 +139,9 @@ func TestAPIListSimple(t *testing.T) {
 			}
 			err = api.List(context.Background(), &resultWithNoPtr)
 			if tt.err {
-				assert.NotNil(t, err)
+				require.Error(t, err)
 			} else {
-				assert.Nil(t, err)
+				require.NoError(t, err)
 				assert.Lenf(t, result, tt.resultLen, "Length should match expected")
 				assert.Equal(t, cap(result), tt.resultCap, "Capability should match expected")
 				assert.Subsetf(t, contentNoPtr, resultWithNoPtr, "Result should be a subset of expected")
@@ -155,22 +155,22 @@ func TestAPIListSimple(t *testing.T) {
 		var result []string
 		api := newAPI(tcache, &discardLogger)
 		err := api.List(context.Background(), &result)
-		assert.NotNil(t, err)
+		require.Error(t, err)
 	})
 
 	t.Run("ApiList: Type Selection", func(t *testing.T) {
 		var result []testLogicalSwitchPort
 		api := newAPI(tcache, &discardLogger)
 		err := api.List(context.Background(), &result)
-		assert.Nil(t, err)
-		assert.Len(t, result, 0, "Should be empty since cache is empty")
+		require.NoError(t, err)
+		assert.Empty(t, result, "Should be empty since cache is empty")
 	})
 
 	t.Run("ApiList: Empty List", func(t *testing.T) {
 		result := []testLogicalSwitch{}
 		api := newAPI(tcache, &discardLogger)
 		err := api.List(context.Background(), &result)
-		assert.Nil(t, err)
+		require.NoError(t, err)
 		assert.Len(t, result, len(lscacheList))
 	})
 
@@ -178,7 +178,7 @@ func TestAPIListSimple(t *testing.T) {
 		result := []testLogicalSwitch{}
 		api := newConditionalAPI(tcache, newErrorConditional(fmt.Errorf("error")), &discardLogger)
 		err := api.List(context.Background(), &result)
-		assert.NotNil(t, err)
+		require.Error(t, err)
 	})
 }
 
@@ -187,22 +187,22 @@ func TestAPIListPredicate(t *testing.T) {
 		&testLogicalSwitch{
 			UUID:        aUUID0,
 			Name:        "ls0",
-			ExternalIds: map[string]string{"foo": "bar"},
+			ExternalIDs: map[string]string{"foo": "bar"},
 		},
 		&testLogicalSwitch{
 			UUID:        aUUID1,
 			Name:        "magicLs1",
-			ExternalIds: map[string]string{"foo": "baz"},
+			ExternalIDs: map[string]string{"foo": "baz"},
 		},
 		&testLogicalSwitch{
 			UUID:        aUUID2,
 			Name:        "ls2",
-			ExternalIds: map[string]string{"foo": "baz"},
+			ExternalIDs: map[string]string{"foo": "baz"},
 		},
 		&testLogicalSwitch{
 			UUID:        aUUID3,
 			Name:        "magicLs2",
-			ExternalIds: map[string]string{"foo": "baz"},
+			ExternalIDs: map[string]string{"foo": "baz"},
 			Ports:       []string{"port0", "port1"},
 		},
 	}
@@ -217,13 +217,13 @@ func TestAPIListPredicate(t *testing.T) {
 
 	test := []struct {
 		name      string
-		predicate interface{}
+		predicate any
 		content   []model.Model
 		err       bool
 	}{
 		{
 			name: "none",
-			predicate: func(t *testLogicalSwitch) bool {
+			predicate: func(_ *testLogicalSwitch) bool {
 				return false
 			},
 			content: []model.Model{},
@@ -231,7 +231,7 @@ func TestAPIListPredicate(t *testing.T) {
 		},
 		{
 			name: "all",
-			predicate: func(t *testLogicalSwitch) bool {
+			predicate: func(_ *testLogicalSwitch) bool {
 				return true
 			},
 			content: lscacheList,
@@ -251,7 +251,7 @@ func TestAPIListPredicate(t *testing.T) {
 		},
 		{
 			name: "error wrong type",
-			predicate: func(t testLogicalSwitch) string {
+			predicate: func(_ testLogicalSwitch) string {
 				return "foo"
 			},
 			err: true,
@@ -265,11 +265,9 @@ func TestAPIListPredicate(t *testing.T) {
 			cond := api.WhereCache(tt.predicate)
 			err := cond.List(context.Background(), &result)
 			if tt.err {
-				assert.NotNil(t, err)
+				require.Error(t, err)
 			} else {
-				if !assert.Nil(t, err) {
-					t.Log(err)
-				}
+				require.NoError(t, err)
 				assert.ElementsMatchf(t, tt.content, result, "Content should match")
 			}
 
@@ -353,7 +351,7 @@ func TestAPIListWhereConditions(t *testing.T) {
 				capi = api.WhereAny(testObj, conds...)
 			}
 			err := capi.List(context.Background(), &result)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.ElementsMatchf(t, tt.result, result, "Content should match")
 		})
 	}
@@ -364,25 +362,25 @@ func TestAPIListFields(t *testing.T) {
 		&testLogicalSwitchPort{
 			UUID:        aUUID0,
 			Name:        "lsp0",
-			ExternalIds: map[string]string{"foo": "bar"},
+			ExternalIDs: map[string]string{"foo": "bar"},
 			Enabled:     &trueVal,
 		},
 		&testLogicalSwitchPort{
 			UUID:        aUUID1,
 			Name:        "magiclsp1",
-			ExternalIds: map[string]string{"foo": "baz"},
+			ExternalIDs: map[string]string{"foo": "baz"},
 			Enabled:     &falseVal,
 		},
 		&testLogicalSwitchPort{
 			UUID:        aUUID2,
 			Name:        "lsp2",
-			ExternalIds: map[string]string{"unique": "id"},
+			ExternalIDs: map[string]string{"unique": "id"},
 			Enabled:     &falseVal,
 		},
 		&testLogicalSwitchPort{
 			UUID:        aUUID3,
 			Name:        "magiclsp2",
-			ExternalIds: map[string]string{"foo": "baz"},
+			ExternalIDs: map[string]string{"foo": "baz"},
 			Enabled:     &trueVal,
 		},
 	}
@@ -397,13 +395,13 @@ func TestAPIListFields(t *testing.T) {
 
 	test := []struct {
 		name    string
-		fields  []interface{}
+		fields  []any
 		prepare func(*testLogicalSwitchPort)
 		content []model.Model
 	}{
 		{
 			name:    "No match",
-			prepare: func(t *testLogicalSwitchPort) {},
+			prepare: func(_ *testLogicalSwitchPort) {},
 			content: []model.Model{},
 		},
 		{
@@ -430,7 +428,7 @@ func TestAPIListFields(t *testing.T) {
 			tt.prepare(&testObj)
 			api := newAPI(tcache, &discardLogger)
 			err := api.Where(&testObj).List(context.Background(), &result)
-			assert.Nil(t, err)
+			require.NoError(t, err)
 			assert.ElementsMatchf(t, tt.content, result, "Content should match")
 		})
 	}
@@ -443,7 +441,7 @@ func TestAPIListFields(t *testing.T) {
 		}
 
 		err := api.Where(&obj).List(context.Background(), &result)
-		assert.NotNil(t, err)
+		require.Error(t, err)
 	})
 }
 
@@ -452,25 +450,25 @@ func TestAPIListMulti(t *testing.T) {
 		&testLogicalSwitchPort{
 			UUID:        aUUID0,
 			Name:        "lsp0",
-			ExternalIds: map[string]string{"foo": "bar"},
+			ExternalIDs: map[string]string{"foo": "bar"},
 			Enabled:     &trueVal,
 		},
 		&testLogicalSwitchPort{
 			UUID:        aUUID1,
 			Name:        "magiclsp1",
-			ExternalIds: map[string]string{"foo": "baz"},
+			ExternalIDs: map[string]string{"foo": "baz"},
 			Enabled:     &falseVal,
 		},
 		&testLogicalSwitchPort{
 			UUID:        aUUID2,
 			Name:        "lsp2",
-			ExternalIds: map[string]string{"unique": "id"},
+			ExternalIDs: map[string]string{"unique": "id"},
 			Enabled:     &falseVal,
 		},
 		&testLogicalSwitchPort{
 			UUID:        aUUID3,
 			Name:        "magiclsp2",
-			ExternalIds: map[string]string{"foo": "baz"},
+			ExternalIDs: map[string]string{"foo": "baz"},
 			Enabled:     &trueVal,
 		},
 	}
@@ -524,9 +522,9 @@ func TestAPIListMulti(t *testing.T) {
 			api := newAPI(tcache, &discardLogger)
 			err := api.Where(tt.models...).List(context.Background(), &result)
 			if tt.err {
-				assert.Error(t, err)
+				require.Error(t, err)
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.ElementsMatchf(t, tt.matches, result, "Content should match")
 			}
 		})
@@ -536,26 +534,26 @@ func TestAPIListMulti(t *testing.T) {
 func TestConditionFromFunc(t *testing.T) {
 	test := []struct {
 		name string
-		arg  interface{}
+		arg  any
 		err  bool
 	}{
 		{
 			name: "wrong function must fail",
-			arg: func(s string) bool {
+			arg: func(_ string) bool {
 				return false
 			},
 			err: true,
 		},
 		{
 			name: "wrong function must fail2 ",
-			arg: func(t *testLogicalSwitch) string {
+			arg: func(_ *testLogicalSwitch) string {
 				return "foo"
 			},
 			err: true,
 		},
 		{
 			name: "correct func should succeed",
-			arg: func(t *testLogicalSwitch) bool {
+			arg: func(_ *testLogicalSwitch) bool {
 				return true
 			},
 			err: false,
@@ -666,13 +664,13 @@ func TestAPIGet(t *testing.T) {
 			UUID:        aUUID2,
 			Name:        "lsp0",
 			Type:        "foo",
-			ExternalIds: map[string]string{"foo": "bar"},
+			ExternalIDs: map[string]string{"foo": "bar"},
 		},
 		&testLogicalSwitchPort{
 			UUID:        aUUID3,
 			Name:        "lsp1",
 			Type:        "bar",
-			ExternalIds: map[string]string{"foo": "baz"},
+			ExternalIDs: map[string]string{"foo": "baz"},
 		},
 	}
 	lsCache := map[string]model.Model{}
@@ -697,7 +695,7 @@ func TestAPIGet(t *testing.T) {
 	}{
 		{
 			name: "empty",
-			prepare: func(m model.Model) {
+			prepare: func(_ model.Model) {
 			},
 			err: true,
 		},
@@ -732,9 +730,9 @@ func TestAPIGet(t *testing.T) {
 			api := newAPI(tcache, &discardLogger)
 			err := api.Get(context.Background(), &result)
 			if tt.err {
-				assert.NotNil(t, err)
+				require.Error(t, err)
 			} else {
-				assert.Nil(t, err)
+				require.NoError(t, err)
 				assert.Equalf(t, tt.result, &result, "Result should match")
 			}
 		})
@@ -748,13 +746,13 @@ func TestAPICreate(t *testing.T) {
 			UUID:        aUUID2,
 			Name:        "lsp0",
 			Type:        "foo",
-			ExternalIds: map[string]string{"foo": "bar"},
+			ExternalIDs: map[string]string{"foo": "bar"},
 		},
 		&testLogicalSwitchPort{
 			UUID:        aUUID3,
 			Name:        "lsp1",
 			Type:        "bar",
-			ExternalIds: map[string]string{"foo": "baz"},
+			ExternalIDs: map[string]string{"foo": "baz"},
 		},
 	}
 	lsCache := map[string]model.Model{}
@@ -771,8 +769,8 @@ func TestAPICreate(t *testing.T) {
 	}
 	tcache := apiTestCache(t, testData)
 
-	rowFoo := ovsdb.Row(map[string]interface{}{"name": "foo"})
-	rowBar := ovsdb.Row(map[string]interface{}{"name": "bar"})
+	rowFoo := ovsdb.Row(map[string]any{"name": "foo"})
+	rowBar := ovsdb.Row(map[string]any{"name": "bar"})
 	test := []struct {
 		name   string
 		input  []model.Model
@@ -847,9 +845,9 @@ func TestAPICreate(t *testing.T) {
 			api := newAPI(tcache, &discardLogger)
 			op, err := api.Create(tt.input...)
 			if tt.err {
-				assert.NotNil(t, err)
+				require.Error(t, err)
 			} else {
-				assert.Nil(t, err)
+				require.NoError(t, err)
 				assert.Equalf(t, tt.result, op, "ovsdb.Operation should match")
 			}
 		})
@@ -862,7 +860,7 @@ func TestAPIMutate(t *testing.T) {
 			UUID:        aUUID0,
 			Name:        "lsp0",
 			Type:        "someType",
-			ExternalIds: map[string]string{"foo": "bar"},
+			ExternalIDs: map[string]string{"foo": "bar"},
 			Enabled:     &trueVal,
 			Tag:         &one,
 		},
@@ -870,14 +868,14 @@ func TestAPIMutate(t *testing.T) {
 			UUID:        aUUID1,
 			Name:        "lsp1",
 			Type:        "someType",
-			ExternalIds: map[string]string{"foo": "baz"},
+			ExternalIDs: map[string]string{"foo": "baz"},
 			Tag:         &one,
 		},
 		aUUID2: &testLogicalSwitchPort{
 			UUID:        aUUID2,
 			Name:        "lsp2",
 			Type:        "someOtherType",
-			ExternalIds: map[string]string{"foo": "baz"},
+			ExternalIDs: map[string]string{"foo": "baz"},
 			Tag:         &one,
 		},
 	}
@@ -967,7 +965,7 @@ func TestAPIMutate(t *testing.T) {
 			},
 			mutations: []model.Mutation{
 				{
-					Field:   &testObj.ExternalIds,
+					Field:   &testObj.ExternalIDs,
 					Mutator: ovsdb.MutateOperationDelete,
 					Value:   []string{"foo"},
 				},
@@ -991,7 +989,7 @@ func TestAPIMutate(t *testing.T) {
 			},
 			mutations: []model.Mutation{
 				{
-					Field:   &testObj.ExternalIds,
+					Field:   &testObj.ExternalIDs,
 					Mutator: ovsdb.MutateOperationDelete,
 					Value:   []string{"foo"},
 				},
@@ -1015,7 +1013,7 @@ func TestAPIMutate(t *testing.T) {
 			},
 			mutations: []model.Mutation{
 				{
-					Field:   &testObj.ExternalIds,
+					Field:   &testObj.ExternalIDs,
 					Mutator: ovsdb.MutateOperationInsert,
 					Value:   map[string]string{"bar": "baz"},
 				},
@@ -1039,7 +1037,7 @@ func TestAPIMutate(t *testing.T) {
 			},
 			mutations: []model.Mutation{
 				{
-					Field:   &testObj.ExternalIds,
+					Field:   &testObj.ExternalIDs,
 					Mutator: ovsdb.MutateOperationInsert,
 					Value:   map[string]string{"bar": "baz"},
 				},
@@ -1083,7 +1081,7 @@ func TestAPIMutate(t *testing.T) {
 		},
 		{
 			name: "fails if conditional is an error",
-			condition: func(a API) ConditionalAPI {
+			condition: func(_ API) ConditionalAPI {
 				return newConditionalAPI(nil, newErrorConditional(fmt.Errorf("error")), &discardLogger)
 			},
 			err: true,
@@ -1110,7 +1108,7 @@ func TestAPIUpdate(t *testing.T) {
 			UUID:        aUUID0,
 			Name:        "lsp0",
 			Type:        "someType",
-			ExternalIds: map[string]string{"foo": "bar"},
+			ExternalIDs: map[string]string{"foo": "bar"},
 			Enabled:     &trueVal,
 			Tag:         &one,
 		},
@@ -1118,7 +1116,7 @@ func TestAPIUpdate(t *testing.T) {
 			UUID:        aUUID1,
 			Name:        "lsp1",
 			Type:        "someType",
-			ExternalIds: map[string]string{"foo": "baz"},
+			ExternalIDs: map[string]string{"foo": "baz"},
 			Tag:         &one,
 			Enabled:     &trueVal,
 		},
@@ -1126,7 +1124,7 @@ func TestAPIUpdate(t *testing.T) {
 			UUID:        aUUID2,
 			Name:        "lsp2",
 			Type:        "someOtherType",
-			ExternalIds: map[string]string{"foo": "baz"},
+			ExternalIDs: map[string]string{"foo": "baz"},
 			Tag:         &one,
 		},
 	}
@@ -1136,19 +1134,19 @@ func TestAPIUpdate(t *testing.T) {
 	tcache := apiTestCache(t, testData)
 
 	testObj := testLogicalSwitchPort{}
-	testRow := ovsdb.Row(map[string]interface{}{"type": "somethingElse", "tag": testOvsSet(t, []int{6})})
-	tagRow := ovsdb.Row(map[string]interface{}{"tag": testOvsSet(t, []int{6})})
+	testRow := ovsdb.Row(map[string]any{"type": "somethingElse", "tag": testOvsSet(t, []int{6})})
+	tagRow := ovsdb.Row(map[string]any{"tag": testOvsSet(t, []int{6})})
 	var nilInt *int
-	testNilRow := ovsdb.Row(map[string]interface{}{"type": "somethingElse", "tag": testOvsSet(t, nilInt)})
-	typeRow := ovsdb.Row(map[string]interface{}{"type": "somethingElse"})
-	fields := []interface{}{&testObj.Tag, &testObj.Type}
+	testNilRow := ovsdb.Row(map[string]any{"type": "somethingElse", "tag": testOvsSet(t, nilInt)})
+	typeRow := ovsdb.Row(map[string]any{"type": "somethingElse"})
+	fields := []any{&testObj.Tag, &testObj.Type}
 
 	test := []struct {
 		name      string
 		condition func(API) ConditionalAPI
 		prepare   func(t *testLogicalSwitchPort)
 		result    []ovsdb.Operation
-		fields    []interface{}
+		fields    []any
 		err       bool
 	}{
 		{
@@ -1448,10 +1446,10 @@ func TestAPIUpdate(t *testing.T) {
 		},
 		{
 			name: "fails if conditional is an error",
-			condition: func(a API) ConditionalAPI {
+			condition: func(_ API) ConditionalAPI {
 				return newConditionalAPI(tcache, newErrorConditional(fmt.Errorf("error")), &discardLogger)
 			},
-			prepare: func(t *testLogicalSwitchPort) {
+			prepare: func(_ *testLogicalSwitchPort) {
 			},
 			err: true,
 		},
@@ -1482,7 +1480,7 @@ func TestAPIDelete(t *testing.T) {
 			UUID:        aUUID0,
 			Name:        "lsp0",
 			Type:        "someType",
-			ExternalIds: map[string]string{"foo": "bar"},
+			ExternalIDs: map[string]string{"foo": "bar"},
 			Enabled:     &trueVal,
 			Tag:         &one,
 		},
@@ -1490,7 +1488,7 @@ func TestAPIDelete(t *testing.T) {
 			UUID:        aUUID1,
 			Name:        "lsp1",
 			Type:        "someType",
-			ExternalIds: map[string]string{"foo": "baz"},
+			ExternalIDs: map[string]string{"foo": "baz"},
 			Tag:         &one,
 			Enabled:     &trueVal,
 		},
@@ -1498,7 +1496,7 @@ func TestAPIDelete(t *testing.T) {
 			UUID:        aUUID2,
 			Name:        "lsp2",
 			Type:        "someOtherType",
-			ExternalIds: map[string]string{"foo": "baz"},
+			ExternalIDs: map[string]string{"foo": "baz"},
 			Tag:         &one,
 		},
 	}
@@ -1676,7 +1674,7 @@ func TestAPIDelete(t *testing.T) {
 		},
 		{
 			name: "fails if conditional is an error",
-			condition: func(a API) ConditionalAPI {
+			condition: func(_ API) ConditionalAPI {
 				return newConditionalAPI(nil, newErrorConditional(fmt.Errorf("error")), &discardLogger)
 			},
 			err: true,
@@ -1688,9 +1686,9 @@ func TestAPIDelete(t *testing.T) {
 			cond := tt.condition(api)
 			ops, err := cond.Delete()
 			if tt.err {
-				assert.Error(t, err)
+				require.Error(t, err)
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.ElementsMatchf(t, tt.result, ops, "ovsdb.Operations should match")
 			}
 		})
@@ -1707,7 +1705,7 @@ func BenchmarkAPIList(b *testing.B) {
 			&testLogicalSwitchPort{
 				UUID:        uuid.New().String(),
 				Name:        fmt.Sprintf("ls%d", i),
-				ExternalIds: map[string]string{"foo": "bar"},
+				ExternalIDs: map[string]string{"foo": "bar"},
 			})
 	}
 	lscache := map[string]model.Model{}
@@ -1719,22 +1717,22 @@ func BenchmarkAPIList(b *testing.B) {
 	}
 	tcache := apiTestCache(b, testData)
 
-	rand.Seed(int64(b.N))
+	r := rand.New(rand.NewSource(int64(b.N)))
 	var index int
 
 	test := []struct {
 		name      string
-		predicate interface{}
+		predicate any
 	}{
 		{
 			name: "predicate returns none",
-			predicate: func(t *testLogicalSwitchPort) bool {
+			predicate: func(_ *testLogicalSwitchPort) bool {
 				return false
 			},
 		},
 		{
 			name: "predicate returns all",
-			predicate: func(t *testLogicalSwitchPort) bool {
+			predicate: func(_ *testLogicalSwitchPort) bool {
 				return true
 			},
 		},
@@ -1758,7 +1756,7 @@ func BenchmarkAPIList(b *testing.B) {
 	for _, tt := range test {
 		b.Run(tt.name, func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
-				index = rand.Intn(numRows)
+				index = r.Intn(numRows)
 				var result []*testLogicalSwitchPort
 				api := newAPI(tcache, &discardLogger)
 				var cond ConditionalAPI
@@ -1784,7 +1782,7 @@ func BenchmarkAPIListMultiple(b *testing.B) {
 			&testLogicalSwitchPort{
 				UUID:        uuid.New().String(),
 				Name:        fmt.Sprintf("ls%d", i),
-				ExternalIds: map[string]string{"foo": "bar"},
+				ExternalIDs: map[string]string{"foo": "bar"},
 			})
 	}
 	lscache := map[string]model.Model{}
@@ -1823,13 +1821,13 @@ func BenchmarkAPIListMultiple(b *testing.B) {
 					// Looking up models with WhereAny() should be fast
 					cond := api.Where(models...)
 					err := cond.List(context.Background(), &results)
-					assert.NoError(b, err)
+					require.NoError(b, err)
 				} else {
 					// Looking up models one-at-a-time with Get() should be slow
 					for j := 0; j < len(lscacheList); j++ {
 						m := &testLogicalSwitchPort{UUID: lscacheList[j].UUID}
 						err := api.Get(context.Background(), m)
-						assert.NoError(b, err)
+						require.NoError(b, err)
 						results = append(results, m)
 					}
 				}
@@ -1846,7 +1844,7 @@ func TestAPIWait(t *testing.T) {
 	test := []struct {
 		name      string
 		condition func(API) ConditionalAPI
-		prepare   func() (model.Model, []interface{})
+		prepare   func() (model.Model, []any)
 		until     ovsdb.WaitCondition
 		timeout   *int
 		result    []ovsdb.Operation
@@ -1861,7 +1859,7 @@ func TestAPIWait(t *testing.T) {
 			},
 			until:   "==",
 			timeout: &timeout0,
-			prepare: func() (model.Model, []interface{}) {
+			prepare: func() (model.Model, []any) {
 				testLSP := testLogicalSwitchPort{
 					Name: "lsp0",
 				}
@@ -1888,12 +1886,12 @@ func TestAPIWait(t *testing.T) {
 				})
 			},
 			until: "!=",
-			prepare: func() (model.Model, []interface{}) {
+			prepare: func() (model.Model, []any) {
 				testLSP := testLogicalSwitchPort{
 					Name: "lsp0",
 					Type: "someType",
 				}
-				return &testLSP, []interface{}{&testLSP.Name, &testLSP.Type}
+				return &testLSP, []any{&testLSP.Name, &testLSP.Type}
 			},
 			result: []ovsdb.Operation{
 				{
@@ -1928,12 +1926,12 @@ func TestAPIWait(t *testing.T) {
 				return a.WhereAny(&lsp, conditions...)
 			},
 			until: "!=",
-			prepare: func() (model.Model, []interface{}) {
+			prepare: func() (model.Model, []any) {
 				testLSP := testLogicalSwitchPort{
 					Name: "lsp0",
 					Type: "someType",
 				}
-				return &testLSP, []interface{}{&testLSP.Name, &testLSP.Type}
+				return &testLSP, []any{&testLSP.Name, &testLSP.Type}
 			},
 			result: []ovsdb.Operation{
 				{
@@ -1944,7 +1942,7 @@ func TestAPIWait(t *testing.T) {
 						{
 							Column:   "up",
 							Function: ovsdb.ConditionNotEqual,
-							Value:    ovsdb.OvsSet{GoSet: []interface{}{true}},
+							Value:    ovsdb.OvsSet{GoSet: []any{true}},
 						},
 					},
 					Until:   string(ovsdb.WaitConditionNotEqual),
@@ -1970,7 +1968,7 @@ func TestAPIWait(t *testing.T) {
 				return a.Where(&testLogicalSwitchPort{Up: &isUp})
 			},
 			until: "==",
-			prepare: func() (model.Model, []interface{}) {
+			prepare: func() (model.Model, []any) {
 				testLSP := testLogicalSwitchPort{Name: "lsp0"}
 				return &testLSP, nil
 			},
@@ -1979,10 +1977,10 @@ func TestAPIWait(t *testing.T) {
 		{
 			name: "no operation",
 			condition: func(a API) ConditionalAPI {
-				return a.WhereCache(func(t *testLogicalSwitchPort) bool { return false })
+				return a.WhereCache(func(_ *testLogicalSwitchPort) bool { return false })
 			},
 			until: "==",
-			prepare: func() (model.Model, []interface{}) {
+			prepare: func() (model.Model, []any) {
 				testLSP := testLogicalSwitchPort{Name: "lsp0"}
 				return &testLSP, nil
 			},
@@ -1991,10 +1989,10 @@ func TestAPIWait(t *testing.T) {
 		},
 		{
 			name: "fails if conditional is an error",
-			condition: func(a API) ConditionalAPI {
+			condition: func(_ API) ConditionalAPI {
 				return newConditionalAPI(nil, newErrorConditional(fmt.Errorf("error")), &discardLogger)
 			},
-			prepare: func() (model.Model, []interface{}) {
+			prepare: func() (model.Model, []any) {
 				return nil, nil
 			},
 			err: true,
@@ -2008,9 +2006,9 @@ func TestAPIWait(t *testing.T) {
 			model, fields := tt.prepare()
 			ops, err := cond.Wait(tt.until, tt.timeout, model, fields...)
 			if tt.err {
-				assert.NotNil(t, err)
+				require.Error(t, err)
 			} else {
-				assert.Nil(t, err)
+				require.NoError(t, err)
 				assert.ElementsMatchf(t, tt.result, ops, "ovsdb.Operations should match")
 			}
 		})

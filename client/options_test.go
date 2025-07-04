@@ -17,7 +17,7 @@ func TestWithTLSConfig(t *testing.T) {
 	opts := &options{}
 	fn := WithTLSConfig(config)
 	err := fn(opts)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, config, opts.tlsConfig)
 }
 
@@ -53,7 +53,7 @@ func TestNewOptions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := newOptions(tt.opts...)
 			got.logger = nil // hack; we don't care
-			require.Nil(t, err)
+			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
 		})
 	}
@@ -99,7 +99,7 @@ func TestWithEndpoint(t *testing.T) {
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
-				require.Nil(t, err)
+				require.NoError(t, err)
 			}
 			assert.Equal(t, tt.want, opts.endpoints)
 		})
@@ -113,6 +113,6 @@ func TestWithReconnect(t *testing.T) {
 	err := fn(opts)
 	require.NoError(t, err)
 	assert.Equal(t, timeout, opts.timeout)
-	assert.Equal(t, true, opts.reconnect)
+	assert.True(t, opts.reconnect)
 	assert.Equal(t, &backoff.ZeroBackOff{}, opts.backoff)
 }

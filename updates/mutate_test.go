@@ -10,10 +10,10 @@ import (
 func TestMutateAdd(t *testing.T) {
 	tests := []struct {
 		name    string
-		current interface{}
+		current any
 		mutator ovsdb.Mutator
-		value   interface{}
-		want    interface{}
+		value   any
+		want    any
 	}{
 		{
 			"add int",
@@ -56,10 +56,10 @@ func TestMutateAdd(t *testing.T) {
 func TestMutateSubtract(t *testing.T) {
 	tests := []struct {
 		name    string
-		current interface{}
+		current any
 		mutator ovsdb.Mutator
-		value   interface{}
-		want    interface{}
+		value   any
+		want    any
 	}{
 
 		{
@@ -103,10 +103,10 @@ func TestMutateSubtract(t *testing.T) {
 func TestMutateMultiply(t *testing.T) {
 	tests := []struct {
 		name    string
-		current interface{}
+		current any
 		mutator ovsdb.Mutator
-		value   interface{}
-		want    interface{}
+		value   any
+		want    any
 	}{
 
 		{
@@ -150,10 +150,10 @@ func TestMutateMultiply(t *testing.T) {
 func TestMutateDivide(t *testing.T) {
 	tests := []struct {
 		name    string
-		current interface{}
+		current any
 		mutator ovsdb.Mutator
-		value   interface{}
-		want    interface{}
+		value   any
+		want    any
 	}{
 		{
 			"divide int",
@@ -196,10 +196,10 @@ func TestMutateDivide(t *testing.T) {
 func TestMutateModulo(t *testing.T) {
 	tests := []struct {
 		name    string
-		current interface{}
+		current any
 		mutator ovsdb.Mutator
-		value   interface{}
-		want    interface{}
+		value   any
+		want    any
 	}{
 		{
 			"modulo int",
@@ -230,11 +230,11 @@ func TestMutateInsert(t *testing.T) {
 	var nilMap map[string]string
 	tests := []struct {
 		name    string
-		current interface{}
+		current any
 		mutator ovsdb.Mutator
-		value   interface{}
-		want    interface{}
-		diff    interface{}
+		value   any
+		want    any
+		diff    any
 	}{
 		{
 			"insert single string",
@@ -335,11 +335,11 @@ func TestMutateInsert(t *testing.T) {
 func TestMutateDelete(t *testing.T) {
 	tests := []struct {
 		name    string
-		current interface{}
+		current any
 		mutator ovsdb.Mutator
-		value   interface{}
-		want    interface{}
-		diff    interface{}
+		value   any
+		want    any
+		diff    any
 	}{
 		{
 			"delete single string",

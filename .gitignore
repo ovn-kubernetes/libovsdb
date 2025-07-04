@@ -55,6 +55,9 @@ Temporary Items
 .idea/
 *.iml
 
+# VS Code
+.vscode/
+
 ### Project-Specific
 *.out
 *.cov

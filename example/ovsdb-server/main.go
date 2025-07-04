@@ -12,6 +12,7 @@ import (
 	"runtime/pprof"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/ovn-kubernetes/libovsdb/client"
 	"github.com/ovn-kubernetes/libovsdb/database/inmemory"
 	"github.com/ovn-kubernetes/libovsdb/example/vswitchd"
@@ -58,15 +59,16 @@ func main() {
 		log.Fatal(err)
 	}
 
+	logger := logr.Discard()
 	ovsDB := inmemory.NewDatabase(map[string]model.ClientDBModel{
 		schema.Name: clientDBModel,
-	})
+	}, &logger)
 
 	dbModel, errs := model.NewDatabaseModel(schema, clientDBModel)
 	if len(errs) > 0 {
 		log.Fatal(errs)
 	}
-	s, err := server.NewOvsdbServer(ovsDB, dbModel)
+	s, err := server.NewOvsdbServer(ovsDB, &logger, dbModel)
 	if err != nil {
 		log.Fatal(err)
 	}

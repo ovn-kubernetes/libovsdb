@@ -11,7 +11,7 @@ import (
 // ColumnKey addresses a column and optionally a key within a column
 type ColumnKey struct {
 	Column string
-	Key    interface{}
+	Key    any
 }
 
 // ClientIndex defines a client index by a set of columns

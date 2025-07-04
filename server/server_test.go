@@ -4,24 +4,25 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/google/uuid"
 	"github.com/ovn-kubernetes/libovsdb/database/inmemory"
 	"github.com/ovn-kubernetes/libovsdb/model"
 	"github.com/ovn-kubernetes/libovsdb/ovsdb"
+	"github.com/ovn-kubernetes/libovsdb/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	. "github.com/ovn-kubernetes/libovsdb/test"
 )
 
 func TestOvsdbServerMonitor(t *testing.T) {
-	dbModel, err := GetModel()
+	dbModel, err := test.GetModel()
 	require.NoError(t, err)
-	ovsDB := inmemory.NewDatabase(map[string]model.ClientDBModel{"Open_vSwitch": dbModel.Client()})
+	logger := logr.Discard()
+	ovsDB := inmemory.NewDatabase(map[string]model.ClientDBModel{"Open_vSwitch": dbModel.Client()}, &logger)
 	schema := dbModel.Schema
 
-	o, err := NewOvsdbServer(ovsDB, dbModel)
-	require.Nil(t, err)
+	o, err := NewOvsdbServer(ovsDB, &logger, dbModel)
+	require.NoError(t, err)
 	requests := make(map[string]ovsdb.MonitorRequest)
 	for table, tableSchema := range schema.Tables {
 		var columns []string
@@ -71,15 +72,15 @@ func TestOvsdbServerMonitor(t *testing.T) {
 	require.NoError(t, err)
 
 	db, err := json.Marshal("Open_vSwitch")
-	require.Nil(t, err)
+	require.NoError(t, err)
 	value, err := json.Marshal("foo")
-	require.Nil(t, err)
+	require.NoError(t, err)
 	rJSON, err := json.Marshal(requests)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	args := []json.RawMessage{db, value, rJSON}
 	reply := &ovsdb.TableUpdates{}
 	err = o.Monitor(nil, args, reply)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	expected := &ovsdb.TableUpdates{
 		"Bridge": {
 			fooUUID: &ovsdb.RowUpdate{
