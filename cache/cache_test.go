@@ -1614,6 +1614,8 @@ func TestTableCacheTable(t *testing.T) {
 	require.NoError(t, err)
 	dbModel, errs := model.NewDatabaseModel(schema, db)
 	require.Empty(t, errs)
+	rc, err := newRowCache("Open_vSwitch", dbModel, nil)
+	require.NoError(t, err)
 	tests := []struct {
 		name  string
 		cache map[string]*RowCache
@@ -1622,15 +1624,15 @@ func TestTableCacheTable(t *testing.T) {
 	}{
 		{
 			"returns nil for an empty table",
-			map[string]*RowCache{"Open_vSwitch": newRowCache("Open_vSwitch", dbModel, nil)},
+			map[string]*RowCache{"Open_vSwitch": rc},
 			"foo",
 			nil,
 		},
 		{
 			"returns valid row cache for valid table",
-			map[string]*RowCache{"Open_vSwitch": newRowCache("Open_vSwitch", dbModel, nil)},
+			map[string]*RowCache{"Open_vSwitch": rc},
 			"Open_vSwitch",
-			newRowCache("Open_vSwitch", dbModel, nil),
+			rc,
 		},
 	}
 	for _, tt := range tests {
@@ -1754,6 +1756,12 @@ func TestTableCacheTables(t *testing.T) {
 	require.NoError(t, err)
 	dbModel, errs := model.NewDatabaseModel(schema, db)
 	require.Empty(t, errs)
+	rc1, err := newRowCache("test1", dbModel, nil)
+	require.NoError(t, err)
+	rc2, err := newRowCache("test2", dbModel, nil)
+	require.NoError(t, err)
+	rc3, err := newRowCache("test3", dbModel, nil)
+	require.NoError(t, err)
 	tests := []struct {
 		name  string
 		cache map[string]*RowCache
@@ -1762,9 +1770,9 @@ func TestTableCacheTables(t *testing.T) {
 		{
 			"returns a table that exists",
 			map[string]*RowCache{
-				"test1": newRowCache("test1", dbModel, nil),
-				"test2": newRowCache("test2", dbModel, nil),
-				"test3": newRowCache("test3", dbModel, nil),
+				"test1": rc1,
+				"test2": rc2,
+				"test3": rc3,
 			},
 			[]string{"test1", "test2", "test3"},
 		},
