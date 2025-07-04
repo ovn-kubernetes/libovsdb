@@ -10,7 +10,7 @@ on:
 jobs:
   build:
     name: Build
-    if: github.repository == 'ovn-org/libovsdb'
+    if: github.repository == 'ovn-kubernetes/libovsdb'
     runs-on: ubuntu-latest
     strategy:
       matrix:

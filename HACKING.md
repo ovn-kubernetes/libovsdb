@@ -11,7 +11,7 @@ You can use [`hub`](https://hub.github.com) to fork the repo
 
     hub fork
 
-... or alternatively, fork ovn-org/libovsdb on GitHub and add your fork as a remote
+... or alternatively, fork ovn-kubernetes/libovsdb on GitHub and add your fork as a remote
 
     git remote add <github-user> git@github.com:<github-user>/libovsdb
 

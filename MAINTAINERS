@@ -1,6 +1,6 @@
 # libovsdb maintainers file
 #
-# This file describes who runs the ovn-org/libovsdb project and how.
+# This file describes who runs the ovn-kubernetes/libovsdb project and how.
 # This is a living document - if you see something out of date or missing, speak up!
 #
 # It is structured to be consumable by both humans and programs.

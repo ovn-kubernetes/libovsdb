@@ -1,6 +1,6 @@
 # libovsdb
 
-[![libovsdb-ci](https://github.com/ovn-kubernetes/libovsdb/actions/workflows/ci.yml/badge.svg)](https://github.com/ovn-kubernetes/libovsdb/actions/workflows/ci.yml) [![Coverage Status](https://coveralls.io/repos/github/ovn-org/libovsdb/badge.svg?branch=main)](https://coveralls.io/github/ovn-org/libovsdb?branch=main) [![Go Report Card](https://goreportcard.com/badge/github.com/ovn-kubernetes/libovsdb)](https://goreportcard.com/report/github.com/ovn-kubernetes/libovsdb)
+[![libovsdb-ci](https://github.com/ovn-kubernetes/libovsdb/actions/workflows/ci.yml/badge.svg)](https://github.com/ovn-kubernetes/libovsdb/actions/workflows/ci.yml) [![Coverage Status](https://coveralls.io/repos/github/ovn-kubernetes/libovsdb/badge.svg?branch=main)](https://coveralls.io/github/ovn-kubernetes/libovsdb?branch=main) [![Go Report Card](https://goreportcard.com/badge/github.com/ovn-kubernetes/libovsdb)](https://goreportcard.com/report/github.com/ovn-kubernetes/libovsdb)
 
 An OVSDB Library written in Go
 
@@ -323,5 +323,5 @@ is shown above. In other words, it will start the two containers and execute
 
 ## Contact
 
-The libovsdb community is part of ovn-org and can be contacted in the _#libovsdb_ channel in
-[ovn-org Slack server](https://ovn-org.slack.com)
+The libovsdb community is part of ovn-kubernetes and can be contacted in the _#libovsdb_ channel in
+[CNCF Slack server](https://cloud-native.slack.com/)
