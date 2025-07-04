@@ -24,7 +24,7 @@ type bridgeType struct {
 	UUID        string            `ovsdb:"_uuid"`
 	Name        string            `ovsdb:"name"`
 	OtherConfig map[string]string `ovsdb:"other_config"`
-	ExternalIds map[string]string `ovsdb:"external_ids"`
+	ExternalIDs map[string]string `ovsdb:"external_ids"`
 	Ports       []string          `ovsdb:"ports"`
 	Status      map[string]string `ovsdb:"status"`
 }
@@ -128,7 +128,7 @@ func run(ctx context.Context, resultsChan chan result, wg *sync.WaitGroup) {
 					result.insertions++
 				}
 			},
-			DeleteFunc: func(table string, model model.Model) {
+			DeleteFunc: func(table string, _ model.Model) {
 				if table == "Bridge" {
 					result.deletions++
 				}
@@ -155,7 +155,7 @@ func run(ctx context.Context, resultsChan chan result, wg *sync.WaitGroup) {
 		ch := bridgeCh[br.Name]
 		log.Printf("create bridge: %s", br.Name)
 		cacheWg.Add(1)
-		go func(ctx context.Context, ch chan bool) {
+		go func(_ context.Context, ch chan bool) {
 			defer cacheWg.Done()
 			<-ch
 		}(ctx, ch)
@@ -205,7 +205,7 @@ func newBridge() bridgeType {
 			"foo":  "bar",
 			"fake": "config",
 		},
-		ExternalIds: map[string]string{
+		ExternalIDs: map[string]string{
 			"key1": "val1",
 			"key2": "val2",
 		},
@@ -283,7 +283,7 @@ func main() {
 		result.insertions += r.insertions
 		result.deletions += r.deletions
 		result.transactTime = append(result.transactTime, r.transactTime...)
-		result.cacheTime = append(result.transactTime, r.cacheTime...)
+		result.cacheTime = append(result.cacheTime, r.cacheTime...)
 	}
 
 	fmt.Printf("\n\n\n")

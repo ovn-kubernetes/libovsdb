@@ -71,19 +71,19 @@ func TestConditionMarshalUnmarshalJSON(t *testing.T) {
 		},
 		{
 			"test set",
-			Condition{"foo", ConditionExcludes, OvsSet{GoSet: []interface{}{"foo", "bar", "baz"}}},
+			Condition{"foo", ConditionExcludes, OvsSet{GoSet: []any{"foo", "bar", "baz"}}},
 			`[ "foo", "excludes", ["set",["foo", "bar", "baz"]] ]`,
 			false,
 		},
 		{
 			"test map",
-			Condition{"foo", ConditionExcludes, OvsMap{GoMap: map[interface{}]interface{}{"foo": "bar", "baz": "quux"}}},
+			Condition{"foo", ConditionExcludes, OvsMap{GoMap: map[any]any{"foo": "bar", "baz": "quux"}}},
 			`[ "foo", "excludes", ["map",[["foo", "bar"], ["baz", "quux"]]]]`,
 			false,
 		},
 		{
 			"test uuid set",
-			Condition{"foo", ConditionExcludes, OvsSet{GoSet: []interface{}{UUID{GoUUID: "foo"}, UUID{GoUUID: "bar"}}}},
+			Condition{"foo", ConditionExcludes, OvsSet{GoSet: []any{UUID{GoUUID: "foo"}, UUID{GoUUID: "bar"}}}},
 			`[ "foo", "excludes", ["set",[["named-uuid", "foo"], ["named-uuid", "bar"]]] ]`,
 			false,
 		},
@@ -123,7 +123,7 @@ func TestCondition_UnmarshalJSON(t *testing.T) {
 	type fields struct {
 		Column   string
 		Function ConditionFunction
-		Value    interface{}
+		Value    any
 	}
 	type args struct {
 		b []byte
@@ -171,8 +171,8 @@ func TestConditionFunctionEvaluate(t *testing.T) {
 	tests := []struct {
 		name    string
 		c       ConditionFunction
-		a       interface{}
-		b       interface{}
+		a       any
+		b       any
 		want    bool
 		wantErr bool
 	}{
@@ -387,8 +387,8 @@ func TestConditionFunctionEvaluate(t *testing.T) {
 		{
 			"includes map true",
 			ConditionIncludes,
-			map[interface{}]interface{}{1: "bar", "bar": "baz", "baz": "quux"},
-			map[interface{}]interface{}{1: "bar"},
+			map[any]any{1: "bar", "bar": "baz", "baz": "quux"},
+			map[any]any{1: "bar"},
 			true,
 			false,
 		},
@@ -467,8 +467,8 @@ func TestConditionFunctionEvaluate(t *testing.T) {
 		{
 			"excludes map true",
 			ConditionExcludes,
-			map[interface{}]interface{}{1: "bar", "bar": "baz", "baz": "quux"},
-			map[interface{}]interface{}{1: "foo"},
+			map[any]any{1: "bar", "bar": "baz", "baz": "quux"},
+			map[any]any{1: "foo"},
 			true,
 			false,
 		},
@@ -578,8 +578,8 @@ func TestConditionFunctionEvaluate(t *testing.T) {
 func TestSliceContains(t *testing.T) {
 	tests := []struct {
 		name string
-		a    interface{}
-		b    interface{}
+		a    any
+		b    any
 		want bool
 	}{
 		{
@@ -602,14 +602,14 @@ func TestSliceContains(t *testing.T) {
 		},
 		{
 			"interface slice",
-			[]interface{}{1, "bar", "baz"},
-			[]interface{}{1, "bar"},
+			[]any{1, "bar", "baz"},
+			[]any{1, "bar"},
 			true,
 		},
 		{
 			"no match",
-			[]interface{}{1, "bar", "baz"},
-			[]interface{}{2, "bar"},
+			[]any{1, "bar", "baz"},
+			[]any{2, "bar"},
 			false,
 		},
 	}
@@ -626,8 +626,8 @@ func TestSliceContains(t *testing.T) {
 func TestMapContains(t *testing.T) {
 	tests := []struct {
 		name string
-		a    interface{}
-		b    interface{}
+		a    any
+		b    any
 		want bool
 	}{
 		{
@@ -644,8 +644,8 @@ func TestMapContains(t *testing.T) {
 		},
 		{
 			"interface keys",
-			map[interface{}]interface{}{1: 1024, 2: "baz"},
-			map[interface{}]interface{}{2: "baz"},
+			map[any]any{1: 1024, 2: "baz"},
+			map[any]any{2: "baz"},
 			true,
 		},
 		{

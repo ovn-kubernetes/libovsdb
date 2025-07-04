@@ -77,8 +77,8 @@ type TableInfo struct {
 //   - `DatabaseName`: (string) the database name
 //   - `PackageName`: (string) the package name
 //   - `Tables`: []Table list of Tables that form the Model
-func GetDBTemplateData(pkg string, schema ovsdb.DatabaseSchema) map[string]interface{} {
-	data := map[string]interface{}{}
+func GetDBTemplateData(pkg string, schema ovsdb.DatabaseSchema) map[string]any {
+	data := map[string]any{}
 	data["DatabaseName"] = schema.Name
 	data["PackageName"] = pkg
 	schemaBytes, _ := json.MarshalIndent(schema, "", "  ")

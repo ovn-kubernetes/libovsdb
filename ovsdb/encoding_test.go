@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var validUUIDStr0 = `00000000-0000-0000-0000-000000000000`
@@ -37,23 +38,23 @@ func TestMap(t *testing.T) {
 	}
 	for _, tt := range tests {
 		m, err := NewOvsMap(tt.input)
-		assert.Nil(t, err)
+		require.NoError(t, err)
 		jsonStr, err := json.Marshal(m)
-		assert.Nil(t, err)
+		require.NoError(t, err)
 		// Compare unmarshalled data since the order of the elements of the map might not
 		// have been preserved
-		var expectedSlice []interface{}
-		var jsonSlice []interface{}
+		var expectedSlice []any
+		var jsonSlice []any
 		err = json.Unmarshal([]byte(tt.expected), &expectedSlice)
-		assert.Nil(t, err)
+		require.NoError(t, err)
 		err = json.Unmarshal(jsonStr, &jsonSlice)
-		assert.Nil(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, expectedSlice[0], jsonSlice[0], "they should both start with 'map'")
-		assert.ElementsMatch(t, expectedSlice[1].([]interface{}), jsonSlice[1].([]interface{}), "they should have the same elements\n")
+		assert.ElementsMatch(t, expectedSlice[1].([]any), jsonSlice[1].([]any), "they should have the same elements\n")
 
 		var res OvsMap
 		err = json.Unmarshal(jsonStr, &res)
-		assert.Nil(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, m, res, "they should be equal\n")
 	}
 }
@@ -63,7 +64,7 @@ func TestSet(t *testing.T) {
 	var y *string
 	tests := []struct {
 		name     string
-		input    interface{}
+		input    any
 		expected string
 	}{
 		{
@@ -155,14 +156,14 @@ func TestSet(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			set, err := NewOvsSet(tt.input)
-			assert.Nil(t, err)
+			require.NoError(t, err)
 			jsonStr, err := json.Marshal(set)
-			assert.Nil(t, err)
+			require.NoError(t, err)
 			assert.JSONEqf(t, tt.expected, string(jsonStr), "they should be equal\n")
 
 			var res OvsSet
 			err = json.Unmarshal(jsonStr, &res)
-			assert.Nil(t, err)
+			require.NoError(t, err)
 			assert.Equal(t, set.GoSet, res.GoSet, "they should have the same elements\n")
 		})
 	}

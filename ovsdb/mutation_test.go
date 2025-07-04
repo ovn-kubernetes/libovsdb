@@ -65,19 +65,19 @@ func TestMutationMarshalUnmarshalJSON(t *testing.T) {
 		},
 		{
 			"test set",
-			Mutation{"foo", MutateOperationInsert, OvsSet{GoSet: []interface{}{"foo", "bar", "baz"}}},
+			Mutation{"foo", MutateOperationInsert, OvsSet{GoSet: []any{"foo", "bar", "baz"}}},
 			`[ "foo", "insert", ["set",["foo", "bar", "baz"]] ]`,
 			false,
 		},
 		{
 			"test map",
-			Mutation{"foo", MutateOperationInsert, OvsMap{GoMap: map[interface{}]interface{}{"foo": "bar", "baz": "quux"}}},
+			Mutation{"foo", MutateOperationInsert, OvsMap{GoMap: map[any]any{"foo": "bar", "baz": "quux"}}},
 			`[ "foo", "insert", ["map",[["foo", "bar"], ["baz", "quux"]]]]`,
 			false,
 		},
 		{
 			"test uuid set",
-			Mutation{"foo", MutateOperationInsert, OvsSet{GoSet: []interface{}{UUID{GoUUID: "foo"}, UUID{GoUUID: "bar"}}}},
+			Mutation{"foo", MutateOperationInsert, OvsSet{GoSet: []any{UUID{GoUUID: "foo"}, UUID{GoUUID: "bar"}}}},
 			`[ "foo", "insert", ["set",[["named-uuid", "foo"], ["named-uuid", "bar"]]] ]`,
 			false,
 		},

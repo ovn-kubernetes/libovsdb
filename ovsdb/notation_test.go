@@ -31,7 +31,7 @@ func TestOpRowSerialization(t *testing.T) {
 			Operation{
 				Op:    "insert",
 				Table: "Bridge",
-				Row:   Row(map[string]interface{}{"name": "docker-ovs"}),
+				Row:   Row(map[string]any{"name": "docker-ovs"}),
 			},
 			`{"op":"insert","table":"Bridge","row":{"name":"docker-ovs"}}`,
 		},
@@ -63,13 +63,13 @@ func TestOpRowsSerialization(t *testing.T) {
 		Table: "Interface",
 	}
 
-	iface1 := Row(map[string]interface{}{
+	iface1 := Row(map[string]any{
 		"name":   "test-iface1",
 		"mac":    "0000ffaaaa",
 		"ofport": 1,
 	})
 
-	iface2 := Row(map[string]interface{}{
+	iface2 := Row(map[string]any{
 		"name":   "test-iface2",
 		"mac":    "0000ffaabb",
 		"ofport": 2,
@@ -195,7 +195,7 @@ func TestOperationsMarshalUnmarshalJSON(t *testing.T) {
 	}
 	assert.Equal(t, OperationMutate, op.Op)
 	assert.Equal(t, "Open_vSwitch", op.Table)
-	assert.Equal(t, 1, len(op.Mutations))
+	assert.Len(t, op.Mutations, 1)
 	assert.Equal(t, Mutation{
 		Column:  "bridges",
 		Mutator: OperationInsert,
@@ -206,8 +206,8 @@ func TestOperationsMarshalUnmarshalJSON(t *testing.T) {
 func TestOvsSliceToGoNotation(t *testing.T) {
 	tests := []struct {
 		name    string
-		value   interface{}
-		want    interface{}
+		value   any
+		want    any
 		wantErr bool
 	}{
 		{
@@ -218,50 +218,50 @@ func TestOvsSliceToGoNotation(t *testing.T) {
 		},
 		{
 			"empty set",
-			[]interface{}{"set", []interface{}{}},
-			OvsSet{GoSet: []interface{}{}},
+			[]any{"set", []any{}},
+			OvsSet{GoSet: []any{}},
 			false,
 		},
 		{
 			"set",
-			[]interface{}{"set", []interface{}{"foo", "bar", "baz"}},
-			OvsSet{GoSet: []interface{}{"foo", "bar", "baz"}},
+			[]any{"set", []any{"foo", "bar", "baz"}},
+			OvsSet{GoSet: []any{"foo", "bar", "baz"}},
 			false,
 		},
 		{
 			"uuid set",
-			[]interface{}{"set", []interface{}{[]interface{}{"named-uuid", "foo"}, []interface{}{"named-uuid", "bar"}}},
-			OvsSet{GoSet: []interface{}{UUID{GoUUID: "foo"}, UUID{GoUUID: "bar"}}},
+			[]any{"set", []any{[]any{"named-uuid", "foo"}, []any{"named-uuid", "bar"}}},
+			OvsSet{GoSet: []any{UUID{GoUUID: "foo"}, UUID{GoUUID: "bar"}}},
 			false,
 		},
 		{
 			"empty map",
-			[]interface{}{"map", []interface{}{}},
-			OvsMap{GoMap: map[interface{}]interface{}{}},
+			[]any{"map", []any{}},
+			OvsMap{GoMap: map[any]any{}},
 			false,
 		},
 		{
 			"map",
-			[]interface{}{"map", []interface{}{[]interface{}{"foo", "bar"}, []interface{}{"baz", "quux"}}},
-			OvsMap{GoMap: map[interface{}]interface{}{"foo": "bar", "baz": "quux"}},
+			[]any{"map", []any{[]any{"foo", "bar"}, []any{"baz", "quux"}}},
+			OvsMap{GoMap: map[any]any{"foo": "bar", "baz": "quux"}},
 			false,
 		},
 		{
 			"map uuid values",
-			[]interface{}{"map", []interface{}{[]interface{}{"foo", []interface{}{"named-uuid", "bar"}}, []interface{}{"baz", []interface{}{"named-uuid", "quux"}}}},
-			OvsMap{GoMap: map[interface{}]interface{}{"foo": UUID{GoUUID: "bar"}, "baz": UUID{GoUUID: "quux"}}},
+			[]any{"map", []any{[]any{"foo", []any{"named-uuid", "bar"}}, []any{"baz", []any{"named-uuid", "quux"}}}},
+			OvsMap{GoMap: map[any]any{"foo": UUID{GoUUID: "bar"}, "baz": UUID{GoUUID: "quux"}}},
 			false,
 		},
 		{
 			"map uuid keys",
-			[]interface{}{"map", []interface{}{[]interface{}{[]interface{}{"named-uuid", "bar"}, "foo"}, []interface{}{[]interface{}{"named-uuid", "quux"}, "baz"}}},
-			OvsMap{GoMap: map[interface{}]interface{}{UUID{GoUUID: "bar"}: "foo", UUID{GoUUID: "quux"}: "baz"}},
+			[]any{"map", []any{[]any{[]any{"named-uuid", "bar"}, "foo"}, []any{[]any{"named-uuid", "quux"}, "baz"}}},
+			OvsMap{GoMap: map[any]any{UUID{GoUUID: "bar"}: "foo", UUID{GoUUID: "quux"}: "baz"}},
 			false,
 		},
 		{
 			"map uuid keys and values",
-			[]interface{}{"map", []interface{}{[]interface{}{[]interface{}{"named-uuid", "bar"}, "foo"}, []interface{}{[]interface{}{"named-uuid", "quux"}, "baz"}}},
-			OvsMap{GoMap: map[interface{}]interface{}{UUID{GoUUID: "bar"}: "foo", UUID{GoUUID: "quux"}: "baz"}},
+			[]any{"map", []any{[]any{[]any{"named-uuid", "bar"}, "foo"}, []any{[]any{"named-uuid", "quux"}, "baz"}}},
+			OvsMap{GoMap: map[any]any{UUID{GoUUID: "bar"}: "foo", UUID{GoUUID: "quux"}: "baz"}},
 			false,
 		},
 	}
@@ -269,7 +269,7 @@ func TestOvsSliceToGoNotation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := ovsSliceToGoNotation(tt.value)
 			if tt.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
 				return
 			}
 			require.NoError(t, err)

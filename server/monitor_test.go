@@ -7,6 +7,7 @@ import (
 	"github.com/ovn-kubernetes/libovsdb/test"
 	"github.com/ovn-kubernetes/libovsdb/updates"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMonitorFilter(t *testing.T) {
@@ -22,11 +23,11 @@ func TestMonitorFilter(t *testing.T) {
 		"_uuid": "foo",
 		"name":  "bar",
 	}
-	bridgeExternalIds, _ := ovsdb.NewOvsMap(map[string]string{"foo": "bar"})
+	bridgeExternalIDs, _ := ovsdb.NewOvsMap(map[string]string{"foo": "bar"})
 	bridgeRowWithIDs := ovsdb.Row{
 		"_uuid":        "foo",
 		"name":         "bar",
-		"external_ids": bridgeExternalIds,
+		"external_ids": bridgeExternalIDs,
 	}
 	tests := []struct {
 		name     string
@@ -82,12 +83,12 @@ func TestMonitorFilter(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dbModel, err := test.GetModel()
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			update := updates.ModelUpdates{}
 			for table, rows := range tt.update {
 				for uuid, row := range rows {
 					err := update.AddRowUpdate2(dbModel, table, uuid, nil, *row)
-					assert.NoError(t, err)
+					require.NoError(t, err)
 				}
 			}
 			tu := monitor.filter2(updates.NewDatabaseUpdate(update, nil))
@@ -108,10 +109,10 @@ func TestMonitorFilter2(t *testing.T) {
 	bridgeRow := ovsdb.Row{
 		"name": "bar",
 	}
-	bridgeExternalIds, _ := ovsdb.NewOvsMap(map[string]string{"foo": "bar"})
+	bridgeExternalIDs, _ := ovsdb.NewOvsMap(map[string]string{"foo": "bar"})
 	bridgeRowWithIDs := ovsdb.Row{
 		"name":         "bar",
-		"external_ids": bridgeExternalIds,
+		"external_ids": bridgeExternalIDs,
 	}
 	tests := []struct {
 		name     string
@@ -167,12 +168,12 @@ func TestMonitorFilter2(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dbModel, err := test.GetModel()
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			update := updates.ModelUpdates{}
 			for table, rows := range tt.update {
 				for uuid, row := range rows {
 					err := update.AddRowUpdate2(dbModel, table, uuid, nil, *row)
-					assert.NoError(t, err)
+					require.NoError(t, err)
 				}
 			}
 			tu := monitor.filter2(updates.NewDatabaseUpdate(update, nil))

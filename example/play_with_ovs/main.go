@@ -84,7 +84,10 @@ func processInput(ovs client.Client) {
 	for {
 		fmt.Printf("\n Enter a Bridge Name : ")
 		var bridgeName string
-		fmt.Scanf("%s", &bridgeName)
+		_, err := fmt.Scanf("%s", &bridgeName)
+		if err != nil {
+			log.Fatal("Error reading input: ", err)
+		}
 		if bridgeName == "" {
 			continue
 		}

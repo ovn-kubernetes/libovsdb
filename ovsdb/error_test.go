@@ -15,7 +15,7 @@ func TestErrorFromResult(t *testing.T) {
 	tests := []struct {
 		name     string
 		args     args
-		expected interface{}
+		expected any
 	}{
 		{
 			referentialIntegrityViolation,

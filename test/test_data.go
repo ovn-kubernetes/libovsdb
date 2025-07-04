@@ -195,7 +195,7 @@ type BridgeType struct {
 	DatapathType string            `ovsdb:"datapath_type"`
 	DatapathID   *string           `ovsdb:"datapath_id"`
 	OtherConfig  map[string]string `ovsdb:"other_config"`
-	ExternalIds  map[string]string `ovsdb:"external_ids"`
+	ExternalIDs  map[string]string `ovsdb:"external_ids"`
 	Ports        []string          `ovsdb:"ports"`
 	Status       map[string]string `ovsdb:"status"`
 	Mirrors      []string          `ovsdb:"mirrors"`

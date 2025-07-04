@@ -256,7 +256,7 @@ type {{ index . "StructName" }} struct {
 type Enum struct {
 	Type  string
 	Alias string
-	Sets  []interface{}
+	Sets  []any
 }
 
 // Field represents the field information
@@ -266,7 +266,7 @@ type Field struct {
 }
 
 // TableTemplateData represents the data used by the Table Template
-type TableTemplateData map[string]interface{}
+type TableTemplateData map[string]any
 
 // WithEnumTypes configures whether the Template should expand enum types or not
 // Enum expansion (true by default) makes the template define an type alias for each enum type
@@ -289,7 +289,7 @@ func (t TableTemplateData) WithExtendedGen(val bool) {
 //   - `TStructName`: (string) the struct name
 //   - `TFields`: []Field a list of Fields that the struct has
 func GetTableTemplateData(pkg, name string, table *ovsdb.TableSchema) TableTemplateData {
-	data := map[string]interface{}{}
+	data := map[string]any{}
 	data["TableName"] = name
 	data["PackageName"] = pkg
 	data["StructName"] = StructName(name)
@@ -485,7 +485,7 @@ func expandInitilaisms(s string) string {
 	return s
 }
 
-func printVal(v interface{}, t string) string {
+func printVal(v any, t string) string {
 	switch t {
 	case "int":
 		return fmt.Sprintf(`%d`, v)

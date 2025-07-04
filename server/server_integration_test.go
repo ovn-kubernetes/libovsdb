@@ -10,33 +10,33 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/google/uuid"
 	"github.com/ovn-kubernetes/libovsdb/cache"
 	"github.com/ovn-kubernetes/libovsdb/client"
 	"github.com/ovn-kubernetes/libovsdb/database/inmemory"
 	"github.com/ovn-kubernetes/libovsdb/model"
 	"github.com/ovn-kubernetes/libovsdb/ovsdb"
-	"github.com/ovn-kubernetes/libovsdb/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	. "github.com/ovn-kubernetes/libovsdb/test"
+	"github.com/ovn-kubernetes/libovsdb/test"
 )
 
 func buildTestServerAndClient(t *testing.T) (client.Client, func()) {
-	dbModel, err := GetModel()
+	dbModel, err := test.GetModel()
 	require.NoError(t, err)
-	ovsDB := inmemory.NewDatabase(map[string]model.ClientDBModel{"Open_vSwitch": dbModel.Client()})
+	logger := logr.Discard()
+	ovsDB := inmemory.NewDatabase(map[string]model.ClientDBModel{"Open_vSwitch": dbModel.Client()}, &logger)
 	schema := dbModel.Schema
 	defDB := dbModel.Client()
 
-	rand.Seed(time.Now().UnixNano())
 	tmpfile := fmt.Sprintf("/tmp/ovsdb-%d.sock", rand.Intn(10000))
 	defer os.Remove(tmpfile)
 	dbModel, errs := model.NewDatabaseModel(schema, defDB)
 	require.Empty(t, errs)
-	server, err := NewOvsdbServer(ovsDB, dbModel)
-	assert.Nil(t, err)
+	server, err := NewOvsdbServer(ovsDB, &logger, dbModel)
+	require.NoError(t, err)
 
 	go func(t *testing.T, o *OvsdbServer) {
 		if err := o.Serve("unix", tmpfile); err != nil {
@@ -60,63 +60,63 @@ func buildTestServerAndClient(t *testing.T) (client.Client, func()) {
 }
 
 func TestClientServerEcho(t *testing.T) {
-	ovs, close := buildTestServerAndClient(t)
-	defer close()
+	ovs, closeFn := buildTestServerAndClient(t)
+	defer closeFn()
 
 	err := ovs.Echo(context.Background())
-	assert.Nil(t, err)
+	require.NoError(t, err)
 }
 
 func TestClientServerInsert(t *testing.T) {
-	ovs, close := buildTestServerAndClient(t)
-	defer close()
+	ovs, closeFn := buildTestServerAndClient(t)
+	defer closeFn()
 
 	_, err := ovs.MonitorAll(context.Background())
 	require.NoError(t, err)
 
 	wallace := "wallace"
-	bridgeRow := &BridgeType{
+	bridgeRow := &test.BridgeType{
 		Name:         "foo",
 		DatapathType: "bar",
 		DatapathID:   &wallace,
-		ExternalIds:  map[string]string{"go": "awesome", "docker": "made-for-each-other"},
+		ExternalIDs:  map[string]string{"go": "awesome", "docker": "made-for-each-other"},
 	}
 
 	ops, err := ovs.Create(bridgeRow)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	reply, err := ovs.Transact(context.Background(), ops...)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 	opErr, err := ovsdb.CheckOperationResults(reply, ops)
-	assert.NoErrorf(t, err, "%+v", opErr)
+	require.NoErrorf(t, err, "%+v", opErr)
 
 	uuid := reply[0].UUID.GoUUID
 	require.Eventually(t, func() bool {
-		br := &BridgeType{UUID: uuid}
+		br := &test.BridgeType{UUID: uuid}
 		err := ovs.Get(context.Background(), br)
 		return err == nil
 	}, 2*time.Second, 500*time.Millisecond)
 
-	br := &BridgeType{UUID: uuid}
+	br := &test.BridgeType{UUID: uuid}
 	err = ovs.Get(context.Background(), br)
 	require.NoError(t, err)
 
 	assert.Equal(t, bridgeRow.Name, br.Name)
-	assert.Equal(t, bridgeRow.ExternalIds, br.ExternalIds)
+	assert.Equal(t, bridgeRow.ExternalIDs, br.ExternalIDs)
 	assert.Equal(t, bridgeRow.DatapathType, br.DatapathType)
 	assert.Equal(t, *bridgeRow.DatapathID, wallace)
 }
 
 func TestClientServerMonitor(t *testing.T) {
-	ovs, close := buildTestServerAndClient(t)
-	defer close()
+	ovs, closeFn := buildTestServerAndClient(t)
+	defer closeFn()
 
-	ovsRow := &OvsType{
+	ovsRow := &test.OvsType{
 		UUID: "ovs",
 	}
-	bridgeRow := &BridgeType{
+	bridgeRow := &test.BridgeType{
 		UUID:        "foo",
 		Name:        "foo",
-		ExternalIds: map[string]string{"go": "awesome", "docker": "made-for-each-other"},
+		ExternalIDs: map[string]string{"go": "awesome", "docker": "made-for-each-other"},
 	}
 
 	seenMutex := sync.RWMutex{}
@@ -126,9 +126,9 @@ func TestClientServerMonitor(t *testing.T) {
 	ovs.Cache().AddEventHandler(&cache.EventHandlerFuncs{
 		AddFunc: func(table string, model model.Model) {
 			if table == "Bridge" {
-				br := model.(*BridgeType)
+				br := model.(*test.BridgeType)
 				assert.Equal(t, bridgeRow.Name, br.Name)
-				assert.Equal(t, bridgeRow.ExternalIds, br.ExternalIds)
+				assert.Equal(t, bridgeRow.ExternalIDs, br.ExternalIDs)
 				seenMutex.Lock()
 				seenInsert = true
 				seenMutex.Unlock()
@@ -139,10 +139,10 @@ func TestClientServerMonitor(t *testing.T) {
 				seenMutex.Unlock()
 			}
 		},
-		UpdateFunc: func(table string, old, new model.Model) {
+		UpdateFunc: func(table string, _, newModel model.Model) {
 			if table == "Open_vSwitch" {
-				ov := new.(*OvsType)
-				assert.Equal(t, 1, len(ov.Bridges))
+				ov := newModel.(*test.OvsType)
+				assert.Len(t, ov.Bridges, 1)
 				seenMutex.Lock()
 				seenMutation = true
 				seenMutex.Unlock()
@@ -152,16 +152,16 @@ func TestClientServerMonitor(t *testing.T) {
 
 	var ops []ovsdb.Operation
 	ovsOps, err := ovs.Create(ovsRow)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	reply, err := ovs.Transact(context.Background(), ovsOps...)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	_, err = ovsdb.CheckOperationResults(reply, ovsOps)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	require.NotEmpty(t, reply[0].UUID.GoUUID)
 	ovsRow.UUID = reply[0].UUID.GoUUID
 
 	_, err = ovs.MonitorAll(context.Background())
-	require.Nil(t, err)
+	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		seenMutex.RLock()
 		defer seenMutex.RUnlock()
@@ -169,7 +169,7 @@ func TestClientServerMonitor(t *testing.T) {
 	}, 1*time.Second, 10*time.Millisecond)
 
 	bridgeOps, err := ovs.Create(bridgeRow)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	ops = append(ops, bridgeOps...)
 
 	mutateOps, err := ovs.Where(ovsRow).Mutate(ovsRow, model.Mutation{
@@ -177,14 +177,14 @@ func TestClientServerMonitor(t *testing.T) {
 		Mutator: ovsdb.MutateOperationInsert,
 		Value:   []string{"foo"},
 	})
-	require.Nil(t, err)
+	require.NoError(t, err)
 	ops = append(ops, mutateOps...)
 
 	reply, err = ovs.Transact(context.Background(), ops...)
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	_, err = ovsdb.CheckOperationResults(reply, ops)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, 1, reply[1].Count)
 
 	assert.Eventually(t, func() bool {
@@ -200,61 +200,61 @@ func TestClientServerMonitor(t *testing.T) {
 }
 
 func TestClientServerInsertAndDelete(t *testing.T) {
-	ovs, close := buildTestServerAndClient(t)
-	defer close()
+	ovs, closeFn := buildTestServerAndClient(t)
+	defer closeFn()
 
 	_, err := ovs.MonitorAll(context.Background())
 	require.NoError(t, err)
 
-	bridgeRow := &BridgeType{
+	bridgeRow := &test.BridgeType{
 		Name:        "foo",
-		ExternalIds: map[string]string{"go": "awesome", "docker": "made-for-each-other"},
+		ExternalIDs: map[string]string{"go": "awesome", "docker": "made-for-each-other"},
 	}
 
 	ops, err := ovs.Create(bridgeRow)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	reply, err := ovs.Transact(context.Background(), ops...)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	_, err = ovsdb.CheckOperationResults(reply, ops)
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	uuid := reply[0].UUID.GoUUID
 	assert.Eventually(t, func() bool {
-		br := &BridgeType{UUID: uuid}
+		br := &test.BridgeType{UUID: uuid}
 		err := ovs.Get(context.Background(), br)
 		return err == nil
 	}, 2*time.Second, 500*time.Millisecond)
 
 	bridgeRow.UUID = uuid
 	deleteOp, err := ovs.Where(bridgeRow).Delete()
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	reply, err = ovs.Transact(context.Background(), deleteOp...)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 	_, err = ovsdb.CheckOperationResults(reply, ops)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, 1, reply[0].Count)
 }
 
 func TestClientServerInsertDuplicate(t *testing.T) {
-	ovs, close := buildTestServerAndClient(t)
-	defer close()
+	ovs, closeFn := buildTestServerAndClient(t)
+	defer closeFn()
 
-	bridgeRow := &BridgeType{
+	bridgeRow := &test.BridgeType{
 		Name:        "foo",
-		ExternalIds: map[string]string{"go": "awesome", "docker": "made-for-each-other"},
+		ExternalIDs: map[string]string{"go": "awesome", "docker": "made-for-each-other"},
 	}
 
 	ops, err := ovs.Create(bridgeRow)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	reply, err := ovs.Transact(context.Background(), ops...)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	_, err = ovsdb.CheckOperationResults(reply, ops)
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	// duplicate
 	reply, err = ovs.Transact(context.Background(), ops...)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	opErrs, err := ovsdb.CheckOperationResults(reply, ops)
 	require.Nil(t, opErrs)
 	require.Error(t, err)
@@ -262,15 +262,15 @@ func TestClientServerInsertDuplicate(t *testing.T) {
 }
 
 func TestClientServerInsertAndUpdate(t *testing.T) {
-	ovs, close := buildTestServerAndClient(t)
-	defer close()
+	ovs, closeFn := buildTestServerAndClient(t)
+	defer closeFn()
 
 	_, err := ovs.MonitorAll(context.Background())
 	require.NoError(t, err)
 
-	bridgeRow := &BridgeType{
+	bridgeRow := &test.BridgeType{
 		Name:        "br-update",
-		ExternalIds: map[string]string{"go": "awesome", "docker": "made-for-each-other"},
+		ExternalIDs: map[string]string{"go": "awesome", "docker": "made-for-each-other"},
 	}
 
 	ops, err := ovs.Create(bridgeRow)
@@ -282,7 +282,7 @@ func TestClientServerInsertAndUpdate(t *testing.T) {
 
 	uuid := reply[0].UUID.GoUUID
 	assert.Eventually(t, func() bool {
-		br := &BridgeType{UUID: uuid}
+		br := &test.BridgeType{UUID: uuid}
 		err := ovs.Get(context.Background(), br)
 		return err == nil
 	}, 2*time.Second, 500*time.Millisecond)
@@ -297,7 +297,7 @@ func TestClientServerInsertAndUpdate(t *testing.T) {
 	// update many fields
 	bridgeRow.UUID = uuid
 	bridgeRow.Name = "br-update"
-	bridgeRow.ExternalIds["baz"] = "foobar"
+	bridgeRow.ExternalIDs["baz"] = "foobar"
 	bridgeRow.OtherConfig = map[string]string{"foo": "bar"}
 	ops, err = ovs.Where(bridgeRow).Update(bridgeRow)
 	require.NoError(t, err)
@@ -307,7 +307,7 @@ func TestClientServerInsertAndUpdate(t *testing.T) {
 	require.NoErrorf(t, err, "%+v", opErrs)
 
 	require.Eventually(t, func() bool {
-		br := &BridgeType{UUID: uuid}
+		br := &test.BridgeType{UUID: uuid}
 		err = ovs.Get(context.Background(), br)
 		if err != nil {
 			return false
@@ -315,9 +315,9 @@ func TestClientServerInsertAndUpdate(t *testing.T) {
 		return reflect.DeepEqual(br, bridgeRow)
 	}, 2*time.Second, 50*time.Millisecond)
 
-	newExternalIds := map[string]string{"foo": "bar"}
-	bridgeRow.ExternalIds = newExternalIds
-	ops, err = ovs.Where(bridgeRow).Update(bridgeRow, &bridgeRow.ExternalIds)
+	newExternalIDs := map[string]string{"foo": "bar"}
+	bridgeRow.ExternalIDs = newExternalIDs
+	ops, err = ovs.Where(bridgeRow).Update(bridgeRow, &bridgeRow.ExternalIDs)
 	require.NoError(t, err)
 	reply, err = ovs.Transact(context.Background(), ops...)
 	require.NoError(t, err)
@@ -325,30 +325,30 @@ func TestClientServerInsertAndUpdate(t *testing.T) {
 	require.NoErrorf(t, err, "%+v", opErr)
 
 	assert.Eventually(t, func() bool {
-		br := &BridgeType{UUID: uuid}
+		br := &test.BridgeType{UUID: uuid}
 		err = ovs.Get(context.Background(), br)
 		if err != nil {
 			return false
 		}
-		return reflect.DeepEqual(br.ExternalIds, bridgeRow.ExternalIds)
+		return reflect.DeepEqual(br.ExternalIDs, bridgeRow.ExternalIDs)
 	}, 2*time.Second, 500*time.Millisecond)
 
-	br := &BridgeType{UUID: uuid}
+	br := &test.BridgeType{UUID: uuid}
 	err = ovs.Get(context.Background(), br)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	assert.Equal(t, bridgeRow, br)
 }
 
 func TestUnsetOptional(t *testing.T) {
-	c, close := buildTestServerAndClient(t)
-	defer close()
+	c, closeFn := buildTestServerAndClient(t)
+	defer closeFn()
 	_, err := c.MonitorAll(context.Background())
 	require.NoError(t, err)
 
 	// Create the default bridge which has an optional DatapathID set
 	optional := "optional"
-	br := BridgeType{
+	br := test.BridgeType{
 		Name:       "br-with-optional",
 		DatapathID: &optional,
 	}
@@ -380,14 +380,14 @@ func TestUnsetOptional(t *testing.T) {
 }
 
 func TestUpdateOptional(t *testing.T) {
-	c, close := buildTestServerAndClient(t)
-	defer close()
+	c, closeFn := buildTestServerAndClient(t)
+	defer closeFn()
 	_, err := c.MonitorAll(context.Background())
 	require.NoError(t, err)
 
 	// Create the default bridge which has an optional DatapathID set
 	old := "old"
-	br := BridgeType{
+	br := test.BridgeType{
 		Name:       "br-with-optional",
 		DatapathID: &old,
 	}
@@ -404,8 +404,8 @@ func TestUpdateOptional(t *testing.T) {
 	require.NotNil(t, br.DatapathID)
 
 	// modify bridge to update DatapathID
-	new := "new"
-	br.DatapathID = &new
+	newName := "new"
+	br.DatapathID = &newName
 	ops, err = c.Where(&br).Update(&br, &br.DatapathID)
 	require.NoError(t, err)
 	r, err = c.Transact(context.Background(), ops...)
@@ -416,12 +416,12 @@ func TestUpdateOptional(t *testing.T) {
 	// verify the bridge has DatapathID updated
 	err = c.Get(context.Background(), &br)
 	require.NoError(t, err)
-	require.Equal(t, &new, br.DatapathID)
+	require.Equal(t, &newName, br.DatapathID)
 }
 
 func TestMultipleOpsSameRow(t *testing.T) {
-	c, close := buildTestServerAndClient(t)
-	defer close()
+	c, closeFn := buildTestServerAndClient(t)
+	defer closeFn()
 	_, err := c.MonitorAll(context.Background())
 	require.NoError(t, err)
 
@@ -432,12 +432,12 @@ func TestMultipleOpsSameRow(t *testing.T) {
 	bridgeInsertOp := len(ops)
 	bridgeUUID := "bridge_multiple_ops_same_row"
 	datapathID := "datapathID"
-	br := BridgeType{
+	br := test.BridgeType{
 		UUID:        bridgeUUID,
 		Name:        bridgeUUID,
 		DatapathID:  &datapathID,
 		Ports:       []string{"port10", "port1"},
-		ExternalIds: map[string]string{"key1": "value1"},
+		ExternalIDs: map[string]string{"key1": "value1"},
 	}
 	op, err = c.Create(&br)
 	require.NoError(t, err)
@@ -456,14 +456,14 @@ func TestMultipleOpsSameRow(t *testing.T) {
 
 	// Do several ops with the bridge in the same transaction
 	br.Ports = []string{"port10"}
-	br.ExternalIds = map[string]string{"key1": "value1", "key10": "value10"}
-	op, err = c.Where(&br).Update(&br, &br.Ports, &br.ExternalIds)
+	br.ExternalIDs = map[string]string{"key1": "value1", "key10": "value10"}
+	op, err = c.Where(&br).Update(&br, &br.Ports, &br.ExternalIDs)
 	require.NoError(t, err)
 	ops = append(ops, op...)
 
 	op, err = c.Where(&br).Mutate(&br,
 		model.Mutation{
-			Field:   &br.ExternalIds,
+			Field:   &br.ExternalIDs,
 			Mutator: ovsdb.MutateOperationInsert,
 			Value:   map[string]string{"keyA": "valueA"},
 		},
@@ -478,7 +478,7 @@ func TestMultipleOpsSameRow(t *testing.T) {
 
 	op, err = c.Where(&br).Mutate(&br,
 		model.Mutation{
-			Field:   &br.ExternalIds,
+			Field:   &br.ExternalIDs,
 			Mutator: ovsdb.MutateOperationDelete,
 			Value:   map[string]string{"key10": "value10"},
 		},
@@ -509,13 +509,13 @@ func TestMultipleOpsSameRow(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, errors)
 
-	br = BridgeType{
+	br = test.BridgeType{
 		UUID: bridgeUUID,
 	}
 	err = c.Get(context.TODO(), &br)
 	require.NoError(t, err)
 	require.Equal(t, []string{"port1"}, br.Ports)
-	require.Equal(t, map[string]string{"key1": "value1", "keyA": "valueA"}, br.ExternalIds)
+	require.Equal(t, map[string]string{"key1": "value1", "keyA": "valueA"}, br.ExternalIDs)
 	require.Nil(t, br.DatapathID)
 }
 
@@ -547,8 +547,8 @@ func TestReferentialIntegrity(t *testing.T) {
 					UUID:  bridgeUUID,
 					Row: ovsdb.Row{
 						"name":    bridgeUUID,
-						"ports":   ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: port1UUID}}},
-						"mirrors": ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: mirrorUUID}}},
+						"ports":   ovsdb.OvsSet{GoSet: []any{ovsdb.UUID{GoUUID: port1UUID}}},
+						"mirrors": ovsdb.OvsSet{GoSet: []any{ovsdb.UUID{GoUUID: mirrorUUID}}},
 					},
 				},
 				{
@@ -565,7 +565,7 @@ func TestReferentialIntegrity(t *testing.T) {
 					UUID:  mirrorUUID,
 					Row: ovsdb.Row{
 						"name":            mirrorUUID,
-						"select_src_port": ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: port1UUID}}},
+						"select_src_port": ovsdb.OvsSet{GoSet: []any{ovsdb.UUID{GoUUID: port1UUID}}},
 					},
 				},
 			},
@@ -639,8 +639,8 @@ func TestReferentialIntegrity(t *testing.T) {
 					UUID:  bridgeUUID,
 					Row: ovsdb.Row{
 						"name":    bridgeUUID,
-						"ports":   ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: port1UUID}, ovsdb.UUID{GoUUID: port2UUID}}},
-						"mirrors": ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: mirrorUUID}}},
+						"ports":   ovsdb.OvsSet{GoSet: []any{ovsdb.UUID{GoUUID: port1UUID}, ovsdb.UUID{GoUUID: port2UUID}}},
+						"mirrors": ovsdb.OvsSet{GoSet: []any{ovsdb.UUID{GoUUID: mirrorUUID}}},
 					},
 				},
 				{
@@ -665,7 +665,7 @@ func TestReferentialIntegrity(t *testing.T) {
 					UUID:  mirrorUUID,
 					Row: ovsdb.Row{
 						"name":            mirrorUUID,
-						"select_src_port": ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: port1UUID}, ovsdb.UUID{GoUUID: port2UUID}}},
+						"select_src_port": ovsdb.OvsSet{GoSet: []any{ovsdb.UUID{GoUUID: port1UUID}, ovsdb.UUID{GoUUID: port2UUID}}},
 					},
 				},
 			},
@@ -702,8 +702,8 @@ func TestReferentialIntegrity(t *testing.T) {
 					UUID:  bridgeUUID,
 					Row: ovsdb.Row{
 						"name":    bridgeUUID,
-						"ports":   ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: port1UUID}}},
-						"mirrors": ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: mirrorUUID}}},
+						"ports":   ovsdb.OvsSet{GoSet: []any{ovsdb.UUID{GoUUID: port1UUID}}},
+						"mirrors": ovsdb.OvsSet{GoSet: []any{ovsdb.UUID{GoUUID: mirrorUUID}}},
 					},
 				},
 				{
@@ -720,7 +720,7 @@ func TestReferentialIntegrity(t *testing.T) {
 					UUID:  mirrorUUID,
 					Row: ovsdb.Row{
 						"name":            mirrorUUID,
-						"select_src_port": ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: port1UUID}}},
+						"select_src_port": ovsdb.OvsSet{GoSet: []any{ovsdb.UUID{GoUUID: port1UUID}}},
 					},
 				},
 			},
@@ -745,8 +745,8 @@ func TestReferentialIntegrity(t *testing.T) {
 					UUID:  bridgeUUID,
 					Row: ovsdb.Row{
 						"name":    bridgeUUID,
-						"ports":   ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: port1UUID}}},
-						"mirrors": ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: mirrorUUID}}},
+						"ports":   ovsdb.OvsSet{GoSet: []any{ovsdb.UUID{GoUUID: port1UUID}}},
+						"mirrors": ovsdb.OvsSet{GoSet: []any{ovsdb.UUID{GoUUID: mirrorUUID}}},
 					},
 				},
 				{
@@ -763,7 +763,7 @@ func TestReferentialIntegrity(t *testing.T) {
 					UUID:  mirrorUUID,
 					Row: ovsdb.Row{
 						"name":            mirrorUUID,
-						"select_src_port": ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: port1UUID}}},
+						"select_src_port": ovsdb.OvsSet{GoSet: []any{ovsdb.UUID{GoUUID: port1UUID}}},
 					},
 				},
 			},
@@ -782,8 +782,8 @@ func TestReferentialIntegrity(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c, close := buildTestServerAndClient(t)
-			defer close()
+			c, closeFn := buildTestServerAndClient(t)
+			defer closeFn()
 			_, err := c.MonitorAll(context.Background())
 			require.NoError(t, err)
 
@@ -793,7 +793,7 @@ func TestReferentialIntegrity(t *testing.T) {
 				Table: "Open_vSwitch",
 				UUID:  ovsUUID,
 				Row: ovsdb.Row{
-					"bridges": ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: bridgeUUID}}},
+					"bridges": ovsdb.OvsSet{GoSet: []any{ovsdb.UUID{GoUUID: bridgeUUID}}},
 				},
 			})
 

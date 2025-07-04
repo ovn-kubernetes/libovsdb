@@ -7,6 +7,7 @@ import (
 
 	"github.com/ovn-kubernetes/libovsdb/ovsdb"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var sampleTable = []byte(`{
@@ -37,7 +38,7 @@ func TestNewMapperInfo(t *testing.T) {
 	type test struct {
 		name         string
 		table        []byte
-		obj          interface{}
+		obj          any
 		expectedCols []string
 		err          bool
 	}
@@ -56,13 +57,13 @@ func TestNewMapperInfo(t *testing.T) {
 		t.Run(fmt.Sprintf("NewMapper_%s", tt.name), func(t *testing.T) {
 			var table ovsdb.TableSchema
 			err := json.Unmarshal(tt.table, &table)
-			assert.Nil(t, err)
+			require.NoError(t, err)
 
 			info, err := NewInfo("Test", &table, tt.obj)
 			if tt.err {
-				assert.NotNil(t, err)
+				require.Error(t, err)
 			} else {
-				assert.Nil(t, err)
+				require.NoError(t, err)
 			}
 			for _, col := range tt.expectedCols {
 				assert.Truef(t, info.hasColumn(col), "Expected column should be present in Mapper Info")
@@ -84,8 +85,8 @@ func TestMapperInfoSet(t *testing.T) {
 	type test struct {
 		name   string
 		table  []byte
-		obj    interface{}
-		field  interface{}
+		obj    any
+		field  any
 		column string
 		err    bool
 	}
@@ -140,18 +141,18 @@ func TestMapperInfoSet(t *testing.T) {
 		t.Run(fmt.Sprintf("SetField_%s", tt.name), func(t *testing.T) {
 			var table ovsdb.TableSchema
 			err := json.Unmarshal(tt.table, &table)
-			assert.Nil(t, err)
+			require.NoError(t, err)
 
 			info, err := NewInfo("Test", &table, tt.obj)
-			assert.Nil(t, err)
+			require.NoError(t, err)
 
 			err = info.SetField(tt.column, tt.field)
 			if tt.err {
-				assert.NotNil(t, err)
+				require.Error(t, err)
 			} else {
-				assert.Nil(t, err)
+				require.NoError(t, err)
 				readBack, err := info.FieldByColumn(tt.column)
-				assert.Nil(t, err)
+				require.NoError(t, err)
 				assert.Equalf(t, tt.field, readBack, "Set field should match original")
 			}
 
@@ -171,8 +172,8 @@ func TestMapperInfoColByPtr(t *testing.T) {
 	type test struct {
 		name   string
 		table  []byte
-		obj    interface{}
-		field  interface{}
+		obj    any
+		field  any
 		column string
 		err    bool
 	}
@@ -221,16 +222,16 @@ func TestMapperInfoColByPtr(t *testing.T) {
 		t.Run(fmt.Sprintf("GetFieldByPtr_%s", tt.name), func(t *testing.T) {
 			var table ovsdb.TableSchema
 			err := json.Unmarshal(tt.table, &table)
-			assert.Nil(t, err)
+			require.NoError(t, err)
 
 			info, err := NewInfo("Test", &table, tt.obj)
-			assert.Nil(t, err)
+			require.NoError(t, err)
 
 			col, err := info.ColumnByPtr(tt.field)
 			if tt.err {
-				assert.NotNil(t, err)
+				require.Error(t, err)
 			} else {
-				assert.Nil(t, err)
+				require.NoError(t, err)
 				assert.Equalf(t, tt.column, col, "Column name extracted should match")
 			}
 
@@ -267,7 +268,7 @@ func TestOrmGetIndex(t *testing.T) {
    }`)
 	var table ovsdb.TableSchema
 	err := json.Unmarshal(tableSchema, &table)
-	assert.Nil(t, err)
+	require.NoError(t, err)
 
 	type obj struct {
 		ID     string            `ovsdb:"_uuid"`
@@ -278,7 +279,7 @@ func TestOrmGetIndex(t *testing.T) {
 	}
 	type test struct {
 		name     string
-		obj      interface{}
+		obj      any
 		expected [][]string
 		err      bool
 	}
@@ -356,13 +357,13 @@ func TestOrmGetIndex(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(fmt.Sprintf("GetValidIndexes_%s", tt.name), func(t *testing.T) {
 			info, err := NewInfo("Test", &table, tt.obj)
-			assert.Nil(t, err)
+			require.NoError(t, err)
 
 			indexes, err := info.getValidIndexes()
 			if tt.err {
-				assert.NotNil(t, err)
+				require.Error(t, err)
 			} else {
-				assert.Nil(t, err)
+				require.NoError(t, err)
 				assert.ElementsMatchf(t, tt.expected, indexes, "Indexes must match")
 			}
 

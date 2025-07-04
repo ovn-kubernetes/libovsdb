@@ -19,7 +19,7 @@ var testUUIDs = []string{
 	"7e191fdb-228d-4bf3-9db4-883c8705ac7e",
 }
 
-func benchmarkSetMarshalJSON(s interface{}, b *testing.B) {
+func benchmarkSetMarshalJSON(s any, b *testing.B) {
 	testSet, err := NewOvsSet(s)
 	if err != nil {
 		b.Fatal(err)
@@ -161,7 +161,7 @@ func BenchmarkSetUnmarshalJSONUUID8(b *testing.B) {
 	benchmarkSetUnmarshalJSON(setify(testUUIDs), b)
 }
 
-func setify(i interface{}) []byte {
+func setify(i any) []byte {
 	var s []string
 	iv := reflect.ValueOf(i)
 	for j := 0; j < iv.Len(); j++ {
