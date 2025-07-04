@@ -1,4 +1,4 @@
-OVS_VERSION ?= v2.16.0
+OVS_VERSION ?= v3.5.0
 
 .PHONY: all
 all: lint build test integration-test coverage
