@@ -89,7 +89,7 @@ func BenchmarkSetMarshalJSONUUID8(b *testing.B) {
 
 func benchmarkSetUnmarshalJSON(data []byte, b *testing.B) {
 	for n := 0; n < b.N; n++ {
-		var s OvsSet
+		var s OvsDataSet
 		err := json.Unmarshal(data, &s)
 		if err != nil {
 			b.Fatal(err)

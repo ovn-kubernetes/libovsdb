@@ -71,7 +71,7 @@ func TestConditionMarshalUnmarshalJSON(t *testing.T) {
 		},
 		{
 			"test set",
-			Condition{"foo", ConditionExcludes, OvsSet{GoSet: []interface{}{"foo", "bar", "baz"}}},
+			Condition{"foo", ConditionExcludes, OvsDataSet{GoSet: []interface{}{"foo", "bar", "baz"}}},
 			`[ "foo", "excludes", ["set",["foo", "bar", "baz"]] ]`,
 			false,
 		},
@@ -83,7 +83,7 @@ func TestConditionMarshalUnmarshalJSON(t *testing.T) {
 		},
 		{
 			"test uuid set",
-			Condition{"foo", ConditionExcludes, OvsSet{GoSet: []interface{}{UUID{GoUUID: "foo"}, UUID{GoUUID: "bar"}}}},
+			Condition{"foo", ConditionExcludes, OvsDataSet{GoSet: []interface{}{UUID{GoUUID: "foo"}, UUID{GoUUID: "bar"}}}},
 			`[ "foo", "excludes", ["set",[["named-uuid", "foo"], ["named-uuid", "bar"]]] ]`,
 			false,
 		},

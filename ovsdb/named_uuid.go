@@ -117,7 +117,7 @@ func expandNamedUUID(column *ColumnSchema, value interface{}, namedUUIDs map[str
 			}
 		}
 	} else if keyType == TypeUUID {
-		if ovsSet, ok := value.(OvsSet); ok {
+		if ovsSet, ok := value.(OvsDataSet); ok {
 			for i, s := range ovsSet.GoSet {
 				if newUUID, ok := expandNamedUUIDAtomic(keyType, s, namedUUIDs); ok {
 					ovsSet.GoSet[i] = newUUID

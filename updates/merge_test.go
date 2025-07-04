@@ -724,10 +724,10 @@ func Test_merge(t *testing.T) {
 						},
 						New: &ovsdb.Row{
 							"name":        "bridge",
-							"datapath_id": ovsdb.OvsSet{GoSet: []interface{}{newDatapathID}},
+							"datapath_id": ovsdb.OvsDataSet{GoSet: []interface{}{newDatapathID}},
 						},
 						Modify: &ovsdb.Row{
-							"datapath_id": ovsdb.OvsSet{GoSet: []interface{}{newDatapathID}},
+							"datapath_id": ovsdb.OvsDataSet{GoSet: []interface{}{newDatapathID}},
 						},
 					},
 				},
@@ -743,14 +743,14 @@ func Test_merge(t *testing.T) {
 					rowUpdate2: &ovsdb.RowUpdate2{
 						Old: &ovsdb.Row{
 							"name":        "bridge",
-							"datapath_id": ovsdb.OvsSet{GoSet: []interface{}{newDatapathID}},
+							"datapath_id": ovsdb.OvsDataSet{GoSet: []interface{}{newDatapathID}},
 						},
 						New: &ovsdb.Row{
 							"name":        "bridge",
-							"datapath_id": ovsdb.OvsSet{GoSet: []interface{}{newDatapathID}},
+							"datapath_id": ovsdb.OvsDataSet{GoSet: []interface{}{newDatapathID}},
 						},
 						Modify: &ovsdb.Row{
-							"datapath_id": ovsdb.OvsSet{GoSet: []interface{}{newDatapathID}},
+							"datapath_id": ovsdb.OvsDataSet{GoSet: []interface{}{newDatapathID}},
 						},
 					},
 				},
@@ -769,10 +769,10 @@ func Test_merge(t *testing.T) {
 					},
 					New: &ovsdb.Row{
 						"name":        "bridge",
-						"datapath_id": ovsdb.OvsSet{GoSet: []interface{}{newDatapathID}},
+						"datapath_id": ovsdb.OvsDataSet{GoSet: []interface{}{newDatapathID}},
 					},
 					Modify: &ovsdb.Row{
-						"datapath_id": ovsdb.OvsSet{GoSet: []interface{}{newDatapathID}},
+						"datapath_id": ovsdb.OvsDataSet{GoSet: []interface{}{newDatapathID}},
 					},
 				},
 			},
@@ -792,14 +792,14 @@ func Test_merge(t *testing.T) {
 					rowUpdate2: &ovsdb.RowUpdate2{
 						Old: &ovsdb.Row{
 							"name":        "bridge",
-							"datapath_id": ovsdb.OvsSet{GoSet: []interface{}{oldDatapathID}},
+							"datapath_id": ovsdb.OvsDataSet{GoSet: []interface{}{oldDatapathID}},
 						},
 						New: &ovsdb.Row{
 							"name":        "bridge",
-							"datapath_id": ovsdb.OvsSet{GoSet: []interface{}{newDatapathID}},
+							"datapath_id": ovsdb.OvsDataSet{GoSet: []interface{}{newDatapathID}},
 						},
 						Modify: &ovsdb.Row{
-							"datapath_id": ovsdb.OvsSet{GoSet: []interface{}{newDatapathID}},
+							"datapath_id": ovsdb.OvsDataSet{GoSet: []interface{}{newDatapathID}},
 						},
 					},
 				},
@@ -815,14 +815,14 @@ func Test_merge(t *testing.T) {
 					rowUpdate2: &ovsdb.RowUpdate2{
 						Old: &ovsdb.Row{
 							"name":        "bridge",
-							"datapath_id": ovsdb.OvsSet{GoSet: []interface{}{newDatapathID}},
+							"datapath_id": ovsdb.OvsDataSet{GoSet: []interface{}{newDatapathID}},
 						},
 						New: &ovsdb.Row{
 							"name":        "bridge",
-							"datapath_id": ovsdb.OvsSet{GoSet: []interface{}{oldDatapathID}},
+							"datapath_id": ovsdb.OvsDataSet{GoSet: []interface{}{oldDatapathID}},
 						},
 						Modify: &ovsdb.Row{
-							"datapath_id": ovsdb.OvsSet{GoSet: []interface{}{oldDatapathID}},
+							"datapath_id": ovsdb.OvsDataSet{GoSet: []interface{}{oldDatapathID}},
 						},
 					},
 				},
@@ -845,10 +845,10 @@ func Test_merge(t *testing.T) {
 						},
 						New: &ovsdb.Row{
 							"name":        "bridge",
-							"datapath_id": ovsdb.OvsSet{GoSet: []interface{}{newDatapathID}},
+							"datapath_id": ovsdb.OvsDataSet{GoSet: []interface{}{newDatapathID}},
 						},
 						Modify: &ovsdb.Row{
-							"datapath_id": ovsdb.OvsSet{GoSet: []interface{}{newDatapathID}},
+							"datapath_id": ovsdb.OvsDataSet{GoSet: []interface{}{newDatapathID}},
 						},
 					},
 				},
@@ -863,13 +863,13 @@ func Test_merge(t *testing.T) {
 					rowUpdate2: &ovsdb.RowUpdate2{
 						Old: &ovsdb.Row{
 							"name":        "bridge",
-							"datapath_id": ovsdb.OvsSet{GoSet: []interface{}{newDatapathID}},
+							"datapath_id": ovsdb.OvsDataSet{GoSet: []interface{}{newDatapathID}},
 						},
 						New: &ovsdb.Row{
 							"name": "bridge",
 						},
 						Modify: &ovsdb.Row{
-							"datapath_id": ovsdb.OvsSet{GoSet: []interface{}{}},
+							"datapath_id": ovsdb.OvsDataSet{GoSet: []interface{}{}},
 						},
 					},
 				},
@@ -890,14 +890,14 @@ func Test_merge(t *testing.T) {
 					rowUpdate2: &ovsdb.RowUpdate2{
 						Old: &ovsdb.Row{
 							"name":        "bridge",
-							"datapath_id": ovsdb.OvsSet{GoSet: []interface{}{oldDatapathID}},
+							"datapath_id": ovsdb.OvsDataSet{GoSet: []interface{}{oldDatapathID}},
 						},
 						New: &ovsdb.Row{
 							"name":        "bridge",
-							"datapath_id": ovsdb.OvsSet{GoSet: []interface{}{newDatapathID}},
+							"datapath_id": ovsdb.OvsDataSet{GoSet: []interface{}{newDatapathID}},
 						},
 						Modify: &ovsdb.Row{
-							"datapath_id": ovsdb.OvsSet{GoSet: []interface{}{newDatapathID}},
+							"datapath_id": ovsdb.OvsDataSet{GoSet: []interface{}{newDatapathID}},
 						},
 					},
 				},
@@ -912,13 +912,13 @@ func Test_merge(t *testing.T) {
 					rowUpdate2: &ovsdb.RowUpdate2{
 						Old: &ovsdb.Row{
 							"name":        "bridge",
-							"datapath_id": ovsdb.OvsSet{GoSet: []interface{}{newDatapathID}},
+							"datapath_id": ovsdb.OvsDataSet{GoSet: []interface{}{newDatapathID}},
 						},
 						New: &ovsdb.Row{
 							"name": "bridge",
 						},
 						Modify: &ovsdb.Row{
-							"datapath_id": ovsdb.OvsSet{GoSet: []interface{}{}},
+							"datapath_id": ovsdb.OvsDataSet{GoSet: []interface{}{}},
 						},
 					},
 				},
@@ -934,13 +934,13 @@ func Test_merge(t *testing.T) {
 				rowUpdate2: &ovsdb.RowUpdate2{
 					Old: &ovsdb.Row{
 						"name":        "bridge",
-						"datapath_id": ovsdb.OvsSet{GoSet: []interface{}{oldDatapathID}},
+						"datapath_id": ovsdb.OvsDataSet{GoSet: []interface{}{oldDatapathID}},
 					},
 					New: &ovsdb.Row{
 						"name": "bridge",
 					},
 					Modify: &ovsdb.Row{
-						"datapath_id": ovsdb.OvsSet{GoSet: []interface{}{}},
+						"datapath_id": ovsdb.OvsDataSet{GoSet: []interface{}{}},
 					},
 				},
 			},
@@ -959,13 +959,13 @@ func Test_merge(t *testing.T) {
 					},
 					rowUpdate2: &ovsdb.RowUpdate2{
 						Old: &ovsdb.Row{
-							"ports": ovsdb.OvsSet{GoSet: []interface{}{"port1", "port2"}},
+							"ports": ovsdb.OvsDataSet{GoSet: []interface{}{"port1", "port2"}},
 						},
 						New: &ovsdb.Row{
-							"ports": ovsdb.OvsSet{GoSet: []interface{}{"port1", "port3"}},
+							"ports": ovsdb.OvsDataSet{GoSet: []interface{}{"port1", "port3"}},
 						},
 						Modify: &ovsdb.Row{
-							"ports": ovsdb.OvsSet{GoSet: []interface{}{"port2", "port3"}},
+							"ports": ovsdb.OvsDataSet{GoSet: []interface{}{"port2", "port3"}},
 						},
 					},
 				},
@@ -980,13 +980,13 @@ func Test_merge(t *testing.T) {
 					},
 					rowUpdate2: &ovsdb.RowUpdate2{
 						Old: &ovsdb.Row{
-							"ports": ovsdb.OvsSet{GoSet: []interface{}{"port1", "port3"}},
+							"ports": ovsdb.OvsDataSet{GoSet: []interface{}{"port1", "port3"}},
 						},
 						New: &ovsdb.Row{
-							"ports": ovsdb.OvsSet{GoSet: []interface{}{"port1", "port2"}},
+							"ports": ovsdb.OvsDataSet{GoSet: []interface{}{"port1", "port2"}},
 						},
 						Modify: &ovsdb.Row{
-							"ports": ovsdb.OvsSet{GoSet: []interface{}{"port2", "port3"}},
+							"ports": ovsdb.OvsDataSet{GoSet: []interface{}{"port2", "port3"}},
 						},
 					},
 				},
@@ -1058,21 +1058,21 @@ func Test_merge(t *testing.T) {
 					rowUpdate2: &ovsdb.RowUpdate2{
 						Old: &ovsdb.Row{
 							"name":         "bridge",
-							"ports":        ovsdb.OvsSet{GoSet: []interface{}{"port1", "port2"}},
+							"ports":        ovsdb.OvsDataSet{GoSet: []interface{}{"port1", "port2"}},
 							"external_ids": ovsdb.OvsMap{GoMap: map[interface{}]interface{}{"key": "value", "key1": "value1", "key2": "value2"}},
-							"datapath_id":  ovsdb.OvsSet{GoSet: []interface{}{oldDatapathID}},
+							"datapath_id":  ovsdb.OvsDataSet{GoSet: []interface{}{oldDatapathID}},
 						},
 						New: &ovsdb.Row{
 							"name":         "bridge2",
-							"ports":        ovsdb.OvsSet{GoSet: []interface{}{"port1", "port3"}},
+							"ports":        ovsdb.OvsDataSet{GoSet: []interface{}{"port1", "port3"}},
 							"external_ids": ovsdb.OvsMap{GoMap: map[interface{}]interface{}{"key": "value1", "key1": "value1", "key3": "value3"}},
-							"datapath_id":  ovsdb.OvsSet{GoSet: []interface{}{newDatapathID}},
+							"datapath_id":  ovsdb.OvsDataSet{GoSet: []interface{}{newDatapathID}},
 						},
 						Modify: &ovsdb.Row{
 							"name":         "bridge2",
-							"ports":        ovsdb.OvsSet{GoSet: []interface{}{"port2", "port3"}},
+							"ports":        ovsdb.OvsDataSet{GoSet: []interface{}{"port2", "port3"}},
 							"external_ids": ovsdb.OvsMap{GoMap: map[interface{}]interface{}{"key": "value1", "key2": "value2", "key3": "value3"}},
-							"datapath_id":  ovsdb.OvsSet{GoSet: []interface{}{newDatapathID}},
+							"datapath_id":  ovsdb.OvsDataSet{GoSet: []interface{}{newDatapathID}},
 						},
 					},
 				},
@@ -1092,19 +1092,19 @@ func Test_merge(t *testing.T) {
 					rowUpdate2: &ovsdb.RowUpdate2{
 						Old: &ovsdb.Row{
 							"name":         "bridge2",
-							"ports":        ovsdb.OvsSet{GoSet: []interface{}{"port1", "port3"}},
+							"ports":        ovsdb.OvsDataSet{GoSet: []interface{}{"port1", "port3"}},
 							"external_ids": ovsdb.OvsMap{GoMap: map[interface{}]interface{}{"key": "value1", "key1": "value1", "key3": "value3"}},
 						},
 						New: &ovsdb.Row{
 							"name":         "bridge",
-							"ports":        ovsdb.OvsSet{GoSet: []interface{}{"port1", "port2"}},
+							"ports":        ovsdb.OvsDataSet{GoSet: []interface{}{"port1", "port2"}},
 							"external_ids": ovsdb.OvsMap{GoMap: map[interface{}]interface{}{"key": "value", "key1": "value1", "key2": "value2"}},
 						},
 						Modify: &ovsdb.Row{
 							"name":         "bridge",
-							"ports":        ovsdb.OvsSet{GoSet: []interface{}{"port2", "port3"}},
+							"ports":        ovsdb.OvsDataSet{GoSet: []interface{}{"port2", "port3"}},
 							"external_ids": ovsdb.OvsMap{GoMap: map[interface{}]interface{}{"key": "value", "key2": "value2", "key3": "value3"}},
-							"datapath_id":  ovsdb.OvsSet{GoSet: []interface{}{oldDatapathID}},
+							"datapath_id":  ovsdb.OvsDataSet{GoSet: []interface{}{oldDatapathID}},
 						},
 					},
 				},

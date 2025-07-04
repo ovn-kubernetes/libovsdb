@@ -160,7 +160,7 @@ func TestSet(t *testing.T) {
 			assert.Nil(t, err)
 			assert.JSONEqf(t, tt.expected, string(jsonStr), "they should be equal\n")
 
-			var res OvsSet
+			var res OvsDataSet
 			err = json.Unmarshal(jsonStr, &res)
 			assert.Nil(t, err)
 			assert.Equal(t, set.GoSet, res.GoSet, "they should have the same elements\n")

@@ -1944,7 +1944,7 @@ func TestAPIWait(t *testing.T) {
 						{
 							Column:   "up",
 							Function: ovsdb.ConditionNotEqual,
-							Value:    ovsdb.OvsSet{GoSet: []interface{}{true}},
+							Value:    ovsdb.OvsDataSet{GoSet: []interface{}{true}},
 						},
 					},
 					Until:   string(ovsdb.WaitConditionNotEqual),

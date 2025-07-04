@@ -586,7 +586,7 @@ func TestMultipleOps(t *testing.T) {
 			ovsdb.NewCondition("_uuid", ovsdb.ConditionEqual, ovsdb.UUID{GoUUID: bridgeUUID}),
 		},
 		Row: ovsdb.Row{
-			"ports":        ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: "port1"}, ovsdb.UUID{GoUUID: "port10"}}},
+			"ports":        ovsdb.OvsDataSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: "port1"}, ovsdb.UUID{GoUUID: "port10"}}},
 			"external_ids": ovsdb.OvsMap{GoMap: map[interface{}]interface{}{"key1": "value1", "key10": "value10"}},
 		},
 	}
@@ -612,7 +612,7 @@ func TestMultipleOps(t *testing.T) {
 		Op: ovsdb.OperationMutate,
 		Mutations: []ovsdb.Mutation{
 			*ovsdb.NewMutation("external_ids", ovsdb.MutateOperationInsert, ovsdb.OvsMap{GoMap: map[interface{}]interface{}{"keyA": "valueA"}}),
-			*ovsdb.NewMutation("ports", ovsdb.MutateOperationDelete, ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: "port1"}, ovsdb.UUID{GoUUID: "port10"}}}),
+			*ovsdb.NewMutation("ports", ovsdb.MutateOperationDelete, ovsdb.OvsDataSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: "port1"}, ovsdb.UUID{GoUUID: "port10"}}}),
 		},
 	}
 	ops = append(ops, op)
@@ -625,7 +625,7 @@ func TestMultipleOps(t *testing.T) {
 		Op: ovsdb.OperationMutate,
 		Mutations: []ovsdb.Mutation{
 			*ovsdb.NewMutation("external_ids", ovsdb.MutateOperationDelete, ovsdb.OvsMap{GoMap: map[interface{}]interface{}{"key10": "value10"}}),
-			*ovsdb.NewMutation("ports", ovsdb.MutateOperationInsert, ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: "port1"}}}),
+			*ovsdb.NewMutation("ports", ovsdb.MutateOperationInsert, ovsdb.OvsDataSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: "port1"}}}),
 		},
 	}
 	ops = append(ops, op2)
@@ -642,19 +642,19 @@ func TestMultipleOps(t *testing.T) {
 			bridgeUUID: &ovsdb.RowUpdate2{
 				Modify: &ovsdb.Row{
 					"external_ids": ovsdb.OvsMap{GoMap: map[interface{}]interface{}{"keyA": "valueA", "key10": "value10"}},
-					"ports":        ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: "port10"}}},
+					"ports":        ovsdb.OvsDataSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: "port10"}}},
 				},
 				Old: &ovsdb.Row{
 					"_uuid":        ovsdb.UUID{GoUUID: bridgeUUID},
 					"name":         "a_bridge_to_nowhere",
 					"external_ids": ovsdb.OvsMap{GoMap: map[interface{}]interface{}{"key1": "value1", "key10": "value10"}},
-					"ports":        ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: "port1"}, ovsdb.UUID{GoUUID: "port10"}}},
+					"ports":        ovsdb.OvsDataSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: "port1"}, ovsdb.UUID{GoUUID: "port10"}}},
 				},
 				New: &ovsdb.Row{
 					"_uuid":        ovsdb.UUID{GoUUID: bridgeUUID},
 					"name":         "a_bridge_to_nowhere",
 					"external_ids": ovsdb.OvsMap{GoMap: map[interface{}]interface{}{"key1": "value1", "keyA": "valueA"}},
-					"ports":        ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: "port1"}}},
+					"ports":        ovsdb.OvsDataSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: "port1"}}},
 				},
 			},
 		},
@@ -941,7 +941,7 @@ func TestCheckIndexesWithReferentialIntegrity(t *testing.T) {
 			Op:    ovsdb.OperationInsert,
 			UUID:  ovsUUID,
 			Row: ovsdb.Row{
-				"manager_options": ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: managerUUID}}},
+				"manager_options": ovsdb.OvsDataSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: managerUUID}}},
 			},
 		},
 		{
@@ -978,7 +978,7 @@ func TestCheckIndexesWithReferentialIntegrity(t *testing.T) {
 						Table: "Open_vSwitch",
 						Op:    ovsdb.OperationUpdate,
 						Row: ovsdb.Row{
-							"manager_options": ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: managerUUID2}}},
+							"manager_options": ovsdb.OvsDataSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: managerUUID2}}},
 						},
 						Where: []ovsdb.Condition{
 							ovsdb.NewCondition("_uuid", ovsdb.ConditionEqual, ovsdb.UUID{GoUUID: ovsUUID}),

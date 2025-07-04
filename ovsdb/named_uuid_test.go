@@ -187,23 +187,23 @@ func TestStandaloneExpandNamedUUID(t *testing.T) {
 			"UUID set",
 			map[string]string{"foo": testUUID},
 			"uuidset",
-			OvsSet{GoSet: []interface{}{"foo"}},
-			OvsSet{GoSet: []interface{}{testUUID}},
+			OvsDataSet{GoSet: []interface{}{"foo"}},
+			OvsDataSet{GoSet: []interface{}{testUUID}},
 		},
 		// OVS []UUID == Go []UUID
 		{
 			"real UUID set",
 			map[string]string{"foo": testUUID},
 			"real_uuidset",
-			OvsSet{GoSet: []interface{}{UUID{GoUUID: "foo"}}},
-			OvsSet{GoSet: []interface{}{UUID{GoUUID: testUUID}}},
+			OvsDataSet{GoSet: []interface{}{UUID{GoUUID: "foo"}}},
+			OvsDataSet{GoSet: []interface{}{UUID{GoUUID: testUUID}}},
 		},
 		{
 			"set multiple",
 			map[string]string{"foo": testUUID, "bar": testUUID1},
 			"uuidset",
-			OvsSet{GoSet: []interface{}{"foo", "bar", "baz"}},
-			OvsSet{GoSet: []interface{}{testUUID, testUUID1, "baz"}},
+			OvsDataSet{GoSet: []interface{}{"foo", "bar", "baz"}},
+			OvsDataSet{GoSet: []interface{}{testUUID, testUUID1, "baz"}},
 		},
 		// OVS [UUID]UUID == Go [string]string
 		{

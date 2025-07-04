@@ -1131,7 +1131,7 @@ func (suite *OVSIntegrationSuite) TestMultipleOpsSameRow() {
 			UUIDName: port1UUID,
 			Row: ovsdb.Row{
 				"name":       port1UUID,
-				"interfaces": ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: iface1UUID}}},
+				"interfaces": ovsdb.OvsDataSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: iface1UUID}}},
 			},
 		},
 	}
@@ -1158,7 +1158,7 @@ func (suite *OVSIntegrationSuite) TestMultipleOpsSameRow() {
 			UUIDName: port10UUID,
 			Row: ovsdb.Row{
 				"name":       port10UUID,
-				"interfaces": ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: iface10UUID}}},
+				"interfaces": ovsdb.OvsDataSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: iface10UUID}}},
 			},
 		},
 	}
@@ -1316,8 +1316,8 @@ func (suite *OVSIntegrationSuite) TestReferentialIntegrity() {
 					UUID:  bridgeUUID,
 					Row: ovsdb.Row{
 						"name":    bridgeUUID,
-						"ports":   ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: port1UUID}}},
-						"mirrors": ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: mirrorUUID}}},
+						"ports":   ovsdb.OvsDataSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: port1UUID}}},
+						"mirrors": ovsdb.OvsDataSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: mirrorUUID}}},
 					},
 				},
 				{
@@ -1326,7 +1326,7 @@ func (suite *OVSIntegrationSuite) TestReferentialIntegrity() {
 					UUID:  port1UUID,
 					Row: ovsdb.Row{
 						"name":       port1UUID,
-						"interfaces": ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: interfaceUUID}}},
+						"interfaces": ovsdb.OvsDataSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: interfaceUUID}}},
 					},
 				},
 				{
@@ -1343,7 +1343,7 @@ func (suite *OVSIntegrationSuite) TestReferentialIntegrity() {
 					UUID:  mirrorUUID,
 					Row: ovsdb.Row{
 						"name":            mirrorUUID,
-						"select_src_port": ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: port1UUID}}},
+						"select_src_port": ovsdb.OvsDataSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: port1UUID}}},
 					},
 				},
 			},
@@ -1418,8 +1418,8 @@ func (suite *OVSIntegrationSuite) TestReferentialIntegrity() {
 					UUID:  bridgeUUID,
 					Row: ovsdb.Row{
 						"name":    bridgeUUID,
-						"ports":   ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: port1UUID}, ovsdb.UUID{GoUUID: port2UUID}}},
-						"mirrors": ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: mirrorUUID}}},
+						"ports":   ovsdb.OvsDataSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: port1UUID}, ovsdb.UUID{GoUUID: port2UUID}}},
+						"mirrors": ovsdb.OvsDataSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: mirrorUUID}}},
 					},
 				},
 				{
@@ -1428,7 +1428,7 @@ func (suite *OVSIntegrationSuite) TestReferentialIntegrity() {
 					UUID:  port1UUID,
 					Row: ovsdb.Row{
 						"name":       port1UUID,
-						"interfaces": ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: interfaceUUID}}},
+						"interfaces": ovsdb.OvsDataSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: interfaceUUID}}},
 					},
 				},
 				{
@@ -1437,7 +1437,7 @@ func (suite *OVSIntegrationSuite) TestReferentialIntegrity() {
 					UUID:  port2UUID,
 					Row: ovsdb.Row{
 						"name":       port2UUID,
-						"interfaces": ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: interfaceUUID}}},
+						"interfaces": ovsdb.OvsDataSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: interfaceUUID}}},
 					},
 				},
 				{
@@ -1454,7 +1454,7 @@ func (suite *OVSIntegrationSuite) TestReferentialIntegrity() {
 					UUID:  mirrorUUID,
 					Row: ovsdb.Row{
 						"name":            mirrorUUID,
-						"select_src_port": ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: port1UUID}, ovsdb.UUID{GoUUID: port2UUID}}},
+						"select_src_port": ovsdb.OvsDataSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: port1UUID}, ovsdb.UUID{GoUUID: port2UUID}}},
 					},
 				},
 			},
@@ -1482,8 +1482,8 @@ func (suite *OVSIntegrationSuite) TestReferentialIntegrity() {
 					UUID:  bridgeUUID,
 					Row: ovsdb.Row{
 						"name":    bridgeUUID,
-						"ports":   ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: port1UUID}}},
-						"mirrors": ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: mirrorUUID}}},
+						"ports":   ovsdb.OvsDataSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: port1UUID}}},
+						"mirrors": ovsdb.OvsDataSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: mirrorUUID}}},
 					},
 				},
 				{
@@ -1492,7 +1492,7 @@ func (suite *OVSIntegrationSuite) TestReferentialIntegrity() {
 					UUID:  port1UUID,
 					Row: ovsdb.Row{
 						"name":       port1UUID,
-						"interfaces": ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: interfaceUUID}}},
+						"interfaces": ovsdb.OvsDataSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: interfaceUUID}}},
 					},
 				},
 				{
@@ -1509,7 +1509,7 @@ func (suite *OVSIntegrationSuite) TestReferentialIntegrity() {
 					UUID:  mirrorUUID,
 					Row: ovsdb.Row{
 						"name":            mirrorUUID,
-						"select_src_port": ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: port1UUID}}},
+						"select_src_port": ovsdb.OvsDataSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: port1UUID}}},
 					},
 				},
 			},
@@ -1540,7 +1540,7 @@ func (suite *OVSIntegrationSuite) TestReferentialIntegrity() {
 					{
 						Mutator: ovsdb.MutateOperationInsert,
 						Column:  "bridges",
-						Value:   ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: bridgeUUID}}},
+						Value:   ovsdb.OvsDataSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: bridgeUUID}}},
 					},
 				},
 				Where: []ovsdb.Condition{
@@ -1602,7 +1602,7 @@ func (suite *OVSIntegrationSuite) TestReferentialIntegrity() {
 					{
 						Mutator: ovsdb.MutateOperationDelete,
 						Column:  "bridges",
-						Value:   ovsdb.OvsSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: bridgeUUID}}},
+						Value:   ovsdb.OvsDataSet{GoSet: []interface{}{ovsdb.UUID{GoUUID: bridgeUUID}}},
 					},
 				},
 				Where: []ovsdb.Condition{

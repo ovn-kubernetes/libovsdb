@@ -345,7 +345,7 @@ func (b *BaseType) UnmarshalJSON(data []byte) error {
 		// 'enum' is a list or a single element representing a list of exactly one element
 		switch bt.Enum.(type) {
 		case []interface{}:
-			// it's an OvsSet
+			// it's an OvsDataSet
 			oSet := bt.Enum.([]interface{})
 			innerSet := oSet[1].([]interface{})
 			b.Enum = make([]interface{}, len(innerSet))
@@ -369,16 +369,16 @@ func (b *BaseType) UnmarshalJSON(data []byte) error {
 // MarshalJSON marshals a base type to JSON
 func (b BaseType) MarshalJSON() ([]byte, error) {
 	j := struct {
-		Type       string   `json:"type,omitempty"`
-		Enum       *OvsSet  `json:"enum,omitempty"`
-		MinReal    *float64 `json:"minReal,omitempty"`
-		MaxReal    *float64 `json:"maxReal,omitempty"`
-		MinInteger *int     `json:"minInteger,omitempty"`
-		MaxInteger *int     `json:"maxInteger,omitempty"`
-		MinLength  *int     `json:"minLength,omitempty"`
-		MaxLength  *int     `json:"maxLength,omitempty"`
-		RefTable   *string  `json:"refTable,omitempty"`
-		RefType    *RefType `json:"refType,omitempty"`
+		Type       string      `json:"type,omitempty"`
+		Enum       *OvsDataSet `json:"enum,omitempty"`
+		MinReal    *float64    `json:"minReal,omitempty"`
+		MaxReal    *float64    `json:"maxReal,omitempty"`
+		MinInteger *int        `json:"minInteger,omitempty"`
+		MaxInteger *int        `json:"maxInteger,omitempty"`
+		MinLength  *int        `json:"minLength,omitempty"`
+		MaxLength  *int        `json:"maxLength,omitempty"`
+		RefTable   *string     `json:"refTable,omitempty"`
+		RefType    *RefType    `json:"refType,omitempty"`
 	}{
 		Type:       b.Type,
 		MinReal:    b.minReal,

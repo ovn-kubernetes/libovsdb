@@ -493,7 +493,7 @@ var schema = `{
 	}
   }`
 
-func testOvsSet(t *testing.T, set interface{}) ovsdb.OvsSet {
+func testOvsSet(t *testing.T, set interface{}) ovsdb.OvsDataSet {
 	oSet, err := ovsdb.NewOvsSet(set)
 	assert.Nil(t, err)
 	return oSet

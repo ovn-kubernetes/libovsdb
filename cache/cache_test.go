@@ -2342,7 +2342,7 @@ func BenchmarkPopulate2UpdateArray(b *testing.B) {
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
 		for i := 0; i < numRows; i++ {
-			updatedRow := ovsdb.Row(map[string]interface{}{"array": ovsdb.OvsSet{GoSet: updateSet}})
+			updatedRow := ovsdb.Row(map[string]interface{}{"array": ovsdb.OvsDataSet{GoSet: updateSet}})
 			err := tc.Populate2(ovsdb.TableUpdates2{
 				"Open_vSwitch": {
 					"foo": &ovsdb.RowUpdate2{

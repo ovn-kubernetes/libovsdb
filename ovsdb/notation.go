@@ -115,7 +115,7 @@ func ovsSliceToGoNotation(val interface{}) (interface{}, error) {
 			err = json.Unmarshal(bsliced, &uuid)
 			return uuid, err
 		case "set":
-			var oSet OvsSet
+			var oSet OvsDataSet
 			err = json.Unmarshal(bsliced, &oSet)
 			return oSet, err
 		case "map":

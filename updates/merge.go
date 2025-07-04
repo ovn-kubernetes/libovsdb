@@ -97,16 +97,16 @@ func mergeModifyRow(ts *ovsdb.TableSchema, o, a, b *ovsdb.Row) *ovsdb.Row {
 		// difference only supports set or map values that are comparable with
 		// no pointers. This should be currently fine because the set or map
 		// values should only be non pointer atomic types or the UUID struct.
-		case ovsdb.OvsSet:
-			aSet := aMod[k].(ovsdb.OvsSet)
-			bSet := v.(ovsdb.OvsSet)
+		case ovsdb.OvsDataSet:
+			aSet := aMod[k].(ovsdb.OvsDataSet)
+			bSet := v.(ovsdb.OvsDataSet)
 			// handle sets of multiple values, single value sets are handled as
 			// atomic values
 			if ts.Column(k).TypeObj.Max() != 1 {
 				// set difference is a fully transitive operation so we dont
 				// need to do anything special to merge two differences
 				result, changed = setDifference(aSet.GoSet, bSet.GoSet)
-				result = ovsdb.OvsSet{GoSet: result.([]interface{})}
+				result = ovsdb.OvsDataSet{GoSet: result.([]interface{})}
 			}
 		case ovsdb.OvsMap:
 			aMap := aMod[k].(ovsdb.OvsMap)
@@ -132,7 +132,7 @@ func mergeModifyRow(ts *ovsdb.TableSchema, o, a, b *ovsdb.Row) *ovsdb.Row {
 				// assume zero value if original does not have the column
 				o = reflect.Zero(reflect.TypeOf(v)).Interface()
 			}
-			if set, ok := o.(ovsdb.OvsSet); ok {
+			if set, ok := o.(ovsdb.OvsDataSet); ok {
 				// atomic optional values are cleared out with an empty set
 				// if the original value was also cleared out, use an empty set
 				// instead of a nil set so that mergeAtomicDifference notices

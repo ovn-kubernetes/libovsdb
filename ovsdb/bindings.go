@@ -116,7 +116,7 @@ func OvsToNativeSlice(baseType string, ovsElem interface{}) (interface{}, error)
 	naType := NativeTypeFromAtomic(baseType)
 	var nativeSet reflect.Value
 	switch ovsSet := ovsElem.(type) {
-	case OvsSet:
+	case OvsDataSet:
 		nativeSet = reflect.MakeSlice(reflect.SliceOf(naType), 0, len(ovsSet.GoSet))
 		for _, v := range ovsSet.GoSet {
 			nv, err := OvsToNativeAtomic(baseType, v)
@@ -152,7 +152,7 @@ func OvsToNative(column *ColumnSchema, ovsElem interface{}) (interface{}, error)
 		switch naType.Kind() {
 		case reflect.Ptr:
 			switch ovsSet := ovsElem.(type) {
-			case OvsSet:
+			case OvsDataSet:
 				if len(ovsSet.GoSet) > 1 {
 					return nil, fmt.Errorf("expected a slice of len =< 1, but got a slice with %d elements", len(ovsSet.GoSet))
 				}
@@ -233,7 +233,7 @@ func NativeToOvs(column *ColumnSchema, rawElem interface{}) (interface{}, error)
 	case TypeUUID:
 		return UUID{GoUUID: rawElem.(string)}, nil
 	case TypeSet:
-		var ovsSet OvsSet
+		var ovsSet OvsDataSet
 		if column.TypeObj.Key.Type == TypeUUID {
 			ovsSlice := []interface{}{}
 			if _, ok := rawElem.([]string); ok {
@@ -250,7 +250,7 @@ func NativeToOvs(column *ColumnSchema, rawElem interface{}) (interface{}, error)
 			} else {
 				return nil, fmt.Errorf("uuid slice was neither []string or *string")
 			}
-			ovsSet = OvsSet{GoSet: ovsSlice}
+			ovsSet = OvsDataSet{GoSet: ovsSlice}
 
 		} else {
 			var err error

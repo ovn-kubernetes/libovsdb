@@ -376,17 +376,17 @@ func (rt *referenceTracker) processWeakReferences() (ModelUpdates, error) {
 					if !ok {
 						mutationSet = []interface{}{}
 					} else {
-						mutationSet = value.(ovsdb.OvsSet).GoSet
+						mutationSet = value.(ovsdb.OvsDataSet).GoSet
 					}
 					mutationSet = append(mutationSet, ovsdb.UUID{GoUUID: to})
 
 					// track the new length of the set
 					if !isEmptyAllowed {
-						originalSet := originalRows[uuid][spec.FromColumn].(ovsdb.OvsSet).GoSet
+						originalSet := originalRows[uuid][spec.FromColumn].(ovsdb.OvsDataSet).GoSet
 						becomesLen = len(originalSet) - len(mutationSet)
 					}
 
-					updatedRows[uuid][spec.FromColumn] = ovsdb.OvsSet{GoSet: mutationSet}
+					updatedRows[uuid][spec.FromColumn] = ovsdb.OvsDataSet{GoSet: mutationSet}
 
 				case ovsdb.TypeUUID:
 					// this is an atomic UUID value that needs to be cleared
@@ -501,7 +501,7 @@ func (rt *referenceTracker) updateRow(table, uuid string, row ovsdb.Row) (ModelU
 			mutations = append(mutations, *ovsdb.NewMutation(column, ovsdb.MutateOperationDelete, value))
 			continue
 		}
-		update[column] = ovsdb.OvsSet{GoSet: []interface{}{}}
+		update[column] = ovsdb.OvsDataSet{GoSet: []interface{}{}}
 	}
 
 	updates := ModelUpdates{}
@@ -606,10 +606,10 @@ func getReferenceModificationsFromColumn(dbModel *model.DatabaseModel, table, uu
 			oldUUID = old.(ovsdb.UUID)
 		}
 		return getReferenceModificationsFromAtom(dbModel, table, uuid, column, v, oldUUID)
-	case ovsdb.OvsSet:
-		var oldSet ovsdb.OvsSet
+	case ovsdb.OvsDataSet:
+		var oldSet ovsdb.OvsDataSet
 		if old != nil {
-			oldSet = old.(ovsdb.OvsSet)
+			oldSet = old.(ovsdb.OvsDataSet)
 		}
 		return getReferenceModificationsFromSet(dbModel, table, uuid, column, v, oldSet)
 	case ovsdb.OvsMap:
@@ -661,7 +661,7 @@ func getReferenceModificationsFromMap(dbModel *model.DatabaseModel, table, uuid,
 	return refs
 }
 
-func getReferenceModificationsFromSet(dbModel *model.DatabaseModel, table, uuid, column string, modify, old ovsdb.OvsSet) database.References {
+func getReferenceModificationsFromSet(dbModel *model.DatabaseModel, table, uuid, column string, modify, old ovsdb.OvsDataSet) database.References {
 	// if the modify set is empty, it means the op is clearing an atomic value
 	// so pick the old value instead
 	value := modify
