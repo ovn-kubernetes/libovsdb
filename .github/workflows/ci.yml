@@ -74,9 +74,9 @@ jobs:
     strategy:
       matrix:
         ovs_version:
-          - 2.15.0
-          - 2.14.0
-          - 2.13.0
+          - 3.5.0
+          - 3.4.0
+          - 3.3.0
 
     runs-on: ubuntu-latest
 
