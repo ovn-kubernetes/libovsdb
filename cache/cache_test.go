@@ -7,10 +7,10 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
-	"github.com/ovn-org/libovsdb/model"
-	"github.com/ovn-org/libovsdb/ovsdb"
-	"github.com/ovn-org/libovsdb/test"
-	"github.com/ovn-org/libovsdb/updates"
+	"github.com/ovn-kubernetes/libovsdb/model"
+	"github.com/ovn-kubernetes/libovsdb/ovsdb"
+	"github.com/ovn-kubernetes/libovsdb/test"
+	"github.com/ovn-kubernetes/libovsdb/updates"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

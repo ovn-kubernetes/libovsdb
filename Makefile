@@ -26,7 +26,7 @@ test: prebuild
 .PHONY: integration-test
 integration-test:
 	@echo "+ $@"
-	@go test -race -coverprofile=integration.cov -coverpkg=github.com/ovn-org/libovsdb/... -timeout 60s -v ./test/ovs
+	@go test -race -coverprofile=integration.cov -coverpkg=github.com/ovn-kubernetes/libovsdb/... -timeout 60s -v ./test/ovs
 
 .PHONY: coverage
 coverage: test integration-test
@@ -44,7 +44,7 @@ install-deps:
 	@echo "+ $@"
 	@go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.49.0
 	@golangci-lint --version
-	@go install golang.org/x/perf/cmd/benchstat@latest
+	@go install golang.org/x/perf/cmd/benchstat@35ce918200397a6ae0d8cf3f7699c1a965346eda
 
 .PHONY: lint
 lint: install-deps prebuild
