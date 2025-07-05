@@ -151,7 +151,7 @@ func TestEqualityConditional(t *testing.T) {
 	}
 	for _, tt := range test {
 		t.Run(fmt.Sprintf("Equality Conditional: %s", tt.name), func(t *testing.T) {
-			cond, err := newEqualityConditional("Logical_Switch_Port", tcache, tt.models)
+			cond, err := newEqualityConditional("Logical_Switch_Port", tcache, tt.models, false)
 			require.NoError(t, err)
 			matches, err := cond.Matches()
 			require.NoError(t, err)

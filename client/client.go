@@ -65,6 +65,9 @@ type Client interface {
 	NewMonitor(...MonitorOption) *Monitor
 	CurrentEndpoint() string
 	API
+	// ParseSelectResult parses the result of a Select operation into the target slice.
+	// targetSlice must be a non-nil pointer to a slice of models (structs or pointers to structs).
+	ParseSelectResult(result ovsdb.OperationResult, targetSlice interface{}) error
 }
 
 type bufferedUpdate struct {
@@ -1470,4 +1473,120 @@ func (o *ovsdbClient) WhereAll(m model.Model, conditions ...model.Condition) Con
 // WhereCache implements the API interface's WhereCache function
 func (o *ovsdbClient) WhereCache(predicate any) ConditionalAPI {
 	return o.primaryDB().api.WhereCache(predicate)
+}
+
+// ParseSelectResult parses the result of a Select operation into the target slice.
+func (o *ovsdbClient) ParseSelectResult(result ovsdb.OperationResult, targetSlice interface{}) error {
+	if result.Error != "" {
+		details := ""
+		if result.Details != "" {
+			details = ": " + result.Details
+		}
+		return fmt.Errorf("select operation failed: %s%s", result.Error, details)
+	}
+
+	_, err := validateParseTargetSlice(targetSlice)
+	if err != nil {
+		return err // Already formatted
+	}
+
+	db := o.primaryDB()
+	db.modelMutex.RLock()
+	defer db.modelMutex.RUnlock()
+
+	if !db.model.Valid() {
+		return fmt.Errorf("database model for '%s' is not valid (client may not be connected or schema mismatch)", o.primaryDBName)
+	}
+
+	return mapSelectResultToSlice(result.Rows, targetSlice, db.model)
+}
+
+// validateParseTargetSlice validates the 'targetSlice' argument for ParseSelectResult.
+// It ensures 'targetSlice' is a non-nil pointer to a slice whose elements are
+// structs or pointers to structs that implement model.Model.
+// It returns the underlying struct type of the slice elements.
+func validateParseTargetSlice(targetSlice interface{}) (reflect.Type, error) {
+	targetVal := reflect.ValueOf(targetSlice)
+	if targetVal.Kind() != reflect.Ptr || targetVal.IsNil() {
+		return nil, errors.New("targetSlice argument must be a non-nil pointer to a slice of models")
+	}
+	sliceVal := targetVal.Elem()
+	if sliceVal.Kind() != reflect.Slice {
+		return nil, errors.New("targetSlice argument must be a pointer to a slice of models")
+	}
+	elemType := sliceVal.Type().Elem() // Get the type of the slice elements
+
+	var elemStructType reflect.Type
+	if elemType.Kind() == reflect.Struct {
+		elemStructType = elemType
+	} else if elemType.Kind() == reflect.Ptr {
+		elemStructType = elemType.Elem()
+		if elemStructType.Kind() != reflect.Struct {
+			return nil, errors.New("targetSlice elements must be structs or pointers to structs")
+		}
+	} else {
+		return nil, errors.New("targetSlice elements must be structs or pointers to structs")
+	}
+
+	// Ensure element type implements model.Model
+	modelInterfaceType := reflect.TypeOf((*model.Model)(nil)).Elem()
+	// Check if a pointer to the struct type implements the model interface
+	if !reflect.PointerTo(elemStructType).Implements(modelInterfaceType) {
+		return nil, fmt.Errorf("targetSlice element type %s does not implement model.Model", elemStructType.String())
+	}
+
+	return elemStructType, nil
+}
+
+// mapSelectResultToSlice maps OVSDB rows to the target slice.
+func mapSelectResultToSlice(rows []ovsdb.Row, targetSlice interface{}, dbModel model.DatabaseModel) error {
+	sliceVal := reflect.ValueOf(targetSlice).Elem() // We know targetSlice is ptr to slice from validation
+	modelType := sliceVal.Type().Elem()             // Original element type (struct or ptr)
+
+	numRows := len(rows)
+	newSlice := reflect.MakeSlice(sliceVal.Type(), numRows, numRows)
+
+	for i, row := range rows {
+		// Determine the struct type for creating a new instance
+		var structType reflect.Type
+		if modelType.Kind() == reflect.Ptr {
+			structType = modelType.Elem()
+		} else {
+			structType = modelType
+		}
+		// Create a new element - always create a pointer first
+		newModelPtr := reflect.New(structType)
+		newModelIntf := newModelPtr.Interface()
+
+		// We need ModelInfo based on the element's struct type for the mapper
+		// Ensure newModelIntf is model.Model before casting
+		modelInstance, ok := newModelIntf.(model.Model)
+		if !ok {
+			// This should not happen due to validateParseTargetSlice check in the caller, but good to be safe
+			return fmt.Errorf("internal error: element type %s does not implement model.Model", structType.String())
+		}
+		rowModelInfo, err := dbModel.NewModelInfo(modelInstance)
+		if err != nil {
+			return fmt.Errorf("failed to create model info for row %d type %s: %w", i, structType.String(), err)
+		}
+
+		rowData := row // Capture row for the call
+		// GetRowData expects a pointer to the row map
+		if err := dbModel.Mapper.GetRowData(&rowData, rowModelInfo); err != nil {
+			return fmt.Errorf("failed to map row %d to model type %s: %w", i, structType.String(), err)
+		}
+
+		// Assign the populated model to the slice
+		if modelType.Kind() == reflect.Ptr {
+			// Slice expects *modelType, assign the pointer we created
+			newSlice.Index(i).Set(newModelPtr)
+		} else {
+			// Slice expects modelType, assign the dereferenced pointer
+			newSlice.Index(i).Set(newModelPtr.Elem())
+		}
+	}
+
+	// Set Result Slice
+	sliceVal.Set(newSlice)
+	return nil
 }
