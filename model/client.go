@@ -36,6 +36,13 @@ func (db ClientDBModel) newModel(table string) (Model, error) {
 	return model.Interface().(Model), nil
 }
 
+// Types returns the ClientDBModel Types
+// The ClientDBModel types is a map of reflect.Types indexed by string
+// The reflect.Type is a pointer to a struct that contains 'ovs' tags.
+func (db ClientDBModel) Types() map[string]reflect.Type {
+	return db.types
+}
+
 // Name returns the database name
 func (db ClientDBModel) Name() string {
 	return db.name
