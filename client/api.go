@@ -617,19 +617,17 @@ func newConditionalAPI(cache *cache.TableCache, cond Conditional, logger *logr.L
 // Select generates the OVSDB select operation based on the conditions previously set
 // using Where, WhereAll, or WhereCache.
 // It determines the target table and columns from the condition context.
-// Returns an error if called after WhereAny, as OVSDB select only supports
-// a single set of ANDed conditions.
+// Returns an error if called after WhereCache.
+// If used with WhereAny, it will generate one select operation per condition.
 func (a api) Select(columns ...string) ([]ovsdb.Operation, error) {
 	// Select now requires a condition to be set via WhereXxx first.
 	if a.cond == nil {
-		return nil, fmt.Errorf("Select called on API with no condition set (use Where or WhereAll first)")
+		return nil, fmt.Errorf("Select called on API with no condition set (use Where, WhereAll, or WhereAny first)")
 	}
 
 	if _, ok := a.cond.(*predicateConditional); ok {
 		// Prevent select based on cache predicate function which cannot be translated
 		return nil, fmt.Errorf("cannot generate OVSDB select operation from a cache predicate function (WhereCache)")
-	} else if a.cond.IsDisjunction() { // Check if condition is OR (from WhereAny)
-		return nil, fmt.Errorf("Select cannot be used with WhereAny conditions, use separate Select calls or Transact")
 	}
 
 	// Get table name directly from the condition
@@ -642,22 +640,6 @@ func (a api) Select(columns ...string) ([]ovsdb.Operation, error) {
 	ovsdbConditionsList, err := a.cond.Generate()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate conditions for select: %w", err)
-	}
-
-	// OVSDB Select only supports one set of conditions (implicitly ANDed).
-	// The IsDisjunction check above handles WhereAny. This check is a safeguard
-	// in case a future Conditional type could generate multiple lists without
-	// being a disjunction.
-	if len(ovsdbConditionsList) > 1 {
-		return nil, fmt.Errorf("internal error: condition generated multiple condition lists unexpectedly for Select")
-	}
-
-	var whereClause []ovsdb.Condition
-	if len(ovsdbConditionsList) == 1 {
-		whereClause = ovsdbConditionsList[0]
-	} else {
-		// No conditions specified or generated, select all rows
-		whereClause = []ovsdb.Condition{}
 	}
 
 	// Determine columns to select
@@ -699,12 +681,22 @@ func (a api) Select(columns ...string) ([]ovsdb.Operation, error) {
 		}
 	}
 
-	selectOp := ovsdb.Operation{
-		Op:      ovsdb.OperationSelect,
-		Table:   tableName,
-		Where:   whereClause,
-		Columns: columnsToSelect,
+	// If no conditions were generated (e.g. select all), create a single
+	// operation with an empty where clause which selects all rows.
+	if len(ovsdbConditionsList) == 0 {
+		ovsdbConditionsList = append(ovsdbConditionsList, []ovsdb.Condition{})
 	}
 
-	return []ovsdb.Operation{selectOp}, nil
+	operations := make([]ovsdb.Operation, 0, len(ovsdbConditionsList))
+	for _, whereClause := range ovsdbConditionsList {
+		selectOp := ovsdb.Operation{
+			Op:      ovsdb.OperationSelect,
+			Table:   tableName,
+			Where:   whereClause,
+			Columns: columnsToSelect,
+		}
+		operations = append(operations, selectOp)
+	}
+
+	return operations, nil
 }

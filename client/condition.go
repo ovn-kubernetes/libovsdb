@@ -20,9 +20,6 @@ type Conditional interface {
 	Matches() (map[string]model.Model, error)
 	// returns the table that this condition is associated with
 	Table() string
-	// IsDisjunction returns true if the condition represents a disjunction (OR),
-	// typically originating from WhereAny.
-	IsDisjunction() bool
 }
 
 func generateConditionsFromModels(dbModel model.DatabaseModel, models map[string]model.Model) ([][]ovsdb.Condition, error) {
@@ -74,11 +71,6 @@ type equalityConditional struct {
 
 func (c *equalityConditional) Table() string {
 	return c.tableName
-}
-
-// IsDisjunction implements the Conditional interface. Equality conditions are conjunctive (AND).
-func (c *equalityConditional) IsDisjunction() bool {
-	return false
 }
 
 // Returns the models that match the indexes available through the provided
@@ -142,11 +134,6 @@ func (c *explicitConditional) Table() string {
 	return c.tableName
 }
 
-// IsDisjunction implements the Conditional interface. Returns true if matchAll was false (from WhereAny).
-func (c *explicitConditional) IsDisjunction() bool {
-	return !c.matchAll
-}
-
 // Returns the models that match the conditions
 func (c *explicitConditional) Matches() (map[string]model.Model, error) {
 	tableCache := c.cache.Table(c.tableName)
@@ -206,11 +193,6 @@ type predicateConditional struct {
 	cache     *cache.TableCache
 }
 
-// IsDisjunction implements the Conditional interface. Predicate conditions are treated as conjunctive.
-func (c *predicateConditional) IsDisjunction() bool {
-	return false
-}
-
 // matches returns the result of the execution of the predicate
 // Type verifications are not performed
 // Returns the models that match the conditions
@@ -258,11 +240,6 @@ func newPredicateConditional(table string, cache *cache.TableCache, predicate an
 // It is used to delay the reporting of errors from conditional creation to API method call
 type errorConditional struct {
 	err error
-}
-
-// IsDisjunction implements the Conditional interface. Error conditions are not disjunctive.
-func (e *errorConditional) IsDisjunction() bool {
-	return false
 }
 
 func (e *errorConditional) Matches() (map[string]model.Model, error) {

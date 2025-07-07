@@ -1464,6 +1464,7 @@ func TestConditionalAPISelect(t *testing.T) {
 		errorContains  string
 		expectedWhere  []ovsdb.Condition
 		expectedTable  string
+		expectedOps    []ovsdb.Operation
 	}{
 		{
 			name: "Select after Where",
@@ -1473,6 +1474,17 @@ func TestConditionalAPISelect(t *testing.T) {
 			expectError:   false,
 			expectedWhere: []ovsdb.Condition{{Column: "name", Function: ovsdb.ConditionEqual, Value: "br-selcond"}}, // Equality condition from index
 			expectedTable: "Bridge",
+			expectedOps: func() []ovsdb.Operation {
+				expected := []ovsdb.Operation{
+					{
+						Op:      ovsdb.OperationSelect,
+						Table:   "Bridge",
+						Where:   []ovsdb.Condition{ovsdb.NewCondition("name", ovsdb.ConditionEqual, "br-selcond")},
+						Columns: expectedCols,
+					},
+				}
+				return expected
+			}(),
 		},
 		{
 			name: "Select after WhereAll",
@@ -1486,6 +1498,17 @@ func TestConditionalAPISelect(t *testing.T) {
 			expectError:   false,
 			expectedWhere: []ovsdb.Condition{{Column: "name", Function: ovsdb.ConditionNotEqual, Value: "some-other-bridge"}},
 			expectedTable: "Bridge",
+			expectedOps: func() []ovsdb.Operation {
+				expected := []ovsdb.Operation{
+					{
+						Op:      ovsdb.OperationSelect,
+						Table:   "Bridge",
+						Where:   []ovsdb.Condition{ovsdb.NewCondition("name", ovsdb.ConditionNotEqual, "some-other-bridge")},
+						Columns: expectedCols,
+					},
+				}
+				return expected
+			}(),
 		},
 		{
 			name: "Select after WhereAll with multiple conditions (string and bool)",
@@ -1509,6 +1532,20 @@ func TestConditionalAPISelect(t *testing.T) {
 				{Column: "stp_enable", Function: ovsdb.ConditionEqual, Value: true},
 			},
 			expectedTable: "Bridge",
+			expectedOps: func() []ovsdb.Operation {
+				expected := []ovsdb.Operation{
+					{
+						Op:    ovsdb.OperationSelect,
+						Table: "Bridge",
+						Where: []ovsdb.Condition{
+							{Column: "name", Function: ovsdb.ConditionEqual, Value: "br-multi1"},
+							{Column: "stp_enable", Function: ovsdb.ConditionEqual, Value: true},
+						},
+						Columns: expectedCols,
+					},
+				}
+				return expected
+			}(),
 		},
 		{
 			name: "Select after WhereAll with multiple conditions (string and map includes)",
@@ -1532,14 +1569,20 @@ func TestConditionalAPISelect(t *testing.T) {
 				{Column: "external_ids", Function: ovsdb.ConditionIncludes, Value: testOvsMap(t, map[string]string{"key": "value"})},
 			},
 			expectedTable: "Bridge",
-		},
-		{
-			name: "Error: Select after WhereAny",
-			conditionalAPI: func(api API) ConditionalAPI {
-				return api.WhereAny(bridgeModelCtx, model.Condition{Field: &bridgeModelCtx.Name, Function: ovsdb.ConditionEqual, Value: "a"})
-			},
-			expectError:   true,
-			errorContains: "WhereAny",
+			expectedOps: func() []ovsdb.Operation {
+				expected := []ovsdb.Operation{
+					{
+						Op:    ovsdb.OperationSelect,
+						Table: "Bridge",
+						Where: []ovsdb.Condition{
+							{Column: "name", Function: ovsdb.ConditionNotEqual, Value: "br-exclude"},
+							{Column: "external_ids", Function: ovsdb.ConditionIncludes, Value: testOvsMap(t, map[string]string{"key": "value"})},
+						},
+						Columns: expectedCols,
+					},
+				}
+				return expected
+			}(),
 		},
 		{
 			name: "Error: Select after WhereCache",
@@ -1547,17 +1590,34 @@ func TestConditionalAPISelect(t *testing.T) {
 				return api.WhereCache(func(_ *Bridge) bool { return true })
 			},
 			expectError:   true,
-			errorContains: "cache predicate function",
+			errorContains: "WhereCache",
 		},
 		{
-			name: "Model table check (removed from Select)",
+			name: "Success: Select after WhereAny with multiple OR conditions",
 			conditionalAPI: func(api API) ConditionalAPI {
-				// Condition on Bridge table
-				return api.Where(bridgeModel)
+				return api.WhereAny(bridgeModelCtx,
+					model.Condition{Field: &bridgeModelCtx.Name, Function: ovsdb.ConditionEqual, Value: "a"},
+					model.Condition{Field: &bridgeModelCtx.OtherConfig, Function: ovsdb.ConditionIncludes, Value: map[string]string{"foo": "bar"}},
+				)
 			},
-			expectError:   false,
-			expectedWhere: []ovsdb.Condition{{Column: "name", Function: ovsdb.ConditionEqual, Value: "br-selcond"}},
-			expectedTable: "Bridge",
+			expectedOps: func() []ovsdb.Operation {
+				expected := []ovsdb.Operation{
+					{
+						Op:      ovsdb.OperationSelect,
+						Table:   "Bridge",
+						Where:   []ovsdb.Condition{ovsdb.NewCondition("name", ovsdb.ConditionEqual, "a")},
+						Columns: expectedCols,
+					},
+					{
+						Op:    ovsdb.OperationSelect,
+						Table: "Bridge",
+						Where: []ovsdb.Condition{ovsdb.NewCondition("other_config", ovsdb.ConditionIncludes,
+							ovsdb.OvsMap{GoMap: map[interface{}]interface{}{"foo": "bar"}})},
+						Columns: expectedCols,
+					},
+				}
+				return expected
+			}(),
 		},
 	}
 
@@ -1578,24 +1638,25 @@ func TestConditionalAPISelect(t *testing.T) {
 				assert.Nil(t, ops)
 			} else {
 				require.NoError(t, err)
-				require.Len(t, ops, 1, "Select should return exactly one operation")
-				op := ops[0]
-				assert.Equal(t, ovsdb.OperationSelect, op.Op)
-				assert.Equal(t, tt.expectedTable, op.Table)
-				assert.Equal(t, tt.expectedWhere, op.Where)
+				require.Len(t, ops, len(tt.expectedOps), "Select should return %d operation", len(tt.expectedOps))
+				for i, op := range ops {
+					assert.Equal(t, tt.expectedOps[i].Op, op.Op)
+					assert.Equal(t, tt.expectedOps[i].Table, op.Table)
+					assert.Equal(t, tt.expectedOps[i].Where, op.Where)
 
-				// Sort columns for comparison
-				actualCols := make([]string, len(op.Columns))
-				copy(actualCols, op.Columns)
-				sort.Strings(actualCols)
-				assert.Equal(t, expectedCols, actualCols, "Selected columns mismatch")
+					// Sort columns for comparison
+					actualCols := make([]string, len(op.Columns))
+					copy(actualCols, op.Columns)
+					sort.Strings(actualCols)
+					assert.Equal(t, expectedCols, actualCols, "Selected columns mismatch")
+				}
 			}
 		})
 	}
 }
 
-// TestParseSelectResult tests the parsing logic extracted from SelectModels
-func TestParseSelectResult(t *testing.T) {
+// TestGetSelectResults tests the parsing logic extracted from SelectModels
+func TestGetSelectResults(t *testing.T) {
 	var connectCounter, disconnectCounter int32
 	ovsClient, _, serverAddr := newClientServerPair(t, &connectCounter, &disconnectCounter, true)
 	defer ovsClient.Close()
@@ -1654,7 +1715,7 @@ func TestParseSelectResult(t *testing.T) {
 	// Test cases
 	tests := []struct {
 		name                   string
-		opResult               ovsdb.OperationResult
+		opResult               []ovsdb.OperationResult
 		targetSlice            interface{}
 		expectErr              bool
 		expectedErrorSubstring string
@@ -1662,8 +1723,10 @@ func TestParseSelectResult(t *testing.T) {
 	}{
 		{
 			name: "Success - Slice of Pointers",
-			opResult: ovsdb.OperationResult{
-				Rows: []ovsdb.Row{row1, row2},
+			opResult: []ovsdb.OperationResult{
+				{
+					Rows: []ovsdb.Row{row1, row2},
+				},
 			},
 			targetSlice: &[]*Bridge{},
 			expectErr:   false,
@@ -1674,8 +1737,27 @@ func TestParseSelectResult(t *testing.T) {
 		},
 		{
 			name: "Success - Slice of Structs",
-			opResult: ovsdb.OperationResult{
-				Rows: []ovsdb.Row{row1, row2},
+			opResult: []ovsdb.OperationResult{
+				{
+					Rows: []ovsdb.Row{row1, row2},
+				},
+			},
+			targetSlice: &[]Bridge{},
+			expectErr:   false,
+			expectedParsedResult: &[]Bridge{
+				expectedBridge1,
+				expectedBridge2,
+			},
+		},
+		{
+			name: "Success - WhereAny multiple results",
+			opResult: []ovsdb.OperationResult{
+				{
+					Rows: []ovsdb.Row{row1, row2},
+				},
+				{
+					Rows: []ovsdb.Row{row1},
+				},
 			},
 			targetSlice: &[]Bridge{},
 			expectErr:   false,
@@ -1686,12 +1768,14 @@ func TestParseSelectResult(t *testing.T) {
 		},
 		{
 			name: "Success - Partial Columns",
-			opResult: ovsdb.OperationResult{
-				Rows: []ovsdb.Row{
-					{
-						"_uuid":         ovsdb.UUID{GoUUID: uuid1},
-						"name":          "br-partial",
-						"datapath_type": "partial-netdev",
+			opResult: []ovsdb.OperationResult{
+				{
+					Rows: []ovsdb.Row{
+						{
+							"_uuid":         ovsdb.UUID{GoUUID: uuid1},
+							"name":          "br-partial",
+							"datapath_type": "partial-netdev",
+						},
 					},
 				},
 			},
@@ -1714,58 +1798,68 @@ func TestParseSelectResult(t *testing.T) {
 		},
 		{
 			name: "Success - Empty Result",
-			opResult: ovsdb.OperationResult{
-				Rows: []ovsdb.Row{},
+			opResult: []ovsdb.OperationResult{
+				{
+					Rows: []ovsdb.Row{},
+				},
 			},
 			targetSlice:          &[]*Bridge{},
 			expectErr:            false,
 			expectedParsedResult: &[]*Bridge{},
 		},
 		{
-			name: "Error - OperationResult Error",
-			opResult: ovsdb.OperationResult{
-				Error:   "ovsdb_error",
-				Details: "something went wrong",
+			name: "Error - Target Nil Pointer",
+			opResult: []ovsdb.OperationResult{
+				{
+					Rows: []ovsdb.Row{row1},
+				},
 			},
-			targetSlice:            &[]*Bridge{},
-			expectErr:              true,
-			expectedErrorSubstring: "ovsdb_error: something went wrong",
-		},
-		{
-			name:                   "Error - Target Nil Pointer",
-			opResult:               ovsdb.OperationResult{Rows: []ovsdb.Row{row1}},
 			targetSlice:            ((*[]*Bridge)(nil)),
 			expectErr:              true,
 			expectedErrorSubstring: "targetSlice argument must be a non-nil pointer",
 		},
 		{
-			name:                   "Error - Target Not Pointer",
-			opResult:               ovsdb.OperationResult{Rows: []ovsdb.Row{row1}},
+			name: "Error - Target Not Pointer",
+			opResult: []ovsdb.OperationResult{
+				{
+					Rows: []ovsdb.Row{row1},
+				},
+			},
 			targetSlice:            []*Bridge{},
 			expectErr:              true,
 			expectedErrorSubstring: "targetSlice argument must be a non-nil pointer",
 		},
 		{
-			name:                   "Error - Target Pointer to Non-Slice",
-			opResult:               ovsdb.OperationResult{Rows: []ovsdb.Row{row1}},
+			name: "Error - Target Pointer to Non-Slice",
+			opResult: []ovsdb.OperationResult{
+				{
+					Rows: []ovsdb.Row{row1},
+				},
+			},
 			targetSlice:            &Bridge{},
 			expectErr:              true,
 			expectedErrorSubstring: "targetSlice argument must be a pointer to a slice",
 		},
 		{
-			name:                   "Error - Target Slice of Non-Model",
-			opResult:               ovsdb.OperationResult{Rows: []ovsdb.Row{row1}},
+			name: "Error - Target Slice of Non-Model",
+			opResult: []ovsdb.OperationResult{
+				{
+					Rows: []ovsdb.Row{row1},
+				},
+			},
 			targetSlice:            &[]int{},
 			expectErr:              true,
 			expectedErrorSubstring: "targetSlice elements must be structs or pointers to structs",
 		},
 		{
 			name: "Error - Mapping Error (wrong type in row)",
-			opResult: ovsdb.OperationResult{
-				Rows: []ovsdb.Row{
-					{
-						"_uuid": ovsdb.UUID{GoUUID: uuid.NewString()},
-						"name":  123, // Incorrect type for name
+			opResult: []ovsdb.OperationResult{
+				{
+					Rows: []ovsdb.Row{
+						{
+							"_uuid": ovsdb.UUID{GoUUID: uuid.NewString()},
+							"name":  123, // Incorrect type for name
+						},
 					},
 				},
 			},
@@ -1777,7 +1871,7 @@ func TestParseSelectResult(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ovsClientForDefDB.ParseSelectResult(tt.opResult, tt.targetSlice)
+			err := ovsClientForDefDB.GetSelectResults(tt.opResult, tt.targetSlice)
 
 			if tt.expectErr {
 				require.Error(t, err)

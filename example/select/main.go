@@ -59,7 +59,7 @@ func main() {
 
 	logger.Info("Successfully connected to OVSDB", "endpoint", ovs.CurrentEndpoint())
 
-	logger.Info("=== ConditionalAPI.Select Examples - Using WhereXxx, Select, Transact, and ParseSelectResult ===")
+	logger.Info("=== ConditionalAPI.Select Examples - Using WhereXxx, Select, Transact, and GetSelectResults ===")
 
 	// The client instance (`ovs`) itself implements the API interface.
 
@@ -89,7 +89,7 @@ func main() {
 	}
 
 	// 4. Parse the select results from the first operation result
-	err = ovs.ParseSelectResult(reply[0], &allBridges)
+	err = ovs.GetSelectResults(reply, &allBridges)
 	if err != nil {
 		logger.Error(err, "Failed to parse select all results")
 		os.Exit(1)
@@ -134,7 +134,7 @@ func main() {
 	}
 
 	// 4. Parse the select results
-	err = ovs.ParseSelectResult(replySpecific[0], &specificBridges)
+	err = ovs.GetSelectResults(replySpecific, &specificBridges)
 	if err != nil {
 		logger.Error(err, "Failed to parse select specific results")
 		os.Exit(1)
@@ -197,7 +197,7 @@ func main() {
 	}
 
 	// 4. Parse the select results
-	err = ovs.ParseSelectResult(replyMulti[0], &specificBridgesMultiCond)
+	err = ovs.GetSelectResults(replyMulti, &specificBridgesMultiCond)
 	if err != nil {
 		logger.Error(err, "Failed to parse select multi-condition results")
 		os.Exit(1)
@@ -246,7 +246,7 @@ func main() {
 	}
 
 	// 4. Parse the select results
-	err = ovs.ParseSelectResult(replyPartial[0], &partialBridges)
+	err = ovs.GetSelectResults(replyPartial, &partialBridges)
 	if err != nil {
 		logger.Error(err, "Failed to parse select partial column results")
 		os.Exit(1)

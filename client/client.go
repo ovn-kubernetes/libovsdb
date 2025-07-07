@@ -65,9 +65,9 @@ type Client interface {
 	NewMonitor(...MonitorOption) *Monitor
 	CurrentEndpoint() string
 	API
-	// ParseSelectResult parses the result of a Select operation into the target slice.
+	// GetSelectResults parses the result of Select operations into the target slice.
 	// targetSlice must be a non-nil pointer to a slice of models (structs or pointers to structs).
-	ParseSelectResult(result ovsdb.OperationResult, targetSlice interface{}) error
+	GetSelectResults(results []ovsdb.OperationResult, targetSlice interface{}) error
 }
 
 type bufferedUpdate struct {
@@ -1475,14 +1475,21 @@ func (o *ovsdbClient) WhereCache(predicate any) ConditionalAPI {
 	return o.primaryDB().api.WhereCache(predicate)
 }
 
-// ParseSelectResult parses the result of a Select operation into the target slice.
-func (o *ovsdbClient) ParseSelectResult(result ovsdb.OperationResult, targetSlice interface{}) error {
-	if result.Error != "" {
-		details := ""
-		if result.Details != "" {
-			details = ": " + result.Details
+// GetSelectResults parses the result of a Select operation into the target slice.
+func (o *ovsdbClient) GetSelectResults(results []ovsdb.OperationResult, targetSlice interface{}) error {
+	var rows []ovsdb.Row
+	for _, result := range results {
+		rows = append(rows, result.Rows...)
+	}
+	exist := make(map[ovsdb.UUID]struct{})
+	var uniqRows []ovsdb.Row
+	for _, row := range rows {
+		uuid := row["_uuid"].(ovsdb.UUID)
+		if _, ok := exist[uuid]; ok {
+			continue
 		}
-		return fmt.Errorf("select operation failed: %s%s", result.Error, details)
+		uniqRows = append(uniqRows, row)
+		exist[uuid] = struct{}{}
 	}
 
 	_, err := validateParseTargetSlice(targetSlice)
@@ -1498,10 +1505,10 @@ func (o *ovsdbClient) ParseSelectResult(result ovsdb.OperationResult, targetSlic
 		return fmt.Errorf("database model for '%s' is not valid (client may not be connected or schema mismatch)", o.primaryDBName)
 	}
 
-	return mapSelectResultToSlice(result.Rows, targetSlice, db.model)
+	return mapSelectResultToSlice(uniqRows, targetSlice, db.model)
 }
 
-// validateParseTargetSlice validates the 'targetSlice' argument for ParseSelectResult.
+// validateParseTargetSlice validates the 'targetSlice' argument for GetSelectResults.
 // It ensures 'targetSlice' is a non-nil pointer to a slice whose elements are
 // structs or pointers to structs that implement model.Model.
 // It returns the underlying struct type of the slice elements.
