@@ -2014,3 +2014,86 @@ func TestAPIWait(t *testing.T) {
 		})
 	}
 }
+
+func BenchmarkAPICreate(b *testing.B) {
+	tcache := apiTestCache(b, nil) // Create doesn't need a cache
+	api := newAPI(tcache, &discardLogger)
+
+	// newSimpleValidBridge creates a bridge with only the required fields
+	// and empty collections.
+	newSimpleValidBridge := func() *testBridge {
+		return &testBridge{
+			UUID:                uuid.NewString(),
+			Name:                "valid-br-" + uuid.NewString()[:8], // Ensure unique name
+			DatapathType:        "system",
+			DatapathVersion:     "1.0",
+			McastSnoopingEnable: false,
+			RSTPEnable:          false,
+			STPEnable:           false,
+			// Initialize collections to avoid nil pointer issues
+			Controller:  []string{},
+			ExternalIDs: map[string]string{},
+			FloodVLANs:  []int{},
+			FlowTables:  map[int]string{},
+			Mirrors:     []string{},
+			OtherConfig: map[string]string{},
+			Ports:       []string{},
+			Protocols:   []string{},
+			RSTPStatus:  map[string]string{},
+			Status:      map[string]string{},
+		}
+	}
+
+	// newComplexValidBridge creates a bridge with many fields populated
+	// with valid data to test performance against a more complex model.
+	newComplexValidBridge := func() *testBridge {
+		fm := BridgeFailModeSecure
+		return &testBridge{
+			UUID:                uuid.NewString(),
+			Name:                "complex-br-" + uuid.NewString()[:8],
+			DatapathType:        "system",
+			DatapathVersion:     "1.0",
+			FailMode:            &fm,
+			Controller:          []string{uuid.NewString(), uuid.NewString()},
+			ExternalIDs:         map[string]string{"key1": "value1", "key2": "value2", "key3": "value3"},
+			FloodVLANs:          []int{10, 20, 30, 40, 50, 60, 70, 80, 90, 100},
+			FlowTables:          map[int]string{1: uuid.NewString(), 10: uuid.NewString(), 100: uuid.NewString()},
+			Mirrors:             []string{uuid.NewString()},
+			OtherConfig:         map[string]string{"cfg1": "val1", "cfg2": "val2"},
+			Ports:               []string{uuid.NewString(), uuid.NewString(), uuid.NewString()},
+			Protocols:           []string{BridgeProtocolsOpenflow13, BridgeProtocolsOpenflow14, BridgeProtocolsOpenflow15},
+			McastSnoopingEnable: true,
+			RSTPEnable:          true,
+			STPEnable:           false,
+			RSTPStatus:          map[string]string{"rstp_key": "rstp_val"},
+			Status:              map[string]string{"status_key": "status_val"},
+		}
+	}
+
+	testCases := []struct {
+		name          string
+		bridgeFactory func() *testBridge
+	}{
+		{
+			name:          "simple model",
+			bridgeFactory: newSimpleValidBridge,
+		},
+		{
+			name:          "complex model",
+			bridgeFactory: newComplexValidBridge,
+		},
+	}
+
+	for _, tc := range testCases {
+		b.Run(tc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				bridgeToCreate := tc.bridgeFactory()
+				ops, err := api.Create(bridgeToCreate)
+				require.NoError(b, err)
+				require.NotNil(b, ops)
+			}
+		})
+	}
+}

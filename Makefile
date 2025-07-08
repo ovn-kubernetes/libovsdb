@@ -1,5 +1,7 @@
 OVS_VERSION ?= v3.5.0
 
+TESTS ?=
+
 .PHONY: all
 all: lint build test integration-test coverage
 
@@ -14,19 +16,19 @@ prebuild: modelgen ovsdb/serverdb/_server.ovsschema example/vswitchd/ovs.ovssche
 	@go generate -v ./...
 
 .PHONY: build
-build: prebuild 
+build: prebuild
 	@echo "+ $@"
 	@go build -v ./...
 
 .PHONY: test
 test: prebuild
 	@echo "+ $@"
-	@go test -race -coverprofile=unit.cov -test.short -timeout 30s -v ./...
+	@go test -race -coverprofile=unit.cov -test.short -timeout 30s -v $(if $(TESTS),-run $(TESTS)) ./...
 
 .PHONY: integration-test
 integration-test:
 	@echo "+ $@"
-	@go test -race -coverprofile=integration.cov -coverpkg=github.com/ovn-kubernetes/libovsdb/... -timeout 60s -v ./test/ovs
+	@go test -race -coverprofile=integration.cov -coverpkg=github.com/ovn-kubernetes/libovsdb/... -timeout 60s -v $(if $(TESTS),-run $(TESTS)) ./test/ovs
 
 .PHONY: coverage
 coverage: test integration-test
@@ -36,7 +38,7 @@ coverage: test integration-test
 .PHONY: bench
 bench: install-deps prebuild
 	@echo "+ $@"
-	@go test -run=XXX -count=3 -bench=. ./... | tee bench.out
+	@go test -run=XXX -count=3 $(if $(TESTS),-bench $(TESTS),-bench .) ./... | tee bench.out
 	@benchstat bench.out
 
 .PHONY: install-deps
