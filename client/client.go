@@ -392,7 +392,7 @@ func (o *ovsdbClient) tryEndpoint(ctx context.Context, u *url.URL) (string, erro
 				db.cacheMutex.Unlock()
 				return "", err
 			}
-			db.api = newAPI(db.cache, o.logger)
+			db.api = newAPI(db.cache, o.logger, o.options.validateModel)
 		}
 		db.cacheMutex.Unlock()
 	}

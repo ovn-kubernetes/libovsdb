@@ -116,7 +116,7 @@ func TestAPIListSimple(t *testing.T) {
 			if tt.initialCap != 0 {
 				result = make([]*testLogicalSwitch, 0, tt.initialCap)
 			}
-			api := newAPI(tcache, &discardLogger)
+			api := newAPI(tcache, &discardLogger, false)
 			err := api.List(context.Background(), &result)
 			if tt.err {
 				require.Error(t, err)
@@ -153,14 +153,14 @@ func TestAPIListSimple(t *testing.T) {
 
 	t.Run("ApiList: Error wrong type", func(t *testing.T) {
 		var result []string
-		api := newAPI(tcache, &discardLogger)
+		api := newAPI(tcache, &discardLogger, false)
 		err := api.List(context.Background(), &result)
 		require.Error(t, err)
 	})
 
 	t.Run("ApiList: Type Selection", func(t *testing.T) {
 		var result []testLogicalSwitchPort
-		api := newAPI(tcache, &discardLogger)
+		api := newAPI(tcache, &discardLogger, false)
 		err := api.List(context.Background(), &result)
 		require.NoError(t, err)
 		assert.Empty(t, result, "Should be empty since cache is empty")
@@ -168,7 +168,7 @@ func TestAPIListSimple(t *testing.T) {
 
 	t.Run("ApiList: Empty List", func(t *testing.T) {
 		result := []testLogicalSwitch{}
-		api := newAPI(tcache, &discardLogger)
+		api := newAPI(tcache, &discardLogger, false)
 		err := api.List(context.Background(), &result)
 		require.NoError(t, err)
 		assert.Len(t, result, len(lscacheList))
@@ -176,7 +176,7 @@ func TestAPIListSimple(t *testing.T) {
 
 	t.Run("ApiList: fails if conditional is an error", func(t *testing.T) {
 		result := []testLogicalSwitch{}
-		api := newConditionalAPI(tcache, newErrorConditional(fmt.Errorf("error")), &discardLogger)
+		api := newConditionalAPI(tcache, newErrorConditional(fmt.Errorf("error")), &discardLogger, false)
 		err := api.List(context.Background(), &result)
 		require.Error(t, err)
 	})
@@ -261,7 +261,7 @@ func TestAPIListPredicate(t *testing.T) {
 	for _, tt := range test {
 		t.Run(fmt.Sprintf("ApiListPredicate: %s", tt.name), func(t *testing.T) {
 			var result []*testLogicalSwitch
-			api := newAPI(tcache, &discardLogger)
+			api := newAPI(tcache, &discardLogger, false)
 			cond := api.WhereCache(tt.predicate)
 			err := cond.List(context.Background(), &result)
 			if tt.err {
@@ -333,7 +333,7 @@ func TestAPIListWhereConditions(t *testing.T) {
 	for _, tt := range test {
 		t.Run(fmt.Sprintf("TestAPIListWhereConditions: %s", tt.desc), func(t *testing.T) {
 			var result []*testLogicalSwitchPort
-			api := newAPI(tcache, &discardLogger)
+			api := newAPI(tcache, &discardLogger, false)
 			testObj := &testLogicalSwitchPort{}
 			conds := []model.Condition{}
 			for _, name := range tt.matchNames {
@@ -426,7 +426,7 @@ func TestAPIListFields(t *testing.T) {
 			// Clean object
 			testObj := testLogicalSwitchPort{}
 			tt.prepare(&testObj)
-			api := newAPI(tcache, &discardLogger)
+			api := newAPI(tcache, &discardLogger, false)
 			err := api.Where(&testObj).List(context.Background(), &result)
 			require.NoError(t, err)
 			assert.ElementsMatchf(t, tt.content, result, "Content should match")
@@ -435,7 +435,7 @@ func TestAPIListFields(t *testing.T) {
 
 	t.Run("ApiListFields: Wrong table", func(t *testing.T) {
 		var result []testLogicalSwitchPort
-		api := newAPI(tcache, &discardLogger)
+		api := newAPI(tcache, &discardLogger, false)
 		obj := testLogicalSwitch{
 			UUID: aUUID0,
 		}
@@ -519,7 +519,7 @@ func TestAPIListMulti(t *testing.T) {
 	for _, tt := range test {
 		t.Run(tt.name, func(t *testing.T) {
 			var result []*testLogicalSwitchPort
-			api := newAPI(tcache, &discardLogger)
+			api := newAPI(tcache, &discardLogger, false)
 			err := api.Where(tt.models...).List(context.Background(), &result)
 			if tt.err {
 				require.Error(t, err)
@@ -563,7 +563,7 @@ func TestConditionFromFunc(t *testing.T) {
 	for _, tt := range test {
 		t.Run(fmt.Sprintf("conditionFromFunc: %s", tt.name), func(t *testing.T) {
 			cache := apiTestCache(t, nil)
-			apiIface := newAPI(cache, &discardLogger)
+			apiIface := newAPI(cache, &discardLogger, false)
 			condition := apiIface.(api).conditionFromFunc(tt.arg)
 			if tt.err {
 				assert.IsType(t, &errorConditional{}, condition)
@@ -636,7 +636,7 @@ func TestConditionFromModel(t *testing.T) {
 	for _, tt := range test {
 		t.Run(fmt.Sprintf("conditionFromModels: %s", tt.name), func(t *testing.T) {
 			cache := apiTestCache(t, nil)
-			apiIface := newAPI(cache, &discardLogger)
+			apiIface := newAPI(cache, &discardLogger, false)
 			var condition Conditional
 			if len(tt.conds) > 0 {
 				condition = apiIface.(api).conditionFromExplicitConditions(true, tt.models[0], tt.conds...)
@@ -727,7 +727,7 @@ func TestAPIGet(t *testing.T) {
 		t.Run(fmt.Sprintf("ApiGet: %s", tt.name), func(t *testing.T) {
 			var result testLogicalSwitchPort
 			tt.prepare(&result)
-			api := newAPI(tcache, &discardLogger)
+			api := newAPI(tcache, &discardLogger, false)
 			err := api.Get(context.Background(), &result)
 			if tt.err {
 				require.Error(t, err)
@@ -842,7 +842,7 @@ func TestAPICreate(t *testing.T) {
 	}
 	for _, tt := range test {
 		t.Run(fmt.Sprintf("ApiCreate: %s", tt.name), func(t *testing.T) {
-			api := newAPI(tcache, &discardLogger)
+			api := newAPI(tcache, &discardLogger, false)
 			op, err := api.Create(tt.input...)
 			if tt.err {
 				require.Error(t, err)
@@ -1082,14 +1082,14 @@ func TestAPIMutate(t *testing.T) {
 		{
 			name: "fails if conditional is an error",
 			condition: func(_ API) ConditionalAPI {
-				return newConditionalAPI(nil, newErrorConditional(fmt.Errorf("error")), &discardLogger)
+				return newConditionalAPI(nil, newErrorConditional(fmt.Errorf("error")), &discardLogger, false)
 			},
 			err: true,
 		},
 	}
 	for _, tt := range test {
 		t.Run(fmt.Sprintf("ApiMutate: %s", tt.name), func(t *testing.T) {
-			api := newAPI(tcache, &discardLogger)
+			api := newAPI(tcache, &discardLogger, false)
 			cond := tt.condition(api)
 			ops, err := cond.Mutate(&testObj, tt.mutations...)
 			if tt.err {
@@ -1447,7 +1447,7 @@ func TestAPIUpdate(t *testing.T) {
 		{
 			name: "fails if conditional is an error",
 			condition: func(_ API) ConditionalAPI {
-				return newConditionalAPI(tcache, newErrorConditional(fmt.Errorf("error")), &discardLogger)
+				return newConditionalAPI(tcache, newErrorConditional(fmt.Errorf("error")), &discardLogger, false)
 			},
 			prepare: func(_ *testLogicalSwitchPort) {
 			},
@@ -1456,7 +1456,7 @@ func TestAPIUpdate(t *testing.T) {
 	}
 	for _, tt := range test {
 		t.Run(fmt.Sprintf("ApiUpdate: %s", tt.name), func(t *testing.T) {
-			api := newAPI(tcache, &discardLogger)
+			api := newAPI(tcache, &discardLogger, false)
 			cond := tt.condition(api)
 			// clean test Object
 			testObj = testLogicalSwitchPort{}
@@ -1675,14 +1675,14 @@ func TestAPIDelete(t *testing.T) {
 		{
 			name: "fails if conditional is an error",
 			condition: func(_ API) ConditionalAPI {
-				return newConditionalAPI(nil, newErrorConditional(fmt.Errorf("error")), &discardLogger)
+				return newConditionalAPI(nil, newErrorConditional(fmt.Errorf("error")), &discardLogger, false)
 			},
 			err: true,
 		},
 	}
 	for _, tt := range test {
 		t.Run(fmt.Sprintf("ApiDelete: %s", tt.name), func(t *testing.T) {
-			api := newAPI(tcache, &discardLogger)
+			api := newAPI(tcache, &discardLogger, false)
 			cond := tt.condition(api)
 			ops, err := cond.Delete()
 			if tt.err {
@@ -1758,7 +1758,7 @@ func BenchmarkAPIList(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				index = r.Intn(numRows)
 				var result []*testLogicalSwitchPort
-				api := newAPI(tcache, &discardLogger)
+				api := newAPI(tcache, &discardLogger, false)
 				var cond ConditionalAPI
 				if tt.predicate != nil {
 					cond = api.WhereCache(tt.predicate)
@@ -1816,7 +1816,7 @@ func BenchmarkAPIListMultiple(b *testing.B) {
 		b.Run(tt.name, func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				var results []*testLogicalSwitchPort
-				api := newAPI(tcache, &discardLogger)
+				api := newAPI(tcache, &discardLogger, false)
 				if tt.whereAny {
 					// Looking up models with WhereAny() should be fast
 					cond := api.Where(models...)
@@ -1839,7 +1839,6 @@ func BenchmarkAPIListMultiple(b *testing.B) {
 
 func BenchmarkAPICreate(b *testing.B) {
 	tcache := apiTestCache(b, nil) // Create doesn't need a cache
-	api := newAPI(tcache, &discardLogger)
 
 	// newSimpleValidBridge creates a bridge with only the required fields
 	// and empty collections.
@@ -1895,6 +1894,7 @@ func BenchmarkAPICreate(b *testing.B) {
 	testCases := []struct {
 		name          string
 		bridgeFactory func() *testBridge
+		validateModel bool
 	}{
 		{
 			name:          "simple model",
@@ -1904,12 +1904,23 @@ func BenchmarkAPICreate(b *testing.B) {
 			name:          "complex model",
 			bridgeFactory: newComplexValidBridge,
 		},
+		{
+			name:          "simple model with validation",
+			bridgeFactory: newSimpleValidBridge,
+			validateModel: true,
+		},
+		{
+			name:          "complex model with validation",
+			bridgeFactory: newComplexValidBridge,
+			validateModel: true,
+		},
 	}
 
 	for _, tc := range testCases {
 		b.Run(tc.name, func(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
+			api := newAPI(tcache, &discardLogger, tc.validateModel)
 			for i := 0; i < b.N; i++ {
 				bridgeToCreate := tc.bridgeFactory()
 				ops, err := api.Create(bridgeToCreate)
@@ -2073,7 +2084,7 @@ func TestAPIWait(t *testing.T) {
 		{
 			name: "fails if conditional is an error",
 			condition: func(_ API) ConditionalAPI {
-				return newConditionalAPI(nil, newErrorConditional(fmt.Errorf("error")), &discardLogger)
+				return newConditionalAPI(nil, newErrorConditional(fmt.Errorf("error")), &discardLogger, false)
 			},
 			prepare: func() (model.Model, []any) {
 				return nil, nil
@@ -2084,7 +2095,7 @@ func TestAPIWait(t *testing.T) {
 
 	for _, tt := range test {
 		t.Run(fmt.Sprintf("ApiWait: %s", tt.name), func(t *testing.T) {
-			api := newAPI(tcache, &discardLogger)
+			api := newAPI(tcache, &discardLogger, false)
 			cond := tt.condition(api)
 			model, fields := tt.prepare()
 			ops, err := cond.Wait(tt.until, tt.timeout, model, fields...)
@@ -2100,7 +2111,7 @@ func TestAPIWait(t *testing.T) {
 
 func TestAPIValidationCreate(t *testing.T) {
 	tcache := apiTestCache(t, nil)
-	api := newAPI(tcache, &discardLogger)
+	api := newAPI(tcache, &discardLogger, true)
 
 	// Helper to create a minimally valid Bridge object
 	newValidBaseBridge := func() *testBridge {
@@ -2334,7 +2345,7 @@ func TestAPIValidationMutate(t *testing.T) {
 	bridgeCacheData := map[string]model.Model{initialBridge.UUID: initialBridge}
 	testCacheData := cache.Data{"Bridge": bridgeCacheData}
 	tcache := apiTestCache(t, testCacheData)
-	api := newAPI(tcache, &discardLogger)
+	api := newAPI(tcache, &discardLogger, true)
 
 	// Pointers to fields for use in Mutations
 	// var bridgeForFieldPointers testBridge -- Removed, use initialBridge directly
@@ -2516,7 +2527,7 @@ func TestAPIValidationUpdate(t *testing.T) {
 	bridgeCacheData := map[string]model.Model{initialBridge.UUID: initialBridge}
 	testCacheData := cache.Data{"Bridge": bridgeCacheData}
 	tcache := apiTestCache(t, testCacheData)
-	api := newAPI(tcache, &discardLogger)
+	api := newAPI(tcache, &discardLogger, true)
 
 	// Helper to get a fresh copy of the initialBridge state from cache
 	getFreshBridgeStateFromCache := func(t *testing.T) *testBridge {

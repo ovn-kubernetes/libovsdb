@@ -101,9 +101,10 @@ var ErrNotFound = errors.New("object not found")
 // api struct implements both API and ConditionalAPI
 // Where() can be used to create a ConditionalAPI api
 type api struct {
-	cache  *cache.TableCache
-	cond   Conditional
-	logger *logr.Logger
+	cache         *cache.TableCache
+	cond          Conditional
+	logger        *logr.Logger
+	validateModel bool
 }
 
 // List populates a slice of Models given as parameter based on the configured Condition
@@ -180,24 +181,24 @@ func (a api) List(_ context.Context, result any) error {
 // Where returns a conditionalAPI based on model indexes. All provided models
 // must be the same type.
 func (a api) Where(models ...model.Model) ConditionalAPI {
-	return newConditionalAPI(a.cache, a.conditionFromModels(models), a.logger)
+	return newConditionalAPI(a.cache, a.conditionFromModels(models), a.logger, a.validateModel)
 }
 
 // WhereAny returns a conditionalAPI based on a Condition list that matches any
 // of the conditions individually
 func (a api) WhereAny(m model.Model, cond ...model.Condition) ConditionalAPI {
-	return newConditionalAPI(a.cache, a.conditionFromExplicitConditions(false, m, cond...), a.logger)
+	return newConditionalAPI(a.cache, a.conditionFromExplicitConditions(false, m, cond...), a.logger, a.validateModel)
 }
 
 // WhereAll returns a conditionalAPI based on a Condition list that matches all
 // of the conditions together
 func (a api) WhereAll(m model.Model, cond ...model.Condition) ConditionalAPI {
-	return newConditionalAPI(a.cache, a.conditionFromExplicitConditions(true, m, cond...), a.logger)
+	return newConditionalAPI(a.cache, a.conditionFromExplicitConditions(true, m, cond...), a.logger, a.validateModel)
 }
 
 // WhereCache returns a conditionalAPI based a Predicate
 func (a api) WhereCache(predicate any) ConditionalAPI {
-	return newConditionalAPI(a.cache, a.conditionFromFunc(predicate), a.logger)
+	return newConditionalAPI(a.cache, a.conditionFromFunc(predicate), a.logger, a.validateModel)
 }
 
 // Conditional interface implementation
@@ -287,9 +288,11 @@ func (a api) Create(models ...model.Model) ([]ovsdb.Operation, error) {
 	}
 
 	// Validate models before proceeding
-	for _, m := range models {
-		if err := validateModel(m); err != nil {
-			return nil, err
+	if a.validateModel {
+		for _, m := range models {
+			if err := validateModel(m); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -405,23 +408,25 @@ func (a api) Mutate(model model.Model, mutationObjs ...model.Mutation) ([]ovsdb.
 			return nil, fmt.Errorf("could not find struct field for column %s", columnName)
 		}
 
-		// Extract the validate tag
-		validateTag := structField.Tag.Get("validate")
+		if a.validateModel {
+			// Extract the validate tag
+			validateTag := structField.Tag.Get("validate")
 
-		// Validate the mutation value if a tag exists
-		if validateTag != "" {
-			err = validate.Var(mutation.Value, validateTag)
-			if err != nil {
-				if validationErrs, ok := err.(validator.ValidationErrors); ok {
-					return nil, &ValidationError{
-						ModelName:             modelNameStr,
-						FieldValidationErrors: validationErrs,
-						GeneralError:          fmt.Errorf("mutation on column '%s'", columnName),
+			// Validate the mutation value if a tag exists
+			if validateTag != "" {
+				err = validate.Var(mutation.Value, validateTag)
+				if err != nil {
+					if validationErrs, ok := err.(validator.ValidationErrors); ok {
+						return nil, &ValidationError{
+							ModelName:             modelNameStr,
+							FieldValidationErrors: validationErrs,
+							GeneralError:          fmt.Errorf("mutation on column '%s'", columnName),
+						}
 					}
-				}
-				return nil, &ValidationError{
-					ModelName:    modelNameStr,
-					GeneralError: fmt.Errorf("validation for mutation value on column '%s' failed: %w", columnName, err),
+					return nil, &ValidationError{
+						ModelName:    modelNameStr,
+						GeneralError: fmt.Errorf("validation for mutation value on column '%s' failed: %w", columnName, err),
+					}
 				}
 			}
 		}
@@ -469,8 +474,10 @@ func (a api) Update(model model.Model, fields ...any) ([]ovsdb.Operation, error)
 		return nil, fmt.Errorf("update requires a condition. Use Where() first")
 	}
 
-	if err := validateModel(model); err != nil {
-		return nil, err
+	if a.validateModel {
+		if err := validateModel(model); err != nil {
+			return nil, err
+		}
 	}
 
 	tableName, err := a.getTableFromModel(model)
@@ -684,18 +691,20 @@ func (a api) getTableFromFunc(predicate any) (string, error) {
 }
 
 // newAPI returns a new API to interact with the database
-func newAPI(cache *cache.TableCache, logger *logr.Logger) API {
+func newAPI(cache *cache.TableCache, logger *logr.Logger, validateModel bool) API {
 	return api{
-		cache:  cache,
-		logger: logger,
+		cache:         cache,
+		logger:        logger,
+		validateModel: validateModel,
 	}
 }
 
 // newConditionalAPI returns a new ConditionalAPI to interact with the database
-func newConditionalAPI(cache *cache.TableCache, cond Conditional, logger *logr.Logger) ConditionalAPI {
+func newConditionalAPI(cache *cache.TableCache, cond Conditional, logger *logr.Logger, validateModel bool) ConditionalAPI {
 	return api{
-		cache:  cache,
-		cond:   cond,
-		logger: logger,
+		cache:         cache,
+		cond:          cond,
+		logger:        logger,
+		validateModel: validateModel,
 	}
 }

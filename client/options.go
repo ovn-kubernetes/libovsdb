@@ -21,6 +21,7 @@ type options struct {
 	tlsConfig             *tls.Config
 	reconnect             bool
 	leaderOnly            bool
+	validateModel         bool
 	timeout               time.Duration
 	backoff               backoff.BackOff
 	logger                *logr.Logger
@@ -159,6 +160,14 @@ func WithMetricsRegistryNamespaceSubsystem(r prometheus.Registerer, namespace, s
 		o.shouldRegisterMetrics = (r != nil)
 		o.metricNamespace = namespace
 		o.metricSubsystem = subsystem
+		return nil
+	}
+}
+
+// WithValidateModel allows for client-side schema validation on API.Create(), API.Mutate() and API.Update()
+func WithValidateModel() Option {
+	return func(o *options) error {
+		o.validateModel = true
 		return nil
 	}
 }
