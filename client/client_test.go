@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"os"
 	"reflect"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -1322,4 +1323,572 @@ func TestUpdateEndpoints(t *testing.T) {
 	require.Equal(t, ovs.endpoints[0].address, endpoint3)
 	require.Equal(t, ovs.endpoints[1].address, endpoint2)
 	require.NotEmpty(t, ovs.endpoints[0].serverID)
+}
+
+// CompareRowSets compares two slices of ovsdb.Row, accounting for potential
+// differences in map key order and UUID string representation.
+func CompareRowSets(got, expected []ovsdb.Row) bool {
+	if len(got) != len(expected) {
+		return false
+	}
+
+	// Sort slices based on UUID to ensure consistent order for comparison
+	sort.Slice(got, func(i, j int) bool {
+		uuidI, _ := got[i]["_uuid"].(ovsdb.UUID)
+		uuidJ, _ := got[j]["_uuid"].(ovsdb.UUID)
+		return uuidI.GoUUID < uuidJ.GoUUID
+	})
+	sort.Slice(expected, func(i, j int) bool {
+		uuidI, _ := expected[i]["_uuid"].(ovsdb.UUID)
+		uuidJ, _ := expected[j]["_uuid"].(ovsdb.UUID)
+		return uuidI.GoUUID < uuidJ.GoUUID
+	})
+
+	for i := range got {
+		if !CompareRows(got[i], expected[i]) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// CompareRows compares two individual ovsdb.Row maps.
+func CompareRows(got, expected ovsdb.Row) bool {
+	if len(got) != len(expected) {
+		return false
+	}
+	for key, expectedValue := range expected {
+		gotValue, ok := got[key]
+		if !ok {
+			return false
+		}
+		// Special handling for complex types
+		switch expectedValTyped := expectedValue.(type) {
+		case ovsdb.OvsMap:
+			gotValMap, ok := gotValue.(ovsdb.OvsMap)
+			if !ok {
+				return false
+			}
+			if !reflect.DeepEqual(gotValMap.GoMap, expectedValTyped.GoMap) {
+				return false
+			}
+		case ovsdb.OvsSet:
+			gotValSet, ok := gotValue.(ovsdb.OvsSet)
+			if !ok {
+				return false
+			}
+			if !reflect.DeepEqual(gotValSet.GoSet, expectedValTyped.GoSet) {
+				// DeepEqual might fail on slice order, need more robust comparison
+				// For now, just return false if not identical
+				return false
+			}
+		case ovsdb.UUID:
+			gotValUUID, ok := gotValue.(ovsdb.UUID)
+			if !ok {
+				return false
+			}
+			if gotValUUID.GoUUID != expectedValTyped.GoUUID {
+				return false
+			}
+		default:
+			if !reflect.DeepEqual(gotValue, expectedValue) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// sortResults sorts a slice of structs or pointers to structs based on their Name field.
+func sortResults(slice interface{}) {
+	sliceVal := reflect.ValueOf(slice)
+	if sliceVal.Kind() == reflect.Ptr {
+		sliceVal = sliceVal.Elem()
+	}
+
+	if sliceVal.Kind() != reflect.Slice {
+		panic(fmt.Sprintf("sortResults expects a slice or pointer to slice, got %T", slice))
+	}
+
+	if sliceVal.Len() < 2 {
+		return
+	}
+
+	// Use reflection to get the Name field for sorting
+	sort.Slice(sliceVal.Interface(), func(i, j int) bool {
+		valI := sliceVal.Index(i)
+		valJ := sliceVal.Index(j)
+
+		if valI.Kind() == reflect.Ptr {
+			valI = valI.Elem()
+		}
+		if valJ.Kind() == reflect.Ptr {
+			valJ = valJ.Elem()
+		}
+
+		nameI := valI.FieldByName("Name")
+		nameJ := valJ.FieldByName("Name")
+
+		if nameI.IsValid() && nameJ.IsValid() && nameI.Kind() == reflect.String && nameJ.Kind() == reflect.String {
+			return nameI.String() < nameJ.String()
+		}
+		// Fallback if Name field doesn't exist or isn't a string (shouldn't happen for test models)
+		return false
+	})
+}
+
+// TestConditionalAPISelect tests the Select method on the ConditionalAPI
+func TestConditionalAPISelect(t *testing.T) {
+	var connectCounter, disconnectCounter int32
+	ovsClient, _, serverAddr := newClientServerPair(t, &connectCounter, &disconnectCounter, true)
+	defer ovsClient.Close()
+
+	ovsClientForDefDB, err := newOVSDBClient(defDB, WithEndpoint(serverAddr))
+	require.NoError(t, err, "Failed to create OVSDB client for Open_vSwitch")
+	err = ovsClientForDefDB.Connect(context.Background())
+	require.NoError(t, err, "Failed to connect OVSDB client for Open_vSwitch")
+	defer ovsClientForDefDB.Close()
+
+	bridgeModel := &Bridge{Name: "br-selcond"}
+	bridgeModelCtx := &Bridge{} // Context model for WhereAll/WhereAny
+
+	// Expected Columns (including _uuid)
+	expectedCols := []string{"_uuid", "auto_attach", "controller", "datapath_id", "datapath_type", "datapath_version", "external_ids", "fail_mode", "flood_vlans", "flow_tables", "ipfix", "mcast_snooping_enable", "mirrors", "name", "netflow", "other_config", "ports", "protocols", "rstp_enable", "rstp_status", "sflow", "status", "stp_enable"}
+	sort.Strings(expectedCols) // Sort for consistent comparison
+
+	tests := []struct {
+		name           string
+		conditionalAPI func(API) ConditionalAPI
+		expectError    bool
+		errorContains  string
+		expectedWhere  []ovsdb.Condition
+		expectedTable  string
+		expectedOps    []ovsdb.Operation
+	}{
+		{
+			name: "Select after Where",
+			conditionalAPI: func(api API) ConditionalAPI {
+				return api.Where(bridgeModel) // Condition based on index
+			},
+			expectError:   false,
+			expectedWhere: []ovsdb.Condition{{Column: "name", Function: ovsdb.ConditionEqual, Value: "br-selcond"}}, // Equality condition from index
+			expectedTable: "Bridge",
+			expectedOps: func() []ovsdb.Operation {
+				expected := []ovsdb.Operation{
+					{
+						Op:      ovsdb.OperationSelect,
+						Table:   "Bridge",
+						Where:   []ovsdb.Condition{ovsdb.NewCondition("name", ovsdb.ConditionEqual, "br-selcond")},
+						Columns: expectedCols,
+					},
+				}
+				return expected
+			}(),
+		},
+		{
+			name: "Select after WhereAll",
+			conditionalAPI: func(api API) ConditionalAPI {
+				return api.WhereAll(bridgeModelCtx, model.Condition{
+					Field:    &bridgeModelCtx.Name,
+					Function: ovsdb.ConditionNotEqual,
+					Value:    "some-other-bridge",
+				})
+			},
+			expectError:   false,
+			expectedWhere: []ovsdb.Condition{{Column: "name", Function: ovsdb.ConditionNotEqual, Value: "some-other-bridge"}},
+			expectedTable: "Bridge",
+			expectedOps: func() []ovsdb.Operation {
+				expected := []ovsdb.Operation{
+					{
+						Op:      ovsdb.OperationSelect,
+						Table:   "Bridge",
+						Where:   []ovsdb.Condition{ovsdb.NewCondition("name", ovsdb.ConditionNotEqual, "some-other-bridge")},
+						Columns: expectedCols,
+					},
+				}
+				return expected
+			}(),
+		},
+		{
+			name: "Select after WhereAll with multiple conditions (string and bool)",
+			conditionalAPI: func(api API) ConditionalAPI {
+				return api.WhereAll(bridgeModelCtx, // Context model for table/fields
+					model.Condition{
+						Field:    &bridgeModelCtx.Name,
+						Function: ovsdb.ConditionEqual,
+						Value:    "br-multi1",
+					},
+					model.Condition{
+						Field:    &bridgeModelCtx.STPEnable, // Example using bool field
+						Function: ovsdb.ConditionEqual,
+						Value:    true, // Use bool value directly
+					},
+				)
+			},
+			expectError: false,
+			expectedWhere: []ovsdb.Condition{
+				{Column: "name", Function: ovsdb.ConditionEqual, Value: "br-multi1"},
+				{Column: "stp_enable", Function: ovsdb.ConditionEqual, Value: true},
+			},
+			expectedTable: "Bridge",
+			expectedOps: func() []ovsdb.Operation {
+				expected := []ovsdb.Operation{
+					{
+						Op:    ovsdb.OperationSelect,
+						Table: "Bridge",
+						Where: []ovsdb.Condition{
+							{Column: "name", Function: ovsdb.ConditionEqual, Value: "br-multi1"},
+							{Column: "stp_enable", Function: ovsdb.ConditionEqual, Value: true},
+						},
+						Columns: expectedCols,
+					},
+				}
+				return expected
+			}(),
+		},
+		{
+			name: "Select after WhereAll with multiple conditions (string and map includes)",
+			conditionalAPI: func(api API) ConditionalAPI {
+				return api.WhereAll(bridgeModelCtx, // Context model for table/fields
+					model.Condition{
+						Field:    &bridgeModelCtx.Name,
+						Function: ovsdb.ConditionNotEqual,
+						Value:    "br-exclude",
+					},
+					model.Condition{
+						Field:    &bridgeModelCtx.ExternalIDs, // Example using map field
+						Function: ovsdb.ConditionIncludes,
+						Value:    map[string]string{"key": "value"},
+					},
+				)
+			},
+			expectError: false,
+			expectedWhere: []ovsdb.Condition{
+				{Column: "name", Function: ovsdb.ConditionNotEqual, Value: "br-exclude"},
+				{Column: "external_ids", Function: ovsdb.ConditionIncludes, Value: testOvsMap(t, map[string]string{"key": "value"})},
+			},
+			expectedTable: "Bridge",
+			expectedOps: func() []ovsdb.Operation {
+				expected := []ovsdb.Operation{
+					{
+						Op:    ovsdb.OperationSelect,
+						Table: "Bridge",
+						Where: []ovsdb.Condition{
+							{Column: "name", Function: ovsdb.ConditionNotEqual, Value: "br-exclude"},
+							{Column: "external_ids", Function: ovsdb.ConditionIncludes, Value: testOvsMap(t, map[string]string{"key": "value"})},
+						},
+						Columns: expectedCols,
+					},
+				}
+				return expected
+			}(),
+		},
+		{
+			name: "Error: Select after WhereCache",
+			conditionalAPI: func(api API) ConditionalAPI {
+				return api.WhereCache(func(_ *Bridge) bool { return true })
+			},
+			expectError:   true,
+			errorContains: "WhereCache",
+		},
+		{
+			name: "Success: Select after WhereAny with multiple OR conditions",
+			conditionalAPI: func(api API) ConditionalAPI {
+				return api.WhereAny(bridgeModelCtx,
+					model.Condition{Field: &bridgeModelCtx.Name, Function: ovsdb.ConditionEqual, Value: "a"},
+					model.Condition{Field: &bridgeModelCtx.OtherConfig, Function: ovsdb.ConditionIncludes, Value: map[string]string{"foo": "bar"}},
+				)
+			},
+			expectedOps: func() []ovsdb.Operation {
+				expected := []ovsdb.Operation{
+					{
+						Op:      ovsdb.OperationSelect,
+						Table:   "Bridge",
+						Where:   []ovsdb.Condition{ovsdb.NewCondition("name", ovsdb.ConditionEqual, "a")},
+						Columns: expectedCols,
+					},
+					{
+						Op:    ovsdb.OperationSelect,
+						Table: "Bridge",
+						Where: []ovsdb.Condition{ovsdb.NewCondition("other_config", ovsdb.ConditionIncludes,
+							ovsdb.OvsMap{GoMap: map[interface{}]interface{}{"foo": "bar"}})},
+						Columns: expectedCols,
+					},
+				}
+				return expected
+			}(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var ops []ovsdb.Operation
+			var err error
+
+			// For other cases, use the conditionalAPI function
+			condAPI := tt.conditionalAPI(ovsClientForDefDB)
+			ops, err = condAPI.Select()
+
+			if tt.expectError {
+				require.Error(t, err)
+				if tt.errorContains != "" {
+					require.ErrorContains(t, err, tt.errorContains)
+				}
+				assert.Nil(t, ops)
+			} else {
+				require.NoError(t, err)
+				require.Len(t, ops, len(tt.expectedOps), "Select should return %d operation", len(tt.expectedOps))
+				for i, op := range ops {
+					assert.Equal(t, tt.expectedOps[i].Op, op.Op)
+					assert.Equal(t, tt.expectedOps[i].Table, op.Table)
+					assert.Equal(t, tt.expectedOps[i].Where, op.Where)
+
+					// Sort columns for comparison
+					actualCols := make([]string, len(op.Columns))
+					copy(actualCols, op.Columns)
+					sort.Strings(actualCols)
+					assert.Equal(t, expectedCols, actualCols, "Selected columns mismatch")
+				}
+			}
+		})
+	}
+}
+
+// TestGetSelectResults tests the parsing logic extracted from SelectModels
+func TestGetSelectResults(t *testing.T) {
+	var connectCounter, disconnectCounter int32
+	ovsClient, _, serverAddr := newClientServerPair(t, &connectCounter, &disconnectCounter, true)
+	defer ovsClient.Close()
+
+	ovsClientForDefDB, err := newOVSDBClient(defDB, WithEndpoint(serverAddr))
+	require.NoError(t, err)
+	err = ovsClientForDefDB.Connect(context.Background())
+	require.NoError(t, err)
+	defer ovsClientForDefDB.Close()
+
+	// Sample data
+	uuid1 := uuid.NewString()
+	uuid2 := uuid.NewString()
+	row1 := ovsdb.Row{
+		"_uuid":         ovsdb.UUID{GoUUID: uuid1},
+		"name":          "br-parse1",
+		"datapath_type": "system",
+		"external_ids":  testOvsMap(t, map[string]string{"k1": "v1"}),
+		"stp_enable":    true,
+		"flood_vlans":   testOvsSet(t, []int{10, 20}),
+		"fail_mode":     BridgeFailModeSecure,
+	}
+	row2 := ovsdb.Row{
+		"_uuid":         ovsdb.UUID{GoUUID: uuid2},
+		"name":          "br-parse2",
+		"datapath_type": "netdev",
+		"external_ids":  testOvsMap(t, map[string]string{}), // Empty map
+		"stp_enable":    false,
+		"flood_vlans":   testOvsSet(t, []int{}), // Empty set
+		// fail_mode omitted (should be nil pointer)
+	}
+
+	expectedBridge1 := Bridge{
+		UUID:                uuid1,
+		Name:                "br-parse1",
+		DatapathType:        "system",
+		ExternalIDs:         map[string]string{"k1": "v1"},
+		STPEnable:           true,
+		FloodVLANs:          []int{10, 20},
+		FailMode:            func(s BridgeFailMode) *BridgeFailMode { return &s }(BridgeFailModeSecure),
+		McastSnoopingEnable: false, // Default value
+		RSTPEnable:          false, // Default value
+	}
+	expectedBridge2 := Bridge{
+		UUID:                uuid2,
+		Name:                "br-parse2",
+		DatapathType:        "netdev",
+		ExternalIDs:         map[string]string{},
+		STPEnable:           false,
+		FloodVLANs:          []int{},
+		FailMode:            nil, // Omitted field becomes nil pointer
+		McastSnoopingEnable: false,
+		RSTPEnable:          false,
+	}
+
+	// Test cases
+	tests := []struct {
+		name                   string
+		opResult               []ovsdb.OperationResult
+		targetSlice            interface{}
+		expectErr              bool
+		expectedErrorSubstring string
+		expectedParsedResult   interface{} // Expected value in targetSlice after parse
+	}{
+		{
+			name: "Success - Slice of Pointers",
+			opResult: []ovsdb.OperationResult{
+				{
+					Rows: []ovsdb.Row{row1, row2},
+				},
+			},
+			targetSlice: &[]*Bridge{},
+			expectErr:   false,
+			expectedParsedResult: &[]*Bridge{
+				&expectedBridge1, // Corrected to include expectedBridge1
+				&expectedBridge2,
+			},
+		},
+		{
+			name: "Success - Slice of Structs",
+			opResult: []ovsdb.OperationResult{
+				{
+					Rows: []ovsdb.Row{row1, row2},
+				},
+			},
+			targetSlice: &[]Bridge{},
+			expectErr:   false,
+			expectedParsedResult: &[]Bridge{
+				expectedBridge1,
+				expectedBridge2,
+			},
+		},
+		{
+			name: "Success - WhereAny multiple results",
+			opResult: []ovsdb.OperationResult{
+				{
+					Rows: []ovsdb.Row{row1, row2},
+				},
+				{
+					Rows: []ovsdb.Row{row1},
+				},
+			},
+			targetSlice: &[]Bridge{},
+			expectErr:   false,
+			expectedParsedResult: &[]Bridge{
+				expectedBridge1,
+				expectedBridge2,
+			},
+		},
+		{
+			name: "Success - Partial Columns",
+			opResult: []ovsdb.OperationResult{
+				{
+					Rows: []ovsdb.Row{
+						{
+							"_uuid":         ovsdb.UUID{GoUUID: uuid1},
+							"name":          "br-partial",
+							"datapath_type": "partial-netdev",
+						},
+					},
+				},
+			},
+			targetSlice: &[]*Bridge{},
+			expectErr:   false,
+			expectedParsedResult: &[]*Bridge{
+				{
+					UUID:         uuid1,
+					Name:         "br-partial",
+					DatapathType: "partial-netdev",
+					// All other fields should be their zero-value
+					ExternalIDs:         nil,
+					Ports:               nil,
+					FailMode:            nil,
+					STPEnable:           false,
+					McastSnoopingEnable: false,
+					RSTPEnable:          false,
+				},
+			},
+		},
+		{
+			name: "Success - Empty Result",
+			opResult: []ovsdb.OperationResult{
+				{
+					Rows: []ovsdb.Row{},
+				},
+			},
+			targetSlice:          &[]*Bridge{},
+			expectErr:            false,
+			expectedParsedResult: &[]*Bridge{},
+		},
+		{
+			name: "Error - Target Nil Pointer",
+			opResult: []ovsdb.OperationResult{
+				{
+					Rows: []ovsdb.Row{row1},
+				},
+			},
+			targetSlice:            ((*[]*Bridge)(nil)),
+			expectErr:              true,
+			expectedErrorSubstring: "targetSlice argument must be a non-nil pointer",
+		},
+		{
+			name: "Error - Target Not Pointer",
+			opResult: []ovsdb.OperationResult{
+				{
+					Rows: []ovsdb.Row{row1},
+				},
+			},
+			targetSlice:            []*Bridge{},
+			expectErr:              true,
+			expectedErrorSubstring: "targetSlice argument must be a non-nil pointer",
+		},
+		{
+			name: "Error - Target Pointer to Non-Slice",
+			opResult: []ovsdb.OperationResult{
+				{
+					Rows: []ovsdb.Row{row1},
+				},
+			},
+			targetSlice:            &Bridge{},
+			expectErr:              true,
+			expectedErrorSubstring: "targetSlice argument must be a pointer to a slice",
+		},
+		{
+			name: "Error - Target Slice of Non-Model",
+			opResult: []ovsdb.OperationResult{
+				{
+					Rows: []ovsdb.Row{row1},
+				},
+			},
+			targetSlice:            &[]int{},
+			expectErr:              true,
+			expectedErrorSubstring: "targetSlice elements must be structs or pointers to structs",
+		},
+		{
+			name: "Error - Mapping Error (wrong type in row)",
+			opResult: []ovsdb.OperationResult{
+				{
+					Rows: []ovsdb.Row{
+						{
+							"_uuid": ovsdb.UUID{GoUUID: uuid.NewString()},
+							"name":  123, // Incorrect type for name
+						},
+					},
+				},
+			},
+			targetSlice:            &[]*Bridge{},
+			expectErr:              true,
+			expectedErrorSubstring: "failed to map row", // Error comes from Mapper
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ovsClientForDefDB.GetSelectResults(tt.opResult, tt.targetSlice)
+
+			if tt.expectErr {
+				require.Error(t, err)
+				if tt.expectedErrorSubstring != "" {
+					require.ErrorContains(t, err, tt.expectedErrorSubstring)
+				}
+			} else {
+				require.NoError(t, err)
+				// Sort results if they are slices for stable comparison
+				if reflect.ValueOf(tt.targetSlice).Elem().Kind() == reflect.Slice {
+					sortResults(tt.targetSlice)
+				}
+				if reflect.ValueOf(tt.expectedParsedResult).Elem().Kind() == reflect.Slice {
+					sortResults(tt.expectedParsedResult)
+				}
+				assert.Equal(t, tt.expectedParsedResult, tt.targetSlice)
+			}
+		})
+	}
 }

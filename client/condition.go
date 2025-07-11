@@ -64,6 +64,9 @@ type equalityConditional struct {
 	tableName string
 	models    []model.Model
 	cache     *cache.TableCache
+	// isSelectAll is true if this condition was created via Where(&Model{}),
+	// indicating it should generate an empty condition set for Select().
+	isSelectAll bool
 }
 
 func (c *equalityConditional) Table() string {
@@ -85,6 +88,11 @@ func (c *equalityConditional) Matches() (map[string]model.Model, error) {
 // based on the UUID of the found model. Otherwise, the conditions will be based
 // on the index.
 func (c *equalityConditional) Generate() ([][]ovsdb.Condition, error) {
+	// If this conditional was specifically marked for select-all, return empty conditions
+	if c.isSelectAll {
+		return [][]ovsdb.Condition{}, nil
+	}
+
 	models, err := c.Matches()
 	if err != nil && err != ErrNotFound {
 		return nil, err
@@ -103,11 +111,12 @@ func (c *equalityConditional) Generate() ([][]ovsdb.Condition, error) {
 }
 
 // NewEqualityCondition creates a new equalityConditional
-func newEqualityConditional(table string, cache *cache.TableCache, models []model.Model) (Conditional, error) {
+func newEqualityConditional(table string, cache *cache.TableCache, models []model.Model, isSelectAll bool) (Conditional, error) {
 	return &equalityConditional{
-		tableName: table,
-		models:    models,
-		cache:     cache,
+		tableName:   table,
+		models:      models,
+		cache:       cache,
+		isSelectAll: isSelectAll,
 	}, nil
 }
 
@@ -115,7 +124,10 @@ func newEqualityConditional(table string, cache *cache.TableCache, models []mode
 type explicitConditional struct {
 	tableName     string
 	anyConditions [][]ovsdb.Condition
-	cache         *cache.TableCache
+	// matchAll is true if all conditions must match (AND, from WhereAll),
+	// false if any condition can match (OR, from WhereAny).
+	matchAll bool
+	cache    *cache.TableCache
 }
 
 func (c *explicitConditional) Table() string {
@@ -168,6 +180,7 @@ func newExplicitConditional(table string, cache *cache.TableCache, matchAll bool
 	return &explicitConditional{
 		tableName:     table,
 		anyConditions: anyConditions,
+		matchAll:      matchAll,
 		cache:         cache,
 	}, nil
 }
