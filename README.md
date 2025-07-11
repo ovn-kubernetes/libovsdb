@@ -36,11 +36,15 @@ A Open vSwitch Database is modeled using a ClientDBModel which is a created by a
     dbModelReq, _ := model.NewClientDBModel("OVN_Northbound", map[string]model.Model{
                 "Logical_Switch": &MyLogicalSwitch{},
     })
+    
+You can create a client object with options such as the endpoint:
 
-Finally, a client object can be created:
+    ovs, _ := client.NewOVSDBClient(*dbModelReq, client.WithEndpoint("tcp:172.18.0.4:6641"))
 
-    ovs, _ := client.Connect(context.Background(), dbModelReq, client.WithEndpoint("tcp:172.18.0.4:6641"))
-    client.MonitorAll(nil) // Only needed if you want to use the built-in cache
+Finally, the client must be connected before use:
+
+    ovs.Connect(context.Background())
+    ovs.MonitorAll(context.Background()) // Only needed if you want to use the built-in cache
 
 Once the client object is created, a generic API can be used to interact with the Database. Some API calls can be performed on the generic API: `List`, `Get`, `Create`.
 
