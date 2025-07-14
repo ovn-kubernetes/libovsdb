@@ -1918,8 +1918,6 @@ func BenchmarkAPICreate(b *testing.B) {
 
 	for _, tc := range testCases {
 		b.Run(tc.name, func(b *testing.B) {
-			b.ReportAllocs()
-			b.ResetTimer()
 			api := newAPI(tcache, &discardLogger, tc.validateModel)
 			for i := 0; i < b.N; i++ {
 				bridgeToCreate := tc.bridgeFactory()
@@ -2425,8 +2423,8 @@ func TestAPIValidationMutate(t *testing.T) {
 				// Attempt to insert into Name (string) - fundamentally wrong mutation, but should hit immutable check first.
 				{Field: &initialBridge.Name, Mutator: ovsdb.MutateOperationInsert, Value: "should-fail-immutable"},
 			},
-			expectedError:     "unable to update field name of table Bridge as it is not mutable",
-			isValidationError: true, // Now wrapped in ValidationError
+			expectedError:     "column is not mutable",
+			isValidationError: false, // not wrapped in ValidationError
 		},
 		{
 			name: "insert invalid Protocol value",
@@ -2478,13 +2476,13 @@ func TestAPIValidationMutate(t *testing.T) {
 
 			if tc.expectedError != "" {
 				require.Error(t, err, "Expected an error for test case: %s", tc.name)
-				var validationErr *ValidationError
-				// All errors should now be ValidationError
-				if assert.ErrorAs(t, err, &validationErr, "Error should be a ValidationError for: %s", tc.name) {
-					// Check if the error message contains the expected substring
-					assert.Contains(t, validationErr.Error(), tc.expectedError, "ValidationError message mismatch for: %s. New error: %s", tc.name, validationErr.Error())
+				if tc.isValidationError {
+					var validationErr *ValidationError
+					if assert.ErrorAs(t, err, &validationErr, "Error should be a ValidationError for: %s", tc.name) {
+						// Check if the error message contains the expected substring
+						assert.Contains(t, validationErr.Error(), tc.expectedError, "ValidationError message mismatch for: %s. New error: %s", tc.name, validationErr.Error())
+					}
 				} else {
-					// This branch should rarely if ever be taken now
 					assert.Contains(t, err.Error(), tc.expectedError, "Error message mismatch for: %s", tc.name)
 				}
 				assert.Nil(t, ops, "Operations should be nil on error for: %s", tc.name)

@@ -164,7 +164,11 @@ func WithMetricsRegistryNamespaceSubsystem(r prometheus.Registerer, namespace, s
 	}
 }
 
-// WithValidateModel allows for client-side schema validation on API.Create(), API.Mutate() and API.Update()
+// WithValidateModel allows for client-side tag-based schema validation on API.Create(), API.Mutate() and API.Update()
+// including following constraints
+// - Integer/Real Ranges: Checks if a number is within the defined minInteger/maxInteger or minReal/maxReal bounds.
+// - Length/Size Constraints: Verifies that strings, sets, and maps adhere to minLength and maxLength requirements.
+// - Enumerations: Ensures that a value is one of the predefined choices in a schema enum.
 func WithValidateModel() Option {
 	return func(o *options) error {
 		o.validateModel = true

@@ -5,7 +5,10 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/ovn-kubernetes/libovsdb/mapper"
+
 	"github.com/go-playground/validator/v10"
+	"github.com/ovn-kubernetes/libovsdb/model"
 )
 
 // global validator instance
@@ -120,4 +123,52 @@ func (e *ValidationError) Unwrap() error {
 		return e.FieldValidationErrors
 	}
 	return e.GeneralError
+}
+
+// validateMutations performs validation on a given slice of mutations.
+func validateMutations(model model.Model, info *mapper.Info, mutations ...model.Mutation) error {
+	modelType := reflect.TypeOf(model).Elem()
+	modelNameStr := modelType.String()
+
+	for _, mutation := range mutations {
+		columnName, err := info.ColumnByPtr(mutation.Field)
+		if err != nil {
+			return fmt.Errorf("could not get column for mutation field: %w", err)
+		}
+		// Find the struct field corresponding to the column name
+		var structField reflect.StructField
+		var found bool
+		for i := 0; i < modelType.NumField(); i++ {
+			if modelType.Field(i).Tag.Get("ovsdb") == columnName {
+				structField = modelType.Field(i)
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("could not find struct field for column %s", columnName)
+		}
+
+		// Extract the validate tag
+		validateTag := structField.Tag.Get("validate")
+
+		// Validate the mutation value if a tag exists
+		if validateTag != "" {
+			err = validate.Var(mutation.Value, validateTag)
+			if err != nil {
+				if validationErrs, ok := err.(validator.ValidationErrors); ok {
+					return &ValidationError{
+						ModelName:             modelNameStr,
+						FieldValidationErrors: validationErrs,
+						GeneralError:          fmt.Errorf("mutation on column '%s'", columnName),
+					}
+				}
+				return &ValidationError{
+					ModelName:    modelNameStr,
+					GeneralError: fmt.Errorf("validation for mutation value on column '%s' failed: %w", columnName, err),
+				}
+			}
+		}
+	}
+	return nil
 }
