@@ -521,7 +521,7 @@ func getMapValidations(schema *ovsdb.ColumnSchema) []string {
 	if schema.TypeObj.Value != nil {
 		valueAtomValidations := getAtomicValidations(schema.TypeObj.Value)
 		if len(valueAtomValidations) > 0 {
-			diveValidations = append(diveValidations, "values")
+			diveValidations = append(diveValidations, "endkeys")
 			diveValidations = append(diveValidations, valueAtomValidations...)
 		}
 	}

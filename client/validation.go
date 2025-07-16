@@ -1,6 +1,7 @@
 package client
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -12,6 +13,7 @@ import (
 )
 
 // global validator instance
+// Validator is designed to be thread-safe and used as a singleton instance. https://pkg.go.dev/github.com/go-playground/validator/v10#hdr-Singleton
 var validate *validator.Validate
 
 func init() {
@@ -20,80 +22,20 @@ func init() {
 	// e.g., validate.RegisterValidation("custom_tag", customValidationFunc)
 }
 
-// validateModel performs validation on a given model struct using its tags.
-func validateModel(m interface{}) error {
-	if m == nil {
-		return fmt.Errorf("model cannot be nil")
-	}
-
-	value := reflect.ValueOf(m)
-	modelType := value.Type()
-
-	actualStructValue := value
-	modelNameStr := ""
-
-	if modelType.Kind() == reflect.Ptr {
-		if value.IsNil() {
-			// Get underlying struct name for the error message if it's a pointer type
-			if modelType.Elem().Kind() == reflect.Struct {
-				modelNameStr = modelType.Elem().String()
-			} else {
-				modelNameStr = modelType.String() // Fallback to pointer type string
-			}
-			// Let validator.Struct handle this. It will return an error (e.g. UnsupportedTypeError).
-			err := validate.Struct(m) // m is a nil pointer
-			return &ValidationError{ModelName: modelNameStr, GeneralError: fmt.Errorf("validation attempt on nil model: %w", err)}
-		}
-		actualStructValue = value.Elem()
-	}
-
-	if actualStructValue.Kind() != reflect.Struct {
-		// Should not happen if m implements model.Model, but good practice to check
-		return fmt.Errorf("model must be a struct or a pointer to a struct, got %T", m)
-	}
-	modelNameStr = actualStructValue.Type().String() // e.g. "MyStruct"
-
-	// Perform the validation
-	err := validate.Struct(m) // Pass the original m, validator handles pointer vs struct
-	if err != nil {
-		if validationErrs, ok := err.(validator.ValidationErrors); ok {
-			return &ValidationError{ModelName: modelNameStr, FieldValidationErrors: validationErrs}
-		}
-		// For other types of errors from validate.Struct (e.g., unsupported type if m was nil pointer and validator handled it differently)
-		return &ValidationError{ModelName: modelNameStr, GeneralError: fmt.Errorf("validation system error: %w", err)}
-	}
-	return nil
-}
-
-// ValidationError is an error type representing model validation failures.
-type ValidationError struct {
-	// ModelName is the type name of the model that failed validation.
-	ModelName string
-	// FieldValidationErrors contains the specific validation errors from the validator.
-	// This can be nil if the error is more general.
-	FieldValidationErrors validator.ValidationErrors
-	// GeneralError provides additional context or a general validation message,
-	// especially if FieldValidationErrors is not available or doesn't cover the whole story.
-	GeneralError error
-}
-
-// Error implements the error interface, providing a human-readable representation of the validation error.
-func (e *ValidationError) Error() string {
+// formatValidationErrors formats validator.ValidationErrors into a detailed human-readable string
+func formatValidationErrors(modelName string, context string, validationErrs validator.ValidationErrors) string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("validation error for model %s", e.ModelName))
+	sb.WriteString(fmt.Sprintf("validation error for model %s", modelName))
 
-	// Append context from GeneralError, if any (e.g., "mutation on column X")
-	if e.GeneralError != nil && e.GeneralError.Error() != "" {
-		sb.WriteString(fmt.Sprintf(": %s", e.GeneralError.Error()))
+	// Append context if provided (e.g., "mutation on column X")
+	if context != "" {
+		sb.WriteString(fmt.Sprintf(": %s", context))
 	}
 
-	if e.FieldValidationErrors != nil {
-		if sb.Len() > 0 && !strings.HasSuffix(sb.String(), ": ") && !strings.HasSuffix(sb.String(), "; ") {
-			sb.WriteString("; ")
-		}
-		sb.WriteString("details: [")
+	if len(validationErrs) > 0 {
+		sb.WriteString("; details: [")
 		var fieldErrorMessages []string
-		for _, fe := range e.FieldValidationErrors {
+		for _, fe := range validationErrs {
 			targetField := fe.Namespace() // e.g., "Model.Field" or "Model.Nested.Field"
 			// For validate.Var on simple type, Namespace might be empty.
 			if targetField == "" {
@@ -115,14 +57,25 @@ func (e *ValidationError) Error() string {
 	return sb.String()
 }
 
-// Unwrap provides compatibility for errors.Is and errors.As.
-// It allows checking against the wrapped FieldValidationErrors or GeneralError.
-func (e *ValidationError) Unwrap() error {
-	if e.FieldValidationErrors != nil {
-		// validator.ValidationErrors itself implements error
-		return e.FieldValidationErrors
+// validateModel performs validation on a given model struct using its tags.
+func validateModel(m model.Model) error {
+	if m == nil {
+		return fmt.Errorf("model cannot be nil")
 	}
-	return e.GeneralError
+
+	// Perform the validation
+	err := validate.Struct(m)
+	if err != nil {
+		modelType := reflect.TypeOf(m).Elem()
+		modelNameStr := modelType.String()
+		var validationErrs validator.ValidationErrors
+		if errors.As(err, &validationErrs) {
+			formattedErr := formatValidationErrors(modelNameStr, "", validationErrs)
+			return fmt.Errorf("model validation failed: %s: %w", formattedErr, validationErrs)
+		}
+		return fmt.Errorf("error while validating model of type %s: %w", modelNameStr, err)
+	}
+	return nil
 }
 
 // validateMutations performs validation on a given slice of mutations.
@@ -156,17 +109,13 @@ func validateMutations(model model.Model, info *mapper.Info, mutations ...model.
 		if validateTag != "" {
 			err = validate.Var(mutation.Value, validateTag)
 			if err != nil {
-				if validationErrs, ok := err.(validator.ValidationErrors); ok {
-					return &ValidationError{
-						ModelName:             modelNameStr,
-						FieldValidationErrors: validationErrs,
-						GeneralError:          fmt.Errorf("mutation on column '%s'", columnName),
-					}
+				var validationErrs validator.ValidationErrors
+				if errors.As(err, &validationErrs) {
+					context := fmt.Sprintf("mutation on column %s", columnName)
+					formattedErr := formatValidationErrors(modelNameStr, context, validationErrs)
+					return fmt.Errorf("mutation validation failed: %s: %w", formattedErr, validationErrs)
 				}
-				return &ValidationError{
-					ModelName:    modelNameStr,
-					GeneralError: fmt.Errorf("validation for mutation value on column '%s' failed: %w", columnName, err),
-				}
+				return fmt.Errorf("error while validating mutation for model of type %s on column %s: %w", modelNameStr, columnName, err)
 			}
 		}
 	}

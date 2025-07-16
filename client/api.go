@@ -285,15 +285,6 @@ func (a api) Create(models ...model.Model) ([]ovsdb.Operation, error) {
 		return nil, nil
 	}
 
-	// Validate models before proceeding
-	if a.validateModel {
-		for _, m := range models {
-			if err := validateModel(m); err != nil {
-				return nil, err
-			}
-		}
-	}
-
 	var operations []ovsdb.Operation
 	var tableName string
 	var err error
@@ -305,6 +296,11 @@ func (a api) Create(models ...model.Model) ([]ovsdb.Operation, error) {
 		currentTable, err = a.getTableFromModel(m)
 		if err != nil {
 			return nil, err
+		}
+		if a.validateModel {
+			if err := validateModel(m); err != nil {
+				return nil, err
+			}
 		}
 
 		if tableName == "" {
@@ -337,10 +333,8 @@ func (a api) Create(models ...model.Model) ([]ovsdb.Operation, error) {
 			return nil, err
 		}
 
-		// If a named UUID was found, remove the _uuid field from the row data
-		if namedUUID != "" {
-			delete(row, "_uuid")
-		}
+		// UUID is given in the operation, not the object
+		delete(row, "_uuid")
 
 		op := ovsdb.Operation{
 			Op:       ovsdb.OperationInsert,
@@ -356,9 +350,6 @@ func (a api) Create(models ...model.Model) ([]ovsdb.Operation, error) {
 
 // Mutate returns the operations needed to transform the one Model into another one
 func (a api) Mutate(model model.Model, mutationObjs ...model.Mutation) ([]ovsdb.Operation, error) {
-	if a.cond == nil {
-		return nil, fmt.Errorf("mutate requires a condition. Use WhereXXX() first")
-	}
 	if len(mutationObjs) < 1 {
 		return nil, fmt.Errorf("at least one Mutation must be provided")
 	}
@@ -422,19 +413,15 @@ func (a api) Mutate(model model.Model, mutationObjs ...model.Mutation) ([]ovsdb.
 // Additional fields can be passed (variadic opts) to indicate fields to be updated
 // All immutable fields will be ignored
 func (a api) Update(model model.Model, fields ...any) ([]ovsdb.Operation, error) {
-	if a.cond == nil {
-		return nil, fmt.Errorf("update requires a condition. Use WhereXXX() first")
+	tableName, err := a.getTableFromModel(model)
+	if err != nil {
+		return nil, err
 	}
 
 	if a.validateModel {
 		if err := validateModel(model); err != nil {
 			return nil, err
 		}
-	}
-
-	tableName, err := a.getTableFromModel(model)
-	if err != nil {
-		return nil, err
 	}
 
 	tableSchema := a.cache.DatabaseModel().Schema.Table(tableName)
@@ -450,12 +437,7 @@ func (a api) Update(model model.Model, fields ...any) ([]ovsdb.Operation, error)
 				return nil, err
 			}
 			if !tableSchema.Columns[colName].Mutable() {
-				modelType := reflect.TypeOf(model).Elem()
-				modelNameStr := modelType.String()
-				return nil, &ValidationError{
-					ModelName:    modelNameStr,
-					GeneralError: fmt.Errorf("unable to update field %s of table %s as it is not mutable", colName, tableName),
-				}
+				return nil, fmt.Errorf("unable to update field %s of table %s as it is not mutable", colName, tableName)
 			}
 		}
 	}
@@ -481,12 +463,7 @@ func (a api) Update(model model.Model, fields ...any) ([]ovsdb.Operation, error)
 
 	// Check if the row is empty after removing immutable fields
 	if len(row) == 0 {
-		modelType := reflect.TypeOf(model).Elem()
-		modelNameStr := modelType.String()
-		return nil, &ValidationError{
-			ModelName:    modelNameStr,
-			GeneralError: fmt.Errorf("attempted to update using an empty row. please check that all fields you wish to update are mutable"),
-		}
+		return nil, fmt.Errorf("attempted to update using an empty row. please check that all fields you wish to update are mutable")
 	}
 
 	conditions, err := a.cond.Generate()

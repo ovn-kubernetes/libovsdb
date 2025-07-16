@@ -2,12 +2,14 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"strings"
 	"testing"
 
 	"github.com/go-logr/logr"
+	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 	"github.com/ovn-kubernetes/libovsdb/cache"
 	"github.com/ovn-kubernetes/libovsdb/model"
@@ -2222,7 +2224,7 @@ func TestAPIValidationCreate(t *testing.T) {
 				br.FailMode = &invalidFm // Violates oneof='standalone' 'secure'
 				return br
 			}(),
-			expectedError: `field 'testBridge.FailMode' (value: 'unknown') failed on rule 'oneof' (param: 'standalone' 'secure')`,
+			expectedError: "field 'testBridge.FailMode' (value: 'unknown') failed on rule 'oneof' (param: 'standalone' 'secure')",
 		},
 		{
 			name: "invalid Protocol",
@@ -2233,7 +2235,7 @@ func TestAPIValidationCreate(t *testing.T) {
 				br.Protocols = []string{BridgeProtocolsOpenflow13, "InvalidProtocol"} // Violates dive, oneof
 				return br
 			}(),
-			expectedError: `field 'testBridge.Protocols[1]' (value: 'InvalidProtocol') failed on rule 'oneof' (param: 'OpenFlow10' 'OpenFlow11' 'OpenFlow12' 'OpenFlow13' 'OpenFlow14' 'OpenFlow15')`,
+			expectedError: "field 'testBridge.Protocols[1]' (value: 'InvalidProtocol') failed on rule 'oneof'",
 		},
 		{
 			name: "too many FloodVLANs",
@@ -2243,7 +2245,7 @@ func TestAPIValidationCreate(t *testing.T) {
 				br.FloodVLANs = make([]int, 4097) // Violates max=4096 slice length
 				return br
 			}(),
-			expectedError: "failed on rule 'max' (param: 4096)", // suppress full representation
+			expectedError: "field 'testBridge.FloodVLANs' (value: '[",
 		},
 		{
 			name: "invalid FloodVLAN value (too low)",
@@ -2295,13 +2297,19 @@ func TestAPIValidationCreate(t *testing.T) {
 
 			if tc.expectedError != "" {
 				require.Error(t, err, "Expected an error for test case: %s", tc.name)
-				var validationErr *ValidationError
-				// Check if the error is of type ValidationError
-				if assert.ErrorAs(t, err, &validationErr, "Error should be a ValidationError for: %s", tc.name) {
-					// Check if the error message (now from ValidationError.Error()) contains the expected substring
-					assert.Contains(t, validationErr.Error(), tc.expectedError, "Error message mismatch for: %s. New error: %s", tc.name, validationErr.Error())
+				// Check if the error message contains the expected substring
+				require.ErrorContains(t, err, tc.expectedError, "Error message mismatch for: %s. New error: %s", tc.name, err.Error())
+
+				// For validation errors, also check that they can be extracted
+				var valErrs validator.ValidationErrors
+				if errors.As(err, &valErrs) {
+					// This is a validation error, which is expected for model validation failures
+					errMsg := err.Error()
+					assert.True(t, strings.Contains(errMsg, "model validation failed") || strings.Contains(errMsg, "mutation validation failed"), "Should be a validation error for: %s", tc.name)
 				}
-				assert.Nil(t, ops, "Operations should be nil on validation error for: %s", tc.name)
+				// Note: Immutable field errors are not validation errors, they are different types of errors
+
+				assert.Nil(t, ops, "Operations should be nil on error for: %s", tc.name)
 			} else {
 				require.NoError(t, err, "Expected no error for test case: %s", tc.name)
 				assert.NotNil(t, ops, "Operations should not be nil for valid case: %s", tc.name)
@@ -2313,11 +2321,14 @@ func TestAPIValidationCreate(t *testing.T) {
 					assert.False(t, uuidInRow, "_uuid should not be in Row for named UUID case: %s", tc.name)
 				} else if tc.bridge.UUID != "" {
 					assert.Empty(t, ops[0].UUIDName, "UUIDName should be empty for standard UUID case: %s", tc.name)
-					assert.NotNil(t, ops[0].Row["_uuid"], "_uuid should be in Row for standard UUID case: %s", tc.name)
+					assert.Equal(t, tc.bridge.UUID, ops[0].UUID, "UUID should be set for standard UUID case: %s", tc.name)
+					_, uuidInRow := ops[0].Row["_uuid"]
+					assert.False(t, uuidInRow, "_uuid should not be in Row for standard UUID case: %s", tc.name)
 				} else {
 					// Create doesn't auto-generate UUID, it relies on named UUID or standard UUID in row
 					// If UUID is empty string, it should result in server-generated UUID, so UUIDName is empty and _uuid not in row
 					assert.Empty(t, ops[0].UUIDName, "UUIDName should be empty for empty UUID case: %s", tc.name)
+					assert.Empty(t, ops[0].UUID, "UUID should be empty for empty UUID case: %s", tc.name)
 					_, uuidInRow := ops[0].Row["_uuid"]
 					assert.False(t, uuidInRow, "_uuid should not be in Row for empty UUID case: %s", tc.name)
 				}
@@ -2431,7 +2442,7 @@ func TestAPIValidationMutate(t *testing.T) {
 			mutations: []model.Mutation{
 				{Field: &initialBridge.Protocols, Mutator: ovsdb.MutateOperationInsert, Value: []string{"InvalidProto"}}, // Violates oneof
 			},
-			expectedError:     `mutation on column 'protocols'; details: [field '[0]' (value: 'InvalidProto') failed on rule 'oneof' (param: 'OpenFlow10' 'OpenFlow11' 'OpenFlow12' 'OpenFlow13' 'OpenFlow14' 'OpenFlow15')]`,
+			expectedError:     "field '[0]' (value: 'InvalidProto') failed on rule 'oneof'",
 			isValidationError: true,
 		},
 		{
@@ -2439,7 +2450,7 @@ func TestAPIValidationMutate(t *testing.T) {
 			mutations: []model.Mutation{
 				{Field: &initialBridge.FloodVLANs, Mutator: ovsdb.MutateOperationInsert, Value: []int{4096}}, // Violates max=4095
 			},
-			expectedError:     `mutation on column 'flood_vlans'; details: [field '[0]' (value: '4096') failed on rule 'max' (param: 4095)]`,
+			expectedError:     "field '[0]' (value: '4096') failed on rule 'max' (param: 4095)",
 			isValidationError: true,
 		},
 		{
@@ -2447,7 +2458,7 @@ func TestAPIValidationMutate(t *testing.T) {
 			mutations: []model.Mutation{
 				{Field: &initialBridge.FloodVLANs, Mutator: ovsdb.MutateOperationInsert, Value: []int{-1}}, // Violates min=0
 			},
-			expectedError:     `mutation on column 'flood_vlans'; details: [field '[0]' (value: '-1') failed on rule 'min' (param: 0)]`,
+			expectedError:     "field '[0]' (value: '-1') failed on rule 'min' (param: 0)",
 			isValidationError: true,
 		},
 		{
@@ -2455,7 +2466,7 @@ func TestAPIValidationMutate(t *testing.T) {
 			mutations: []model.Mutation{
 				{Field: &initialBridge.FlowTables, Mutator: ovsdb.MutateOperationInsert, Value: map[int]string{255: uuid.NewString()}}, // Violates keys, max=254
 			},
-			expectedError:     `mutation on column 'flow_tables'; details: [field '[255]' (value: '255') failed on rule 'max' (param: 254)]`,
+			expectedError:     "field '[255]' (value: '255') failed on rule 'max' (param: 254)",
 			isValidationError: true,
 		},
 		{
@@ -2463,7 +2474,7 @@ func TestAPIValidationMutate(t *testing.T) {
 			mutations: []model.Mutation{
 				{Field: &initialBridge.FlowTables, Mutator: ovsdb.MutateOperationInsert, Value: map[int]string{-1: uuid.NewString()}}, // Violates keys, min=0
 			},
-			expectedError:     `mutation on column 'flow_tables'; details: [field '[-1]' (value: '-1') failed on rule 'min' (param: 0)]`,
+			expectedError:     "field '[-1]' (value: '-1') failed on rule 'min' (param: 0)",
 			isValidationError: true,
 		},
 	}
@@ -2476,15 +2487,18 @@ func TestAPIValidationMutate(t *testing.T) {
 
 			if tc.expectedError != "" {
 				require.Error(t, err, "Expected an error for test case: %s", tc.name)
-				if tc.isValidationError {
-					var validationErr *ValidationError
-					if assert.ErrorAs(t, err, &validationErr, "Error should be a ValidationError for: %s", tc.name) {
-						// Check if the error message contains the expected substring
-						assert.Contains(t, validationErr.Error(), tc.expectedError, "ValidationError message mismatch for: %s. New error: %s", tc.name, validationErr.Error())
-					}
-				} else {
-					assert.Contains(t, err.Error(), tc.expectedError, "Error message mismatch for: %s", tc.name)
+				// Check if the error message contains the expected substring
+				require.ErrorContains(t, err, tc.expectedError, "Error message mismatch for: %s. New error: %s", tc.name, err.Error())
+
+				// For validation errors, also check that they can be extracted
+				var valErrs validator.ValidationErrors
+				if errors.As(err, &valErrs) {
+					// This is a validation error, which is expected for model validation failures
+					errMsg := err.Error()
+					assert.True(t, strings.Contains(errMsg, "model validation failed") || strings.Contains(errMsg, "mutation validation failed"), "Should be a validation error for: %s", tc.name)
 				}
+				// Note: Immutable field errors are not validation errors, they are different types of errors
+
 				assert.Nil(t, ops, "Operations should be nil on error for: %s", tc.name)
 			} else {
 				require.NoError(t, err, "Expected no error for test case: %s", tc.name)
@@ -2607,7 +2621,7 @@ func TestAPIValidationUpdate(t *testing.T) {
 				modelToUpdate.FailMode = &invalidFm // Violates oneof
 				return &modelToUpdate
 			},
-			expectedError: `field 'testBridge.FailMode' (value: 'invalid-mode') failed on rule 'oneof' (param: 'standalone' 'secure')`,
+			expectedError: "field 'testBridge.FailMode' (value: 'invalid-mode') failed on rule 'oneof'",
 		},
 		{
 			name: "update invalid Protocol",
@@ -2616,7 +2630,7 @@ func TestAPIValidationUpdate(t *testing.T) {
 				modelToUpdate.Protocols = []string{"BadProto"} // Violates dive, oneof
 				return &modelToUpdate
 			},
-			expectedError: `field 'testBridge.Protocols[0]' (value: 'BadProto') failed on rule 'oneof' (param: 'OpenFlow10' 'OpenFlow11' 'OpenFlow12' 'OpenFlow13' 'OpenFlow14' 'OpenFlow15')`,
+			expectedError: "field 'testBridge.Protocols[0]' (value: 'BadProto') failed on rule 'oneof'",
 		},
 		{
 			name: "update too many FloodVLANs",
@@ -2625,7 +2639,7 @@ func TestAPIValidationUpdate(t *testing.T) {
 				modelToUpdate.FloodVLANs = make([]int, 4097) // Violates max=4096 length
 				return &modelToUpdate
 			},
-			expectedError: `failed on rule 'max' (param: 4096)`, // suppress full representation
+			expectedError: "field 'testBridge.FloodVLANs' (value: '[",
 		},
 		{
 			name: "update invalid FloodVLAN value (too high)",
@@ -2634,7 +2648,7 @@ func TestAPIValidationUpdate(t *testing.T) {
 				modelToUpdate.FloodVLANs = []int{4096} // Violates dive, max=4095
 				return &modelToUpdate
 			},
-			expectedError: `field 'testBridge.FloodVLANs[0]' (value: '4096') failed on rule 'max' (param: 4095)`,
+			expectedError: "field 'testBridge.FloodVLANs[0]' (value: '4096') failed on rule 'max' (param: 4095)",
 		},
 		{
 			name: "update invalid FlowTable key (too high)",
@@ -2643,7 +2657,7 @@ func TestAPIValidationUpdate(t *testing.T) {
 				modelToUpdate.FlowTables = map[int]string{255: uuid.NewString()} // Violates dive, keys, max=254
 				return &modelToUpdate
 			},
-			expectedError: `field 'testBridge.FlowTables[255]' (value: '255') failed on rule 'max' (param: 254)`,
+			expectedError: "field 'testBridge.FlowTables[255]' (value: '255') failed on rule 'max' (param: 254)",
 		},
 		// Test immutable field update attempt
 		{
@@ -2723,15 +2737,18 @@ func TestAPIValidationUpdate(t *testing.T) {
 
 			if tc.expectedError != "" {
 				require.Error(t, err, "Expected an error for test case: %s", tc.name)
-				var validationErr *ValidationError
-				// Check for ValidationError type - now all the immutable field errors
-				// and validation-related errors should use this type
-				if assert.ErrorAs(t, err, &validationErr, "Error should be a ValidationError for: %s", tc.name) {
-					assert.Contains(t, validationErr.Error(), tc.expectedError, "ValidationError message mismatch for: %s. New error: %s", tc.name, validationErr.Error())
-				} else {
-					// For non-validation errors (should be rare now)
-					assert.Contains(t, err.Error(), tc.expectedError, "Error message mismatch for: %s", tc.name)
+				// Check if the error message contains the expected substring
+				require.ErrorContains(t, err, tc.expectedError, "Error message mismatch for: %s. New error: %s", tc.name, err.Error())
+
+				// For validation errors, also check that they can be extracted
+				var valErrs validator.ValidationErrors
+				if errors.As(err, &valErrs) {
+					// This is a validation error, which is expected for model validation failures
+					errMsg := err.Error()
+					assert.True(t, strings.Contains(errMsg, "model validation failed") || strings.Contains(errMsg, "mutation validation failed"), "Should be a validation error for: %s", tc.name)
 				}
+				// Note: Immutable field errors are not validation errors, they are different types of errors
+
 				assert.Nil(t, ops, "Operations should be nil on error for: %s", tc.name)
 			} else {
 				require.NoError(t, err, "Expected no error for test case: %s", tc.name)

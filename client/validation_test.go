@@ -1,7 +1,6 @@
 package client
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/go-playground/validator/v10"
@@ -10,13 +9,15 @@ import (
 )
 
 type testValidationModel struct {
-	Name       string   `validate:"min=1,max=64"`
-	Age        int      `validate:"min=0,max=150"`
-	Email      string   `validate:"omitempty,email"`
-	Tags       []string `validate:"dive,max=10"`
-	Score      *int     `validate:"omitempty,min=0,max=100"`
-	FloodVLANs []int    `validate:"max=4096,dive,min=0,max=4095"`
-	Protocols  []string `validate:"dive,oneof='OpenFlow10' 'OpenFlow11' 'OpenFlow12' 'OpenFlow13' 'OpenFlow14' 'OpenFlow15'"`
+	Name       string            `validate:"min=1,max=64"`
+	Age        int               `validate:"min=0,max=150"`
+	Email      string            `validate:"omitempty,email"`
+	Tags       []string          `validate:"dive,max=10"`
+	Score      *int              `validate:"omitempty,min=0,max=100"`
+	FloodVLANs []int             `validate:"max=4096,dive,min=0,max=4095"`
+	Protocols  []string          `validate:"dive,oneof='OpenFlow10' 'OpenFlow11' 'OpenFlow12' 'OpenFlow13' 'OpenFlow14' 'OpenFlow15'"`
+	Mappings   map[int]int       `validate:"dive,keys,min=0,max=16777215,endkeys,min=0,max=4095"`
+	Config     map[string]string `validate:"dive,keys,min=1,max=32,endkeys,min=1,max=256"`
 	IsActive   bool
 }
 
@@ -32,29 +33,7 @@ func intPtr(i int) *int {
 func TestValidateModel_Nil(t *testing.T) {
 	err := validateModel(nil)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "model cannot be nil")
-}
-
-func TestValidateModel_NilPointer(t *testing.T) {
-	var model *testValidationModel
-	err := validateModel(model)
-
-	require.Error(t, err)
-	var validationErr *ValidationError
-	if assert.ErrorAs(t, err, &validationErr) {
-		assert.Contains(t, validationErr.Error(), "validation attempt on nil model")
-		assert.Equal(t, "client.testValidationModel", validationErr.ModelName)
-		assert.Error(t, validationErr.GeneralError)
-		assert.Nil(t, validationErr.FieldValidationErrors)
-
-		assert.Equal(t, validationErr.GeneralError, validationErr.Unwrap())
-	}
-}
-
-func TestValidateModel_NonStruct(t *testing.T) {
-	err := validateModel("not a struct")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "model must be a struct or a pointer to a struct")
+	assert.ErrorContains(t, err, "model cannot be nil")
 }
 
 func TestValidateModel_Valid(t *testing.T) {
@@ -66,13 +45,12 @@ func TestValidateModel_Valid(t *testing.T) {
 		Score:      intPtr(85),
 		FloodVLANs: []int{100, 200, 4095},
 		Protocols:  []string{"OpenFlow13", "OpenFlow15"},
+		Mappings:   map[int]int{100: 500, 200: 1000, 16777215: 4095},
+		Config:     map[string]string{"key1": "value1", "key2": "value2"},
 		IsActive:   true,
 	}
 
-	err := validateModel(model)
-	require.NoError(t, err)
-
-	err = validateModel(&model)
+	err := validateModel(&model)
 	require.NoError(t, err)
 }
 
@@ -88,7 +66,7 @@ func TestValidateModel_Invalid(t *testing.T) {
 				Name: "",
 				Age:  30,
 			},
-			expectedError: "field 'testValidationModel.Name'",
+			expectedError: "field 'testValidationModel.Name' (value: '') failed on rule 'min' (param: 1)",
 		},
 		{
 			name: "invalid age",
@@ -96,7 +74,7 @@ func TestValidateModel_Invalid(t *testing.T) {
 				Name: "Test Name",
 				Age:  -5,
 			},
-			expectedError: "field 'testValidationModel.Age'",
+			expectedError: "field 'testValidationModel.Age' (value: '-5') failed on rule 'min' (param: 0)",
 		},
 		{
 			name: "invalid email",
@@ -105,7 +83,7 @@ func TestValidateModel_Invalid(t *testing.T) {
 				Age:   30,
 				Email: "not-an-email",
 			},
-			expectedError: "field 'testValidationModel.Email'",
+			expectedError: "field 'testValidationModel.Email' (value: 'not-an-email') failed on rule 'email'",
 		},
 		{
 			name: "invalid score",
@@ -114,7 +92,7 @@ func TestValidateModel_Invalid(t *testing.T) {
 				Age:   30,
 				Score: intPtr(150),
 			},
-			expectedError: "field 'testValidationModel.Score'",
+			expectedError: "field 'testValidationModel.Score' (value: '150') failed on rule 'max' (param: 100)",
 		},
 		{
 			name: "invalid FloodVLAN value (too high)",
@@ -123,7 +101,7 @@ func TestValidateModel_Invalid(t *testing.T) {
 				Age:        30,
 				FloodVLANs: []int{100, 4096},
 			},
-			expectedError: "field 'testValidationModel.FloodVLANs[1]'",
+			expectedError: "field 'testValidationModel.FloodVLANs[1]' (value: '4096') failed on rule 'max' (param: 4095)",
 		},
 		{
 			name: "invalid FloodVLAN value (too low)",
@@ -132,7 +110,7 @@ func TestValidateModel_Invalid(t *testing.T) {
 				Age:        30,
 				FloodVLANs: []int{-1, 100},
 			},
-			expectedError: "field 'testValidationModel.FloodVLANs[0]'",
+			expectedError: "field 'testValidationModel.FloodVLANs[0]' (value: '-1') failed on rule 'min' (param: 0)",
 		},
 		{
 			name: "invalid Protocol value",
@@ -141,30 +119,95 @@ func TestValidateModel_Invalid(t *testing.T) {
 				Age:       30,
 				Protocols: []string{"OpenFlow13", "InvalidProtocol"},
 			},
-			expectedError: "field 'testValidationModel.Protocols[1]'",
+			expectedError: "field 'testValidationModel.Protocols[1]' (value: 'InvalidProtocol') failed on rule 'oneof' (param: 'OpenFlow10' 'OpenFlow11' 'OpenFlow12' 'OpenFlow13' 'OpenFlow14' 'OpenFlow15')",
+		},
+		{
+			name: "invalid Mappings key (too high)",
+			model: testValidationModel{
+				Name:     "Test Name",
+				Age:      30,
+				Mappings: map[int]int{16777216: 1000},
+			},
+			expectedError: "field 'testValidationModel.Mappings[16777216]' (value: '16777216') failed on rule 'max' (param: 16777215)",
+		},
+		{
+			name: "invalid Mappings key (too low)",
+			model: testValidationModel{
+				Name:     "Test Name",
+				Age:      30,
+				Mappings: map[int]int{-1: 1000},
+			},
+			expectedError: "field 'testValidationModel.Mappings[-1]' (value: '-1') failed on rule 'min' (param: 0)",
+		},
+		{
+			name: "invalid Mappings value (too high)",
+			model: testValidationModel{
+				Name:     "Test Name",
+				Age:      30,
+				Mappings: map[int]int{100: 4096},
+			},
+			expectedError: "field 'testValidationModel.Mappings[100]' (value: '4096') failed on rule 'max' (param: 4095)",
+		},
+		{
+			name: "invalid Mappings value (too low)",
+			model: testValidationModel{
+				Name:     "Test Name",
+				Age:      30,
+				Mappings: map[int]int{100: -1},
+			},
+			expectedError: "field 'testValidationModel.Mappings[100]' (value: '-1') failed on rule 'min' (param: 0)",
+		},
+		{
+			name: "invalid Config key (too short)",
+			model: testValidationModel{
+				Name:   "Test Name",
+				Age:    30,
+				Config: map[string]string{"": "value1"},
+			},
+			expectedError: "field 'testValidationModel.Config[]' (value: '') failed on rule 'min' (param: 1)",
+		},
+		{
+			name: "invalid Config key (too long)",
+			model: testValidationModel{
+				Name:   "Test Name",
+				Age:    30,
+				Config: map[string]string{"verylongkeythatexceedsthirtytwocharacters": "value1"},
+			},
+			expectedError: "field 'testValidationModel.Config[verylongkeythatexceedsthirtytwocharacters]' (value: 'verylongkeythatexceedsthirtytwocharacters') failed on rule 'max' (param: 32)",
+		},
+		{
+			name: "invalid Config value (too short)",
+			model: testValidationModel{
+				Name:   "Test Name",
+				Age:    30,
+				Config: map[string]string{"key1": ""},
+			},
+			expectedError: "field 'testValidationModel.Config[key1]' (value: '') failed on rule 'min' (param: 1)",
+		},
+		{
+			name: "invalid Config value (too long)",
+			model: testValidationModel{
+				Name:   "Test Name",
+				Age:    30,
+				Config: map[string]string{"key1": "verylongvaluethatexceedstwohundredandfiftysixcharacterslimitverylongvaluethatexceedstwohundredandfiftysixcharacterslimitverylongvaluethatexceedstwohundredandfiftysixcharacterslimitverylongvaluethatexceedstwohundredandfiftysixcharacterslimitverylongvaluethatexceedstwohundredandfiftysixcharacterslimit"},
+			},
+			expectedError: "field 'testValidationModel.Config[key1]' (value: 'verylongvaluethatexceedstwohundredandfiftysixcharacterslimitverylongvaluethatexceedstwohundredandfiftysixcharacterslimitverylongvaluethatexceedstwohundredandfiftysixcharacterslimitverylongvaluethatexceedstwohundredandfiftysixcharacterslimitverylongvaluethatexceedstwohundredandfiftysixcharacterslimit') failed on rule 'max' (param: 256)",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateModel(tc.model)
+			err := validateModel(&tc.model)
 
 			require.Error(t, err)
-			var validationErr *ValidationError
-			if assert.ErrorAs(t, err, &validationErr) {
-				assert.Contains(t, validationErr.Error(), tc.expectedError)
-				assert.Equal(t, "client.testValidationModel", validationErr.ModelName)
-				assert.NotNil(t, validationErr.FieldValidationErrors)
-				require.NoError(t, validationErr.GeneralError)
-
-				assert.Equal(t, validationErr.FieldValidationErrors, validationErr.Unwrap())
-
-				assert.IsType(t, validator.ValidationErrors{}, validationErr.FieldValidationErrors)
-
-				var valErrs validator.ValidationErrors
-				assert.ErrorAs(t, err, &valErrs)
-				assert.Equal(t, validationErr.FieldValidationErrors, valErrs)
+			require.ErrorContains(t, err, "model validation failed:")
+			if tc.expectedError != "" {
+				require.ErrorContains(t, err, tc.expectedError)
 			}
+
+			var valErrs validator.ValidationErrors
+			require.ErrorAs(t, err, &valErrs)
+			assert.NotEmpty(t, valErrs)
 		})
 	}
 }
@@ -177,10 +220,12 @@ func TestValidateModel_NestedStruct(t *testing.T) {
 			Age:        30,
 			FloodVLANs: []int{100, 200},
 			Protocols:  []string{"OpenFlow13"},
+			Mappings:   map[int]int{100: 500},
+			Config:     map[string]string{"key1": "value1"},
 		},
 	}
 
-	err := validateModel(validNestedModel)
+	err := validateModel(&validNestedModel)
 	require.NoError(t, err)
 
 	invalidNestedModel := testValidationNestedModel{
@@ -191,16 +236,14 @@ func TestValidateModel_NestedStruct(t *testing.T) {
 		},
 	}
 
-	err = validateModel(invalidNestedModel)
+	err = validateModel(&invalidNestedModel)
 	require.Error(t, err)
 
-	var validationErr *ValidationError
-	if assert.ErrorAs(t, err, &validationErr) {
-		assert.Contains(t, validationErr.Error(), "failed on rule 'uuid'")
-		assert.Equal(t, "client.testValidationNestedModel", validationErr.ModelName)
-		assert.NotNil(t, validationErr.FieldValidationErrors)
-		assert.NoError(t, validationErr.GeneralError)
-	}
+	require.ErrorContains(t, err, "model validation failed:")
+	require.ErrorContains(t, err, "field 'testValidationNestedModel.ID' (value: 'invalid-uuid') failed on rule 'uuid'")
+	var valErrs validator.ValidationErrors
+	require.ErrorAs(t, err, &valErrs)
+	assert.NotEmpty(t, valErrs)
 }
 
 func TestValidateModel_SliceValidation(t *testing.T) {
@@ -210,69 +253,36 @@ func TestValidateModel_SliceValidation(t *testing.T) {
 		Tags: []string{"this-tag-is-more-than-ten-characters-long", "valid-tag"},
 	}
 
-	err := validateModel(model)
+	err := validateModel(&model)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "model validation failed:")
+	require.ErrorContains(t, err, "field 'testValidationModel.Tags[0]' (value: 'this-tag-is-more-than-ten-characters-long') failed on rule 'max' (param: 10)")
+	var valErrs validator.ValidationErrors
+	require.ErrorAs(t, err, &valErrs)
+	assert.NotEmpty(t, valErrs)
+}
+
+func TestFormatValidationErrors(t *testing.T) {
+	// Test the formatValidationErrors function directly
+	model := testValidationModel{
+		Name: "",
+		Age:  -5,
+	}
+
+	err := validate.Struct(&model)
 	require.Error(t, err)
 
-	var validationErr *ValidationError
-	if assert.ErrorAs(t, err, &validationErr) {
-		assert.Contains(t, validationErr.Error(), `field 'testValidationModel.Tags[0]'`)
-		assert.NotNil(t, validationErr.FieldValidationErrors)
-		assert.NoError(t, validationErr.GeneralError)
-	}
-}
+	var valErrs validator.ValidationErrors
+	require.ErrorAs(t, err, &valErrs)
 
-func TestValidationError_ErrorFormat(t *testing.T) {
-	err1 := &ValidationError{
-		ModelName:    "TestModel",
-		GeneralError: fmt.Errorf("general test error"),
-	}
-	expectedFormat1 := "validation error for model TestModel: general test error"
-	assert.Equal(t, expectedFormat1, err1.Error())
+	// Test without context
+	formatted := formatValidationErrors("client.testValidationModel", "", valErrs)
+	assert.Contains(t, formatted, "validation error for model client.testValidationModel")
+	assert.Contains(t, formatted, "field 'testValidationModel.Name' (value: '') failed on rule 'min' (param: 1)")
+	assert.Contains(t, formatted, "field 'testValidationModel.Age' (value: '-5') failed on rule 'min' (param: 0)")
 
-	fieldErrors := validator.ValidationErrors{}
-	err2 := &ValidationError{
-		ModelName:             "TestModel",
-		FieldValidationErrors: fieldErrors,
-	}
-	assert.Contains(t, err2.Error(), "validation error for model TestModel")
-	assert.Contains(t, err2.Error(), "details: [")
-
-	err3 := &ValidationError{
-		ModelName:             "TestModel",
-		GeneralError:          fmt.Errorf("mutation context"),
-		FieldValidationErrors: fieldErrors,
-	}
-	assert.Contains(t, err3.Error(), "validation error for model TestModel: mutation context")
-	assert.Contains(t, err3.Error(), "details: [")
-}
-
-func TestValidationError_ErrorInterface(t *testing.T) {
-	err := &ValidationError{
-		ModelName:    "TestModel",
-		GeneralError: fmt.Errorf("test error"),
-	}
-
-	var _ error = err
-
-	errStr := err.Error()
-	assert.Contains(t, errStr, "validation error for model TestModel")
-	assert.Contains(t, errStr, "test error")
-}
-
-func TestValidationError_Unwrap(t *testing.T) {
-	fieldErrs := validator.ValidationErrors{}
-	err1 := &ValidationError{
-		ModelName:             "TestModel",
-		FieldValidationErrors: fieldErrs,
-	}
-
-	assert.Equal(t, fieldErrs, err1.Unwrap())
-
-	originalErr := fmt.Errorf("original error")
-	err2 := &ValidationError{
-		ModelName:    "TestModel",
-		GeneralError: originalErr,
-	}
-
-	assert.Equal(t, originalErr, err2.Unwrap())
+	// Test with context
+	formatted = formatValidationErrors("client.testValidationModel", "mutation on column name", valErrs)
+	assert.Contains(t, formatted, "validation error for model client.testValidationModel: mutation on column name")
+	assert.Contains(t, formatted, "field 'testValidationModel.Name' (value: '') failed on rule 'min' (param: 1)")
 }
