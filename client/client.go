@@ -64,6 +64,8 @@ type Client interface {
 	MonitorCancel(ctx context.Context, cookie MonitorCookie) error
 	NewMonitor(...MonitorOption) *Monitor
 	CurrentEndpoint() string
+	Logger() *logr.Logger
+	Option() *options
 	API
 	// GetSelectResultsByIndex parses the result of the select operation indicated by
 	// the 0-based index from the transaction results of the provided operations.
@@ -1575,4 +1577,12 @@ func (o *ovsdbClient) GetSelectResultsByIndex(ops []ovsdb.Operation, results []o
 // Equivalent to GetSelectResultsByIndex with index 0 (first select query)
 func (o *ovsdbClient) GetSelectResults(ops []ovsdb.Operation, results []ovsdb.OperationResult, target interface{}) error {
 	return o.GetSelectResultsByIndex(ops, results, target, 0)
+}
+
+func (o *ovsdbClient) Logger() *logr.Logger {
+	return o.logger
+}
+
+func (o *ovsdbClient) Option() *options {
+	return o.options
 }
