@@ -223,6 +223,82 @@ func newPredicateConditional(table string, cache *cache.TableCache, predicate an
 	}, nil
 }
 
+// predicateConditionalTyped is a type-safe version using generics
+type predicateConditionalTyped[T model.Model] struct {
+	tableName string
+	predicate func(T) bool
+	cache     *cache.TableCache
+}
+
+// Matches returns the models that match the predicate without reflection
+func (c *predicateConditionalTyped[T]) Matches() (map[string]model.Model, error) {
+	tableCache := c.cache.Table(c.tableName)
+	if tableCache == nil {
+		return nil, ErrNotFound
+	}
+	found := map[string]model.Model{}
+	// run the predicate on a shallow copy of the models for speed and only
+	// clone the matches
+	for u, m := range tableCache.RowsShallow() {
+		// Type assertion instead of reflection - much faster
+		if typedModel, ok := m.(T); ok {
+			if c.predicate(typedModel) {
+				found[u] = model.Clone(m)
+			}
+		}
+	}
+	return found, nil
+}
+
+func (c *predicateConditionalTyped[T]) Table() string {
+	return c.tableName
+}
+
+// Generate returns a list of conditions that match, by _uuid equality, all the objects that
+// match the predicate
+func (c *predicateConditionalTyped[T]) Generate() ([][]ovsdb.Condition, error) {
+	models, err := c.Matches()
+	if err != nil {
+		return nil, err
+	}
+	return generateConditionsFromModels(c.cache.DatabaseModel(), models)
+}
+
+// newPredicateConditionalTyped creates a type-safe predicate conditional
+// This is the recommended high-performance alternative to newPredicateConditional
+func newPredicateConditionalTyped[T model.Model](table string, cache *cache.TableCache, predicate func(T) bool) (Conditional, error) {
+	return &predicateConditionalTyped[T]{
+		tableName: table,
+		predicate: predicate,
+		cache:     cache,
+	}, nil
+}
+
+// WhereCacheTyped creates a high-performance ConditionalAPI using generics
+// Usage: WhereCacheTyped(client, func(m *MyModel) bool { return m.Field > value })
+func WhereCacheTyped[T model.Model](client Client, predicate func(T) bool) ConditionalAPI {
+	clientCache := client.Cache()
+	logger := client.Logger()
+	options := client.Option()
+
+	// Get table name from the generic type T
+	var zero T
+	table := clientCache.DatabaseModel().FindTable(reflect.TypeOf(zero))
+	if table == "" {
+		// Return an error conditional if table not found
+		errorCond := newErrorConditional(fmt.Errorf("model %T not found in Database Model", zero))
+		return newConditionalAPI(clientCache, errorCond, logger, options.validateModel)
+	}
+
+	condition, err := newPredicateConditionalTyped(table, clientCache, predicate)
+	if err != nil {
+		errorCond := newErrorConditional(err)
+		return newConditionalAPI(clientCache, errorCond, logger, options.validateModel)
+	}
+
+	return newConditionalAPI(clientCache, condition, logger, options.validateModel)
+}
+
 // errorConditional is a conditional that encapsulates an error
 // It is used to delay the reporting of errors from conditional creation to API method call
 type errorConditional struct {
