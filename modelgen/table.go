@@ -510,25 +510,43 @@ func getSetValidations(schema *ovsdb.ColumnSchema) []string {
 func getMapValidations(schema *ovsdb.ColumnSchema) []string {
 	var validations []string
 	validations = append(validations, getCollectionSizeValidations(schema.TypeObj)...)
-	var diveValidations []string
+
+	// Check if we have key or value validations
+	var keyAtomValidations []string
+	var valueAtomValidations []string
+
 	if schema.TypeObj.Key != nil {
-		keyAtomValidations := getAtomicValidations(schema.TypeObj.Key)
-		if len(keyAtomValidations) > 0 {
-			diveValidations = append(diveValidations, "keys")
-			diveValidations = append(diveValidations, keyAtomValidations...)
-		}
+		keyAtomValidations = getAtomicValidations(schema.TypeObj.Key)
 	}
 	if schema.TypeObj.Value != nil {
-		valueAtomValidations := getAtomicValidations(schema.TypeObj.Value)
-		if len(valueAtomValidations) > 0 {
+		valueAtomValidations = getAtomicValidations(schema.TypeObj.Value)
+	}
+
+	hasKeyValidations := len(keyAtomValidations) > 0
+	hasValueValidations := len(valueAtomValidations) > 0
+
+	// Only add dive validations if we have key or value validations
+	if hasKeyValidations || hasValueValidations {
+		var diveValidations []string
+		diveValidations = append(diveValidations, "dive")
+
+		// Always add "keys" when any dive validation is needed
+		diveValidations = append(diveValidations, "keys")
+
+		// Add key validations if they exist
+		if hasKeyValidations {
+			diveValidations = append(diveValidations, keyAtomValidations...)
+		}
+
+		// Add value validations if they exist
+		if hasValueValidations {
 			diveValidations = append(diveValidations, "endkeys")
 			diveValidations = append(diveValidations, valueAtomValidations...)
 		}
-	}
-	if len(diveValidations) > 0 {
-		validations = append(validations, "dive")
+
 		validations = append(validations, diveValidations...)
 	}
+
 	return validations
 }
 

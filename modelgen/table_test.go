@@ -1036,6 +1036,16 @@ func TestValidationTag(t *testing.T) {
 			expect: ` validate:"omitempty,oneof='standalone' 'secure'"`,
 		},
 		// --- End of new test cases ---
+		{
+			name:   "Map Integer -> Integer 0-254",
+			schema: schemaFromJSON(`{"type": {"key": {"type": "integer"}, "value": {"type": "integer", "minInteger": 0, "maxInteger": 254}, "min": 0, "max": "unlimited"}}`),
+			expect: ` validate:"dive,keys,endkeys,min=0,max=254"`,
+		},
+		{
+			name:   "Map Integer 0-254 -> Integer 0-254",
+			schema: schemaFromJSON(`{"type": {"key": {"type": "integer", "minInteger": 0, "maxInteger": 254}, "value": {"type": "integer", "minInteger": 0, "maxInteger": 254}, "min": 0, "max": "unlimited"}}`),
+			expect: ` validate:"dive,keys,min=0,max=254,endkeys,min=0,max=254"`,
+		},
 	}
 
 	for _, tt := range tests {

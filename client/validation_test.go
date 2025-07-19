@@ -9,16 +9,18 @@ import (
 )
 
 type testValidationModel struct {
-	Name       string            `validate:"min=1,max=64"`
-	Age        int               `validate:"min=0,max=150"`
-	Email      string            `validate:"omitempty,email"`
-	Tags       []string          `validate:"dive,max=10"`
-	Score      *int              `validate:"omitempty,min=0,max=100"`
-	FloodVLANs []int             `validate:"max=4096,dive,min=0,max=4095"`
-	Protocols  []string          `validate:"dive,oneof='OpenFlow10' 'OpenFlow11' 'OpenFlow12' 'OpenFlow13' 'OpenFlow14' 'OpenFlow15'"`
-	Mappings   map[int]int       `validate:"dive,keys,min=0,max=16777215,endkeys,min=0,max=4095"`
-	Config     map[string]string `validate:"dive,keys,min=1,max=32,endkeys,min=1,max=256"`
-	IsActive   bool
+	Name        string            `validate:"min=1,max=64"`
+	Age         int               `validate:"min=0,max=150"`
+	Email       string            `validate:"omitempty,email"`
+	Tags        []string          `validate:"dive,max=10"`
+	Score       *int              `validate:"omitempty,min=0,max=100"`
+	FloodVLANs  []int             `validate:"max=4096,dive,min=0,max=4095"`
+	Protocols   []string          `validate:"dive,oneof='OpenFlow10' 'OpenFlow11' 'OpenFlow12' 'OpenFlow13' 'OpenFlow14' 'OpenFlow15'"`
+	Mappings    map[int]int       `validate:"dive,keys,min=0,max=16777215,endkeys,min=0,max=4095"`
+	Config      map[string]string `validate:"dive,keys,min=1,max=32,endkeys,min=1,max=256"`
+	KeyConfig   map[int]int       `validate:"dive,keys,min=0,max=10"`
+	ValueConfig map[string]int    `validate:"dive,keys,endkeys,min=0,max=10"`
+	IsActive    bool
 }
 
 type testValidationNestedModel struct {
@@ -38,16 +40,18 @@ func TestValidateModel_Nil(t *testing.T) {
 
 func TestValidateModel_Valid(t *testing.T) {
 	model := testValidationModel{
-		Name:       "Test Name",
-		Age:        30,
-		Email:      "test@example.com",
-		Tags:       []string{"tag1", "tag2"},
-		Score:      intPtr(85),
-		FloodVLANs: []int{100, 200, 4095},
-		Protocols:  []string{"OpenFlow13", "OpenFlow15"},
-		Mappings:   map[int]int{100: 500, 200: 1000, 16777215: 4095},
-		Config:     map[string]string{"key1": "value1", "key2": "value2"},
-		IsActive:   true,
+		Name:        "Test Name",
+		Age:         30,
+		Email:       "test@example.com",
+		Tags:        []string{"tag1", "tag2"},
+		Score:       intPtr(85),
+		FloodVLANs:  []int{100, 200, 4095},
+		Protocols:   []string{"OpenFlow13", "OpenFlow15"},
+		Mappings:    map[int]int{100: 500, 200: 1000, 16777215: 4095},
+		Config:      map[string]string{"key1": "value1", "key2": "value2"},
+		KeyConfig:   map[int]int{1: 1, 10: 10},
+		ValueConfig: map[string]int{"key1": 1, "key2": 9},
+		IsActive:    true,
 	}
 
 	err := validateModel(&model)
@@ -192,6 +196,24 @@ func TestValidateModel_Invalid(t *testing.T) {
 				Config: map[string]string{"key1": "verylongvaluethatexceedstwohundredandfiftysixcharacterslimitverylongvaluethatexceedstwohundredandfiftysixcharacterslimitverylongvaluethatexceedstwohundredandfiftysixcharacterslimitverylongvaluethatexceedstwohundredandfiftysixcharacterslimitverylongvaluethatexceedstwohundredandfiftysixcharacterslimit"},
 			},
 			expectedError: "field 'testValidationModel.Config[key1]' (value: 'verylongvaluethatexceedstwohundredandfiftysixcharacterslimitverylongvaluethatexceedstwohundredandfiftysixcharacterslimitverylongvaluethatexceedstwohundredandfiftysixcharacterslimitverylongvaluethatexceedstwohundredandfiftysixcharacterslimitverylongvaluethatexceedstwohundredandfiftysixcharacterslimit') failed on rule 'max' (param: 256)",
+		},
+		{
+			name: "invalid KeyConfig key (too large)",
+			model: testValidationModel{
+				Name:      "Test Name",
+				Age:       30,
+				KeyConfig: map[int]int{11: 999},
+			},
+			expectedError: "field 'testValidationModel.KeyConfig[11]' (value: '11') failed on rule 'max' (param: 10)",
+		},
+		{
+			name: "invalid ValueConfig value (too large)",
+			model: testValidationModel{
+				Name:        "Test Name",
+				Age:         30,
+				ValueConfig: map[string]int{"key1": 11, "key2": 10},
+			},
+			expectedError: "field 'testValidationModel.ValueConfig[key1]' (value: '11') failed on rule 'max' (param: 10)",
 		},
 	}
 
