@@ -282,7 +282,10 @@ func (o *ovsdbClient) connect(ctx context.Context, reconnect bool) error {
 
 			// Purge entire cache if no monitors exist to update dynamically
 			if len(db.monitors) == 0 {
-				db.cache.Purge(db.model)
+				if err := db.cache.Purge(db.model); err != nil {
+					o.resetRPCClient()
+					return fmt.Errorf("failed to purge cache for database %s: %w", dbName, err)
+				}
 				continue
 			}
 
@@ -1025,7 +1028,10 @@ func (o *ovsdbClient) monitor(ctx context.Context, cookie MonitorCookie, reconne
 	// cache data, while otherwise it includes complete DB data so we must
 	// purge to get rid of old rows.
 	if reconnecting && (len(db.monitors) > 1 || !lastTransactionFound) {
-		db.cache.Purge(db.model)
+		if err := db.cache.Purge(db.model); err != nil {
+			o.resetRPCClient()
+			return fmt.Errorf("failed to purge cache for database %s: %w", dbName, err)
+		}
 	}
 
 	if monitor.Method == ovsdb.MonitorRPC {
