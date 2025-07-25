@@ -1,0 +1,37 @@
+name: Check OVS Versions Up-to-Date
+
+on:
+  schedule:
+    # Run weekly
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+
+jobs:
+  check-ovs-versions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - run: pip install pyyaml packaging requests
+
+      - name: Check and update OVS versions in images.yml
+        id: check_ovs
+        run: |
+          python3 .github/scripts/check_ovs_versions.py || exit_code=$?
+          echo "exit_code=${exit_code:-$?}" >> $GITHUB_OUTPUT
+
+      - name: Create Pull Request to update images.yml
+        if: steps.check_ovs.outputs.exit_code == '2'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: "chore: update OVS versions in images.yml to latest 3 releases"
+          branch: update-ovs-versions
+          title: "Update OVS versions in images.yml to latest 3 releases"
+          body: |
+            This PR updates the OVS versions in `.github/workflows/images.yml` to the latest patch release of the last 3 major.minor versions, as determined from https://github.com/openvswitch/ovs/tags.
+          labels: "automation,dependencies"
+          sign-commits: true
