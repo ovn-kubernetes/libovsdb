@@ -93,4 +93,4 @@ jobs:
       - name: Integration Test
         run: make integration-test
         env:
-          OVS_IMAGE_TAG: ${{ matrix.ovs_version }}
+          OVS_VERSION: ${{ matrix.ovs_version }}
