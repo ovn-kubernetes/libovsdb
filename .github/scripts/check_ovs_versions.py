@@ -80,6 +80,7 @@ def write_images_yml(yml):
 
 def update_images_yml_versions(yml, latest_versions):
     updated = False
+    # Update build matrix
     images = yml['jobs']['build']['strategy']['matrix']['image']
     new_images = []
     for image in images:
@@ -100,6 +101,17 @@ def update_images_yml_versions(yml, latest_versions):
                   for img in new_images if img['ovs_version'] != 'master')
     if old_set != new_set:
         yml['jobs']['build']['strategy']['matrix']['image'] = new_images
+        updated = True
+    # Update manifest matrix
+    manifest_images = yml['jobs']['manifest']['strategy']['matrix']['image']
+    new_manifest_images = []
+    for image in new_images:
+        if image['tag']:
+            new_manifest_images.append({'tag': image['tag']})
+    old_manifest_set = set(img['tag'] for img in manifest_images)
+    new_manifest_set = set(img['tag'] for img in new_manifest_images)
+    if old_manifest_set != new_manifest_set:
+        yml['jobs']['manifest']['strategy']['matrix']['image'] = new_manifest_images
         updated = True
     return updated
 
