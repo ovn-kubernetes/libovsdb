@@ -378,7 +378,6 @@ func (suite *OVSIntegrationSuite) TestWithInactivityCheck() {
 }
 
 func (suite *OVSIntegrationSuite) TestWithReconnect() {
-	suite.T().Skip("On container restart client is connected but rpc2 connection is shutdown, so Echo fails with ErrNotConnected")
 	suite.True(suite.clientWithoutInactvityCheck.Connected())
 	err := suite.clientWithoutInactvityCheck.Echo(context.TODO())
 	suite.Require().NoError(err)
