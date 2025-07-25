@@ -34,9 +34,9 @@ func (suite *OVSIntegrationSuite) SetupSuite() {
 	suite.pool, err = dockertest.NewPool("")
 	suite.Require().NoError(err)
 
-	tag := os.Getenv("OVS_IMAGE_TAG")
+	tag := os.Getenv("OVS_VERSION")
 	if tag == "" {
-		tag = "2.15.0"
+		tag = "latest"
 	}
 
 	options := &dockertest.RunOptions{
