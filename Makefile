@@ -34,10 +34,11 @@ test: prebuild
 	@echo "+ $@"
 	@go test -race -coverprofile=unit.cov -test.short -timeout 30s -v $(if $(TESTS),-run $(TESTS)) ./...
 
+# TESTCONTAINERS_RYUK_DISABLED avoids reaper when default "bridge" network is missing (e.g. Podman).
 .PHONY: integration-test
 integration-test:
 	@echo "+ $@"
-	@go test -race -coverprofile=integration.cov -coverpkg=github.com/ovn-kubernetes/libovsdb/... -timeout 60s -v $(if $(TESTS),-run $(TESTS)) ./test/ovs
+	@TESTCONTAINERS_RYUK_DISABLED=true go test -count=1 -race -coverprofile=integration.cov -coverpkg=github.com/ovn-kubernetes/libovsdb/... -timeout 5m -v $(if $(TESTS),-run $(TESTS)) ./test/ovs
 
 .PHONY: coverage
 coverage: test integration-test
