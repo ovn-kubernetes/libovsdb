@@ -94,7 +94,7 @@ jobs:
         run: |
           mkdir -p ${{ runner.temp }}/digests
           digest="${{ steps.build.outputs.digest }}"
-          echo "${digest}" > "${{ runner.temp }}/digests/${{ matrix.image.tag }}-${{ matrix.arch }}.digest"
+          echo "${digest}" > "${{ runner.temp }}/digests/${{ env.ARCH_VERSION_TUPLE }}.digest"
 
       - name: Upload digest
         if: github.event_name != 'pull_request'
