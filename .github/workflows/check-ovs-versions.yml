@@ -6,6 +6,10 @@ on:
     - cron: "0 3 * * 1"
   workflow_dispatch:
 
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
   check-ovs-versions:
     runs-on: ubuntu-latest
