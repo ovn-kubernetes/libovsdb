@@ -854,7 +854,11 @@ func NewTableCache(dbModel model.DatabaseModel, data Data, logger *logr.Logger) 
 	cache := make(map[string]*RowCache)
 	tableTypes := dbModel.Types()
 	for name := range dbModel.Schema.Tables {
-		cache[name] = newRowCache(name, dbModel, tableTypes[name])
+		c, err := newRowCache(name, dbModel, tableTypes[name])
+		if err != nil {
+			return nil, err
+		}
+		cache[name] = c
 	}
 	for table, rowData := range data {
 		if _, ok := dbModel.Schema.Tables[table]; !ok {
@@ -1011,14 +1015,19 @@ func (t *TableCache) Populate2(tableUpdates ovsdb.TableUpdates2) error {
 
 // Purge drops all data in the cache and reinitializes it using the
 // provided database model
-func (t *TableCache) Purge(dbModel model.DatabaseModel) {
+func (t *TableCache) Purge(dbModel model.DatabaseModel) error {
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
 	t.dbModel = dbModel
 	tableTypes := t.dbModel.Types()
 	for name := range t.dbModel.Schema.Tables {
-		t.cache[name] = newRowCache(name, t.dbModel, tableTypes[name])
+		c, err := newRowCache(name, t.dbModel, tableTypes[name])
+		if err != nil {
+			return fmt.Errorf("cannot create cache for table %s: %w", name, err)
+		}
+		t.cache[name] = c
 	}
+	return nil
 }
 
 // AddEventHandler registers the supplied EventHandler to receive cache events
@@ -1039,16 +1048,27 @@ func (t *TableCache) Run(stopCh <-chan struct{}) {
 	wg.Wait()
 }
 
+func add(a, b int) (int, bool) {
+	c := a + b
+	if (c > a) == (b > 0) {
+		return c, true
+	}
+	return c, false
+}
+
 // newRowCache creates a new row cache with the provided data
 // if the data is nil, and empty RowCache will be created
-func newRowCache(name string, dbModel model.DatabaseModel, dataType reflect.Type) *RowCache {
+func newRowCache(name string, dbModel model.DatabaseModel, dataType reflect.Type) (*RowCache, error) {
 	schemaIndexes := dbModel.Schema.Table(name).Indexes
 	clientIndexes := dbModel.Client().Indexes(name)
-
+	indexLen, ok := add(len(schemaIndexes), len(clientIndexes))
+	if !ok {
+		return nil, fmt.Errorf("too many indexes for table %s, cannot create cache", name)
+	}
 	r := &RowCache{
 		name:       name,
 		dbModel:    dbModel,
-		indexSpecs: make([]indexSpec, 0, len(schemaIndexes)+len(clientIndexes)),
+		indexSpecs: make([]indexSpec, 0, indexLen),
 		dataType:   dataType,
 		cache:      make(map[string]model.Model),
 		mutex:      sync.RWMutex{},
@@ -1077,7 +1097,7 @@ func newRowCache(name string, dbModel model.DatabaseModel, dataType reflect.Type
 	}
 
 	r.indexes = r.newIndexes()
-	return r
+	return r, nil
 }
 
 func (r *RowCache) newIndexes() columnToValue {
