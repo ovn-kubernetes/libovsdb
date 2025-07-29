@@ -838,7 +838,11 @@ func (o *ovsdbClient) transact(ctx context.Context, dbName string, skipChWrite b
 	}
 
 	if !skipChWrite && o.trafficSeen != nil {
-		o.trafficSeen <- struct{}{}
+		select {
+		case o.trafficSeen <- struct{}{}:
+		default:
+			// If the channel is full, drop the message
+		}
 	}
 	return reply, nil
 }
