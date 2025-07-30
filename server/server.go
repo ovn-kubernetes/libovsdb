@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/cenkalti/rpc2"
 	"github.com/cenkalti/rpc2/jsonrpc"
@@ -32,6 +33,9 @@ type OvsdbServer struct {
 	monitorMutex sync.RWMutex
 	logger       *logr.Logger
 	txnMutex     sync.Mutex
+	// Test-only fields for inducing delays
+	transactionDelay time.Duration
+	echoDelay        time.Duration
 }
 
 func init() {
@@ -95,6 +99,20 @@ func (o *OvsdbServer) OnDisConnect(f func(*rpc2.Client)) {
 func (o *OvsdbServer) DoEcho(ok bool) {
 	o.readyMutex.Lock()
 	o.doEcho = ok
+	o.readyMutex.Unlock()
+}
+
+// SetTransactionDelay sets an artificial delay for transaction processing (test-only)
+func (o *OvsdbServer) SetTransactionDelay(delay time.Duration) {
+	o.readyMutex.Lock()
+	o.transactionDelay = delay
+	o.readyMutex.Unlock()
+}
+
+// SetEchoDelay sets an artificial delay for echo responses (test-only)
+func (o *OvsdbServer) SetEchoDelay(delay time.Duration) {
+	o.readyMutex.Lock()
+	o.echoDelay = delay
 	o.readyMutex.Unlock()
 }
 
@@ -190,6 +208,13 @@ func (o *OvsdbServer) Transact(_ *rpc2.Client, args []json.RawMessage, reply *[]
 	// Ref: https://github.com/cenkalti/rpc2/blob/c1acbc6ec984b7ae6830b6a36b62f008d5aefc4c/client.go#L187
 	o.txnMutex.Lock()
 	defer o.txnMutex.Unlock()
+
+	o.readyMutex.RLock()
+	delay := o.transactionDelay
+	o.readyMutex.RUnlock()
+	if delay > 0 {
+		time.Sleep(delay)
+	}
 
 	if len(args) < 2 {
 		return fmt.Errorf("not enough args")
@@ -392,10 +417,18 @@ func (o *OvsdbServer) Unlock(_ *rpc2.Client, _ []any, _ *[]any) error {
 // Echo tests the liveness of the connection
 func (o *OvsdbServer) Echo(_ *rpc2.Client, args []any, reply *[]any) error {
 	o.readyMutex.Lock()
-	defer o.readyMutex.Unlock()
-	if !o.doEcho {
+	doEcho := o.doEcho
+	echoDelay := o.echoDelay
+	o.readyMutex.Unlock()
+
+	if !doEcho {
 		return fmt.Errorf("no echo reply")
 	}
+
+	if echoDelay > 0 {
+		time.Sleep(echoDelay)
+	}
+
 	echoReply := make([]any, len(args))
 	copy(echoReply, args)
 	*reply = echoReply
