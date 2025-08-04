@@ -11,7 +11,7 @@ type (
 	DatabaseModel = string
 )
 
-var (
+const (
 	DatabaseModelStandalone DatabaseModel = "standalone"
 	DatabaseModelClustered  DatabaseModel = "clustered"
 	DatabaseModelRelay      DatabaseModel = "relay"
