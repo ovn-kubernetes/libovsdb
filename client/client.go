@@ -64,6 +64,7 @@ type Client interface {
 	MonitorCancel(ctx context.Context, cookie MonitorCookie) error
 	NewMonitor(...MonitorOption) *Monitor
 	CurrentEndpoint() string
+	Logger() *logr.Logger
 	API
 }
 
@@ -1438,4 +1439,8 @@ func (o *ovsdbClient) WhereAll(m model.Model, conditions ...model.Condition) Con
 // WhereCache implements the API interface's WhereCache function
 func (o *ovsdbClient) WhereCache(predicate any) ConditionalAPI {
 	return o.primaryDB().api.WhereCache(predicate)
+}
+
+func (o *ovsdbClient) Logger() *logr.Logger {
+	return o.logger
 }
