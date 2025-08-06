@@ -308,6 +308,88 @@ In your application, load the ClientDBModel, connect to the server and start int
         fmt.Printf("My Router has UUID: %s and %d Ports\n", lr.UUID, len(lr.Ports))
     }
 
+## Drop-in json library
+
+There are three json libraries to use as a drop-in replacement for std json library. 
+[go-json](https://github.com/goccy/go-json), [sonic](https://github.com/bytedance/sonic).
+
+go build your application with -tags go_json or sonic_json
+
+    $ benchstat bench.out.std bench.out.sonic bench.out.go_json
+    goos: linux
+    goarch: amd64
+    pkg: github.com/ovn-kubernetes/libovsdb/internal/json
+    cpu: Intel(R) Core(TM) i7-1065G7 CPU @ 1.30GHz
+    │ bench.out.std │            bench.out.sonic            │           bench.out.go_json            │
+    │    sec/op     │    sec/op     vs base                 │    sec/op      vs base                 │
+    SetMarshalJSONOperations1-4       5.724µ ± ∞ ¹   3.329µ ± ∞ ¹        ~ (p=0.100 n=3) ²    5.603µ ± ∞ ¹        ~ (p=1.000 n=3) ²
+    SetMarshalJSONOperations2-4      11.333µ ± ∞ ¹   6.799µ ± ∞ ¹        ~ (p=0.100 n=3) ²    7.014µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONOperations3-4      16.215µ ± ∞ ¹   9.745µ ± ∞ ¹        ~ (p=0.100 n=3) ²   10.732µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONOperations5-4       26.96µ ± ∞ ¹   15.79µ ± ∞ ¹        ~ (p=0.100 n=3) ²    15.22µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONOperations8-4       43.23µ ± ∞ ¹   26.02µ ± ∞ ¹        ~ (p=0.100 n=3) ²    24.52µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONTableUpdate1-4   1864.0n ± ∞ ¹   599.5n ± ∞ ¹        ~ (p=0.100 n=3) ²    556.2n ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONTableUpdate2-4   2021.0n ± ∞ ¹   691.7n ± ∞ ¹        ~ (p=0.100 n=3) ²    574.2n ± ∞ ¹        ~ (p=0.100 n=3) ²
+    geomean                           8.955µ         4.503µ        -49.71%                    4.695µ        -47.57%
+    ¹ need >= 6 samples for confidence interval at level 0.95
+    ² need >= 4 samples to detect a difference at alpha level 0.05
+
+    pkg: github.com/ovn-kubernetes/libovsdb/ovsdb
+    │ bench.out.std │            bench.out.sonic            │           bench.out.go_json            │
+    │    sec/op     │    sec/op     vs base                 │    sec/op      vs base                 │
+    MapMarshalJSON1-4           1331.0n ± ∞ ¹   929.1n ± ∞ ¹        ~ (p=0.100 n=3) ²    942.7n ± ∞ ¹        ~ (p=0.100 n=3) ²
+    MapMarshalJSON2-4            1.804µ ± ∞ ¹   1.253µ ± ∞ ¹        ~ (p=0.100 n=3) ²    1.282µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    MapMarshalJSON3-4            2.214µ ± ∞ ¹   1.532µ ± ∞ ¹        ~ (p=0.100 n=3) ²    1.657µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    MapMarshalJSON5-4            3.160µ ± ∞ ¹   2.194µ ± ∞ ¹        ~ (p=0.100 n=3) ²    2.568µ ± ∞ ¹        ~ (p=0.700 n=3) ²
+    MapMarshalJSON8-4            4.396µ ± ∞ ¹   2.788µ ± ∞ ¹        ~ (p=0.100 n=3) ²    3.452µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    MapUnmarshalJSON1-4          1.902µ ± ∞ ¹   1.334µ ± ∞ ¹        ~ (p=0.100 n=3) ²    4.324µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    MapUnmarshalJSON2-4          2.401µ ± ∞ ¹   1.869µ ± ∞ ¹        ~ (p=0.100 n=3) ²    2.449µ ± ∞ ¹        ~ (p=1.000 n=3) ²
+    MapUnmarshalJSON3-4          3.100µ ± ∞ ¹   2.037µ ± ∞ ¹        ~ (p=0.100 n=3) ²    5.454µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    MapUnmarshalJSON5-4          4.413µ ± ∞ ¹   3.161µ ± ∞ ¹        ~ (p=0.100 n=3) ²    3.375µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    MapUnmarshalJSON8-4          6.387µ ± ∞ ¹   4.288µ ± ∞ ¹        ~ (p=0.100 n=3) ²    5.618µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONString1-4      326.0n ± ∞ ¹   336.1n ± ∞ ¹        ~ (p=0.200 n=3) ²    271.4n ± ∞ ¹        ~ (p=0.700 n=3) ²
+    SetMarshalJSONString2-4     1001.0n ± ∞ ¹   709.2n ± ∞ ¹        ~ (p=0.100 n=3) ²   1112.0n ± ∞ ¹        ~ (p=0.700 n=3) ²
+    SetMarshalJSONString3-4     1065.0n ± ∞ ¹   763.6n ± ∞ ¹        ~ (p=0.100 n=3) ²   1020.0n ± ∞ ¹        ~ (p=0.700 n=3) ²
+    SetMarshalJSONString5-4     1311.0n ± ∞ ¹   852.6n ± ∞ ¹        ~ (p=0.100 n=3) ²    864.8n ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONString8-4     1695.0n ± ∞ ¹   971.9n ± ∞ ¹        ~ (p=0.100 n=3) ²   1069.0n ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONInt1-4         291.2n ± ∞ ¹   319.0n ± ∞ ¹        ~ (p=0.200 n=3) ²    212.4n ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONInt2-4        1004.0n ± ∞ ¹   687.7n ± ∞ ¹        ~ (p=0.100 n=3) ²    681.1n ± ∞ ¹        ~ (p=0.400 n=3) ²
+    SetMarshalJSONInt3-4        1095.0n ± ∞ ¹   704.7n ± ∞ ¹        ~ (p=0.100 n=3) ²    874.3n ± ∞ ¹        ~ (p=0.200 n=3) ²
+    SetMarshalJSONInt5-4        1199.0n ± ∞ ¹   799.4n ± ∞ ¹        ~ (p=0.100 n=3) ²   1214.0n ± ∞ ¹        ~ (p=1.000 n=3) ²
+    SetMarshalJSONInt8-4        1374.0n ± ∞ ¹   915.3n ± ∞ ¹        ~ (p=0.100 n=3) ²   1078.0n ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONFloat1-4       398.0n ± ∞ ¹   334.4n ± ∞ ¹        ~ (p=0.100 n=3) ²    334.0n ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONFloat2-4      1096.0n ± ∞ ¹   701.2n ± ∞ ¹        ~ (p=0.100 n=3) ²    657.3n ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONFloat3-4      1125.0n ± ∞ ¹   715.3n ± ∞ ¹        ~ (p=0.100 n=3) ²    704.4n ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONFloat5-4      1707.0n ± ∞ ¹   815.2n ± ∞ ¹        ~ (p=0.100 n=3) ²    843.8n ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONFloat8-4      1463.0n ± ∞ ¹   933.4n ± ∞ ¹        ~ (p=0.100 n=3) ²   1144.0n ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONUUID1-4        628.6n ± ∞ ¹   422.7n ± ∞ ¹        ~ (p=0.100 n=3) ²    359.8n ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONUUID2-4       1490.0n ± ∞ ¹   975.5n ± ∞ ¹        ~ (p=0.100 n=3) ²    828.4n ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONUUID3-4        2.339µ ± ∞ ¹   1.066µ ± ∞ ¹        ~ (p=0.100 n=3) ²    1.093µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetMarshalJSONUUID5-4        2.925µ ± ∞ ¹   1.040µ ± ∞ ¹        ~ (p=0.100 n=3) ²    1.554µ ± ∞ ¹        ~ (p=0.700 n=3) ²
+    SetMarshalJSONUUID8-4        3.372µ ± ∞ ¹   1.304µ ± ∞ ¹        ~ (p=0.100 n=3) ²    2.207µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONString1-4    501.3n ± ∞ ¹   533.2n ± ∞ ¹        ~ (p=0.700 n=3) ²    342.9n ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONString2-4    1.483µ ± ∞ ¹   1.158µ ± ∞ ¹        ~ (p=0.100 n=3) ²    1.288µ ± ∞ ¹        ~ (p=0.400 n=3) ²
+    SetUnmarshalJSONString3-4    1.853µ ± ∞ ¹   1.441µ ± ∞ ¹        ~ (p=0.100 n=3) ²    1.375µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONString5-4    2.356µ ± ∞ ¹   1.974µ ± ∞ ¹        ~ (p=0.700 n=3) ²    1.641µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONString8-4    2.939µ ± ∞ ¹   1.775µ ± ∞ ¹        ~ (p=0.100 n=3) ²    2.133µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONInt1-4       493.5n ± ∞ ¹   412.3n ± ∞ ¹        ~ (p=0.100 n=3) ²    304.4n ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONInt2-4       1.444µ ± ∞ ¹   1.166µ ± ∞ ¹        ~ (p=0.100 n=3) ²    1.115µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONInt3-4       1.654µ ± ∞ ¹   1.366µ ± ∞ ¹        ~ (p=0.100 n=3) ²    1.386µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONInt5-4       2.244µ ± ∞ ¹   1.566µ ± ∞ ¹        ~ (p=0.100 n=3) ²    1.647µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONInt8-4       2.625µ ± ∞ ¹   1.821µ ± ∞ ¹        ~ (p=0.100 n=3) ²    2.176µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONFloat1-4     585.2n ± ∞ ¹   444.1n ± ∞ ¹        ~ (p=0.100 n=3) ²    330.7n ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONFloat2-4     1.597µ ± ∞ ¹   1.231µ ± ∞ ¹        ~ (p=0.100 n=3) ²    1.317µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONFloat3-4     1.841µ ± ∞ ¹   1.404µ ± ∞ ¹        ~ (p=0.100 n=3) ²    1.351µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONFloat5-4     2.462µ ± ∞ ¹   1.600µ ± ∞ ¹        ~ (p=0.100 n=3) ²    1.765µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONFloat8-4     2.916µ ± ∞ ¹   1.872µ ± ∞ ¹        ~ (p=0.100 n=3) ²    2.086µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONUUID1-4      890.2n ± ∞ ¹   536.3n ± ∞ ¹        ~ (p=0.100 n=3) ²    425.2n ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONUUID2-4      2.449µ ± ∞ ¹   1.230µ ± ∞ ¹        ~ (p=0.100 n=3) ²    1.318µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONUUID3-4      3.216µ ± ∞ ¹   1.388µ ± ∞ ¹        ~ (p=0.100 n=3) ²    1.643µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONUUID5-4      4.420µ ± ∞ ¹   1.698µ ± ∞ ¹        ~ (p=0.100 n=3) ²    2.016µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    SetUnmarshalJSONUUID8-4      5.910µ ± ∞ ¹   2.039µ ± ∞ ¹        ~ (p=0.100 n=3) ²    2.715µ ± ∞ ¹        ~ (p=0.100 n=3) ²
+    geomean                      1.635µ         1.077µ        -34.11%                    1.190µ        -27.23%
+    ¹ need >= 6 samples for confidence interval at level 0.95
+    ² need >= 4 samples to detect a difference at alpha level 0.05
+
 ## Running the tests
 
 To run integration tests, you'll need access to docker to run an Open vSwitch container.

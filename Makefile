@@ -1,6 +1,7 @@
 OVS_VERSION ?= v3.5.0
 
 TESTS ?=
+TAG ?= std
 
 .PHONY: all
 all: lint build test integration-test coverage
@@ -17,18 +18,18 @@ prebuild: modelgen ovsdb/serverdb/_server.ovsschema example/vswitchd/ovs.ovssche
 
 .PHONY: build
 build: prebuild
-	@echo "+ $@"
+	@echo "+ $@ options: TAG=${TAG}"
 	@go build -v ./...
 
 .PHONY: test
 test: prebuild
-	@echo "+ $@"
-	@go test -race -coverprofile=unit.cov -test.short -timeout 30s -v $(if $(TESTS),-run $(TESTS)) ./...
+	@echo "+ $@ options: TAG=${TAG} TESTS=${TESTS}"
+	@go test -race -coverprofile=unit.cov -tags $(TAG) -test.short -timeout 30s -v $(if $(TESTS),-run $(TESTS)) ./...
 
 .PHONY: integration-test
 integration-test:
-	@echo "+ $@"
-	@go test -race -coverprofile=integration.cov -coverpkg=github.com/ovn-kubernetes/libovsdb/... -timeout 60s -v $(if $(TESTS),-run $(TESTS)) ./test/ovs
+	@echo "+ $@ options: TAG=${TAG} TESTS=${TESTS}"
+	@go test -race -coverprofile=integration.cov -coverpkg=github.com/ovn-kubernetes/libovsdb/... -tags $(TAG) -timeout 60s -v $(if $(TESTS),-run $(TESTS)) ./test/ovs
 
 .PHONY: coverage
 coverage: test integration-test
@@ -37,8 +38,8 @@ coverage: test integration-test
 
 .PHONY: bench
 bench: install-deps prebuild
-	@echo "+ $@"
-	@go test -run=XXX -count=3 $(if $(TESTS),-bench $(TESTS),-bench .) ./... | tee bench.out
+	@echo "+ $@ options: TAG=${TAG} TESTS=${TESTS}"
+	@go test -run=XXX -count=3 -tags $(TAG) $(if $(TESTS),-bench $(TESTS),-bench .) ./... | tee bench.out
 	@benchstat bench.out
 
 .PHONY: install-deps

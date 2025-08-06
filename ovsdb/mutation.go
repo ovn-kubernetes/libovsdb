@@ -1,8 +1,9 @@
 package ovsdb
 
 import (
-	"encoding/json"
 	"fmt"
+
+	"github.com/ovn-kubernetes/libovsdb/internal/json"
 )
 
 type Mutator string
