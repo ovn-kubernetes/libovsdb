@@ -21,7 +21,12 @@ func TestSchema(t *testing.T) {
 	zero := 0
 	one := 1
 	two := 2
+	oneReal := 1.1
+	twoReal := 2.2
+	boolTrue := true
 	boolFalse := false
+	uuid1 := "550e8400-e29b-41d4-a716-446655440000"
+	uuid2 := "550e8400-e29b-41d4-a716-446655440001"
 	schemaTestSuite := []schemaTest{
 		{
 			name: "Simple AtomicType columns",
@@ -113,11 +118,65 @@ func TestSchema(t *testing.T) {
 			    "min": 0
 			  }
 			},
-		        "enumSet": {
+		        "enumSetString1": {
+			  "type": {
+			    "key": {
+			      "type": "string",
+			      "enum": "one"
+			     },
+			    "max": "unlimited",
+			    "min": 0
+			  }
+			},
+		        "enumSetString2": {
 			  "type": {
 			    "key": {
 			      "type": "string",
 			      "enum": ["set", ["one", "two"]]
+			     },
+			    "max": "unlimited",
+			    "min": 0
+			  }
+			},
+		        "enumSetInteger": {
+			  "type": {
+			    "key": {
+			      "type": "integer",
+			      "enum": ["set", [1, 2]],
+				  "minInteger": 1,
+     	          "maxInteger": 2
+			     },
+			    "max": "unlimited",
+			    "min": 0
+			  }
+			},
+		        "enumSetReal": {
+			  "type": {
+			    "key": {
+			      "type": "real",
+			      "enum": ["set", [1.1, 2.2]],
+			      "minReal": 1.1,
+   			      "maxReal": 2.2
+			     },
+			    "max": "unlimited",
+			    "min": 0
+			  }
+			},
+		        "enumSetBoolean": {
+			  "type": {
+			    "key": {
+			      "type": "boolean",
+			      "enum": ["set", [true, false]]
+			     },
+			    "max": "unlimited",
+			    "min": 0
+			  }
+			},
+		        "enumSetUUID": {
+			  "type": {
+			    "key": {
+			      "type": "uuid",
+			      "enum": ["set", [["uuid", "550e8400-e29b-41d4-a716-446655440000"], ["uuid","550e8400-e29b-41d4-a716-446655440001"]]]
 			     },
 			    "max": "unlimited",
 			    "min": 0
@@ -145,7 +204,7 @@ func TestSchema(t *testing.T) {
 							"oneElem": {
 								Type: TypeSet,
 								TypeObj: &ColumnType{
-									Key: &BaseType{Type: "uuid"},
+									Key: &BaseType{Type: TypeUUID},
 									max: &one,
 									min: &zero,
 								},
@@ -153,7 +212,7 @@ func TestSchema(t *testing.T) {
 							"multipleElem": {
 								Type: TypeSet,
 								TypeObj: &ColumnType{
-									Key: &BaseType{Type: "real"},
+									Key: &BaseType{Type: TypeReal},
 									max: &two,
 									min: &zero,
 								},
@@ -161,17 +220,80 @@ func TestSchema(t *testing.T) {
 							"unlimitedElem": {
 								Type: TypeSet,
 								TypeObj: &ColumnType{
-									Key: &BaseType{Type: "integer"},
+									Key: &BaseType{Type: TypeInteger},
 									max: &Unlimited,
 									min: &zero,
 								},
 							},
-							"enumSet": {
+							"enumSetString1": {
 								Type: TypeSet,
 								TypeObj: &ColumnType{
 									Key: &BaseType{
-										Type: "string",
+										Type: TypeString,
+										// e.g. "enum": ["set", ["empty_lb_backends"]]}}},
+										Enum: []any{"one"},
+									},
+									max: &Unlimited,
+									min: &zero,
+								},
+							},
+							"enumSetString2": {
+								Type: TypeSet,
+								TypeObj: &ColumnType{
+									Key: &BaseType{
+										Type: TypeString,
 										Enum: []any{"one", "two"},
+									},
+									max: &Unlimited,
+									min: &zero,
+								},
+							},
+							"enumSetInteger": {
+								Type: TypeSet,
+								TypeObj: &ColumnType{
+									Key: &BaseType{
+										Type:       TypeInteger,
+										Enum:       []any{one, two},
+										minInteger: &one,
+										maxInteger: &two,
+									},
+									max: &Unlimited,
+									min: &zero,
+								},
+							},
+							"enumSetReal": {
+								Type: TypeSet,
+								TypeObj: &ColumnType{
+									Key: &BaseType{
+										Type:    TypeReal,
+										Enum:    []any{oneReal, twoReal},
+										minReal: &oneReal,
+										maxReal: &twoReal,
+									},
+									max: &Unlimited,
+									min: &zero,
+								},
+							},
+							"enumSetBoolean": {
+								Type: TypeSet,
+								TypeObj: &ColumnType{
+									Key: &BaseType{
+										Type: TypeBoolean,
+										Enum: []any{boolTrue, boolFalse},
+									},
+									max: &Unlimited,
+									min: &zero,
+								},
+							},
+							"enumSetUUID": {
+								Type: TypeSet,
+								TypeObj: &ColumnType{
+									Key: &BaseType{
+										Type: TypeUUID,
+										Enum: []any{
+											[]any{"uuid", uuid1},
+											[]any{"uuid", uuid2},
+										},
 									},
 									max: &Unlimited,
 									min: &zero,

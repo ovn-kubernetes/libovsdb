@@ -183,6 +183,7 @@ var _ model.ComparableModel = &{{ $structName }}{}
 //   - `FieldTypeWithEnums`: same as FieldType but with enum type expansion
 //   - `OvsdbTag`: prints the ovsdb tag
 //   - `ValidationTag`: generates the 'validate' struct tag based on OVSDB schema constraints
+//   - `EnumAliasSuffix`: print enum type alias suffix based on column type
 func NewTableTemplate() *template.Template {
 	return template.Must(template.New("").Funcs(
 		template.FuncMap{
@@ -192,6 +193,8 @@ func NewTableTemplate() *template.Template {
 			"FieldTypeWithEnums": FieldTypeWithEnums,
 			"OvsdbTag":           Tag,
 			"ValidationTag":      ValidationTag,
+			"AtomicType":         AtomicType,
+			"EnumAliasSuffix":    enumAliasSuffix,
 		},
 	).Parse(extendedGenTemplate + `
 {{- define "header" }}
@@ -216,7 +219,7 @@ const {{ index . "StructName" }}Table = "{{ index . "TableName" }}"
 {{ if index . "Enums" }}
 type (
 {{ range index . "Enums" }}
-{{ .Alias }} = {{ .Type }}
+{{ .Alias }} = {{ AtomicType .Type }}
 {{- end }}
 )
 
@@ -224,7 +227,7 @@ var (
 {{ range  index . "Enums" }}
 {{- $e := . }}
 {{- range .Sets }}
-{{ $e.Alias }}{{ FieldName . }} {{ $e.Alias }} = {{ PrintVal . $e.Type }}
+{{ $e.Alias }}{{ EnumAliasSuffix . $e.Type }} {{ $e.Alias }} = {{ PrintVal . $e.Type }}
 {{- end }}
 {{- end }}
 )
@@ -424,60 +427,143 @@ func getAtomicValidations(atomicSchema *ovsdb.BaseType) []string {
 	if atomicSchema == nil {
 		return nil
 	}
-	var validations []string
+
 	switch atomicSchema.Type {
 	case ovsdb.TypeInteger:
-		if minVal, err := atomicSchema.MinInteger(); err == nil {
-			defaultMinInteger := math.MinInt64
-			if minVal != defaultMinInteger {
-				validations = append(validations, fmt.Sprintf("min=%d", minVal))
-			}
-		}
-		if maxVal, err := atomicSchema.MaxInteger(); err == nil {
-			defaultMaxInteger := math.MaxInt64
-			if maxVal != defaultMaxInteger {
-				validations = append(validations, fmt.Sprintf("max=%d", maxVal))
-			}
-		}
+		return getIntegerValidations(atomicSchema)
 	case ovsdb.TypeReal:
-		if minVal, err := atomicSchema.MinReal(); err == nil {
-			defaultMinReal := math.SmallestNonzeroFloat64
-			if minVal != defaultMinReal { // This comparison might have precision issues
-				validations = append(validations, fmt.Sprintf("min=%f", minVal))
-			}
-		}
-		if maxVal, err := atomicSchema.MaxReal(); err == nil {
-			defaultMaxReal := math.MaxFloat64
-			if maxVal != defaultMaxReal {
-				validations = append(validations, fmt.Sprintf("max=%f", maxVal))
-			}
-		}
+		return getRealValidations(atomicSchema)
 	case ovsdb.TypeString:
-		if maxVal, err := atomicSchema.MaxLength(); err == nil {
-			if maxVal != math.MaxInt32 && maxVal != math.MaxInt64 {
-				validations = append(validations, fmt.Sprintf("max=%d", maxVal))
-			}
-		}
-		if len(atomicSchema.Enum) > 0 {
-			var enumValuesForTag []string
-			for _, val := range atomicSchema.Enum {
-				if strVal, ok := val.(string); ok {
-					enumValuesForTag = append(enumValuesForTag, fmt.Sprintf("'%s'", strVal))
-				} else {
-					enumValuesForTag = append(enumValuesForTag, fmt.Sprintf("'%v'", val))
-				}
-			}
-			if len(enumValuesForTag) > 0 {
-				validations = append(validations, "oneof="+strings.Join(enumValuesForTag, " "))
-			}
-		}
+		return getStringValidations(atomicSchema)
 	case ovsdb.TypeUUID:
-		// named-uuid, cannot validate in uuid
-		break
+		return getUUIDValidations(atomicSchema)
 	case ovsdb.TypeBoolean:
-		// No specific value validations for boolean (e.g. min/max)
-		break
+		return getBooleanValidations(atomicSchema)
+	default:
+		return nil
 	}
+}
+
+// getIntegerValidations generates validation tags for integer types.
+func getIntegerValidations(atomicSchema *ovsdb.BaseType) []string {
+	var validations []string
+
+	if minVal, err := atomicSchema.MinInteger(); err == nil {
+		if minVal != math.MinInt64 {
+			validations = append(validations, fmt.Sprintf("min=%d", minVal))
+		}
+	}
+
+	if maxVal, err := atomicSchema.MaxInteger(); err == nil {
+		if maxVal != math.MaxInt64 {
+			validations = append(validations, fmt.Sprintf("max=%d", maxVal))
+		}
+	}
+
+	if len(atomicSchema.Enum) > 0 {
+		var enumValues []string
+		for _, val := range atomicSchema.Enum {
+			enumValues = append(enumValues, fmt.Sprintf("%v", val))
+		}
+		validations = append(validations, "oneof="+strings.Join(enumValues, " "))
+	}
+
+	return validations
+}
+
+// getRealValidations generates validation tags for real (float) types.
+func getRealValidations(atomicSchema *ovsdb.BaseType) []string {
+	var validations []string
+
+	if minVal, err := atomicSchema.MinReal(); err == nil {
+		if !floatEqual(minVal, math.SmallestNonzeroFloat64) {
+			validations = append(validations, fmt.Sprintf("min=%g", minVal))
+		}
+	}
+
+	if maxVal, err := atomicSchema.MaxReal(); err == nil {
+		if !floatEqual(maxVal, math.MaxFloat64) {
+			validations = append(validations, fmt.Sprintf("max=%g", maxVal))
+		}
+	}
+
+	if len(atomicSchema.Enum) > 0 {
+		// github.com/go-playground/validator/v10 don't support oneof float64
+		var eqParts []string
+		for _, val := range atomicSchema.Enum {
+			eqParts = append(eqParts, fmt.Sprintf("eq=%g", val))
+		}
+		validations = append(validations, strings.Join(eqParts, "|"))
+	}
+
+	return validations
+}
+
+// getStringValidations generates validation tags for string types.
+func getStringValidations(atomicSchema *ovsdb.BaseType) []string {
+	var validations []string
+
+	if maxVal, err := atomicSchema.MaxLength(); err == nil {
+		if maxVal != math.MaxInt32 && maxVal != math.MaxInt64 {
+			validations = append(validations, fmt.Sprintf("max=%d", maxVal))
+		}
+	}
+
+	if len(atomicSchema.Enum) > 0 {
+		var enumValues []string
+		for _, val := range atomicSchema.Enum {
+			enumValues = append(enumValues, fmt.Sprintf("'%s'", val))
+		}
+		validations = append(validations, "oneof="+strings.Join(enumValues, " "))
+	}
+
+	return validations
+}
+
+// getUUIDValidations generates validation tags for UUID types.
+func getUUIDValidations(atomicSchema *ovsdb.BaseType) []string {
+	var validations []string
+
+	// named-uuid, cannot validate in uuid
+	if len(atomicSchema.Enum) > 0 {
+		var enumValues []string
+		for _, val := range atomicSchema.Enum {
+			enumValues = append(enumValues, fmt.Sprintf("'%s'", val))
+		}
+		validations = append(validations, "oneof="+strings.Join(enumValues, " "))
+	}
+
+	return validations
+}
+
+// getBooleanValidations generates validation tags for boolean types.
+func getBooleanValidations(atomicSchema *ovsdb.BaseType) []string {
+	var validations []string
+
+	if len(atomicSchema.Enum) > 0 {
+		// github.com/go-playground/validator/v10 don't support oneof boolean
+		var includeTrue, includeFalse bool
+		for _, val := range atomicSchema.Enum {
+			if val == true {
+				includeTrue = true
+			} else {
+				includeFalse = true
+			}
+		}
+
+		// If both true and false are allowed, no validation needed
+		if includeTrue && includeFalse {
+			return validations
+		}
+
+		if includeTrue {
+			validations = append(validations, "eq=true")
+		}
+		if includeFalse {
+			validations = append(validations, "eq=false")
+		}
+	}
+
 	return validations
 }
 
@@ -558,7 +644,7 @@ func getAtomicTypeValidations(schema *ovsdb.ColumnSchema) []string {
 		baseTypeForAtomic = &ovsdb.BaseType{Type: schema.Type}
 	}
 
-	if baseTypeForAtomic != nil && baseTypeForAtomic.Type != ovsdb.TypeUUID {
+	if baseTypeForAtomic != nil {
 		return getAtomicValidations(baseTypeForAtomic)
 	}
 	return nil
@@ -684,14 +770,34 @@ func expandInitilaisms(s string) string {
 
 func printVal(v any, t string) string {
 	switch t {
-	case "int":
+	case "integer":
 		return fmt.Sprintf(`%d`, v)
-	case "float64":
-		return fmt.Sprintf(`%f`, v)
-	case "bool":
+	case "real":
+		return fmt.Sprintf(`%g`, v)
+	case "boolean":
 		return fmt.Sprintf(`%t`, v)
-	case "string":
+	case "string", "uuid":
 		return fmt.Sprintf(`"%s"`, v)
 	}
 	return ""
+}
+
+func enumAliasSuffix(v any, t string) string {
+	switch t {
+	case "integer":
+		return fmt.Sprintf(`%d`, v)
+	case "real":
+		return strings.Replace(fmt.Sprintf(`%g`, v), ".", "_", 1)
+	case "boolean":
+		return fmt.Sprintf(`%t`, v)
+	case "string":
+		return FieldName(fmt.Sprintf(`%s`, v))
+	case "uuid":
+		return strings.ReplaceAll(fmt.Sprintf(`%s`, v), "-", "_")
+	}
+	return ""
+}
+
+func floatEqual(a, b float64) bool {
+	return math.Abs(a-b) < 1e-9
 }
