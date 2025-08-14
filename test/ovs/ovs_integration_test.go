@@ -40,7 +40,7 @@ func (suite *OVSIntegrationSuite) SetupSuite() {
 	}
 
 	options := &dockertest.RunOptions{
-		Repository:   "libovsdb/ovs",
+		Repository:   "ghcr.io/ovn-kubernetes/ovs",
 		Tag:          tag,
 		ExposedPorts: []string{"6640/tcp"},
 		PortBindings: map[docker.Port][]docker.PortBinding{
