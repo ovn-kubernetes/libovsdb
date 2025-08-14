@@ -45,6 +45,7 @@ jobs:
 
       - name: Upload test coverage
         uses: shogo82148/actions-goveralls@v1
+        continue-on-error: true
         with:
           path-to-profile: profile.cov
 
