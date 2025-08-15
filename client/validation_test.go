@@ -21,6 +21,10 @@ type testValidationModel struct {
 	KeyConfig   map[int]int       `validate:"dive,keys,min=0,max=10"`
 	ValueConfig map[string]int    `validate:"dive,min=0,max=10"`
 	IsActive    bool
+	EnumInteger int     `validate:"oneof=0 1 2"`
+	EnumReal    float64 `validate:"eq=0|eq=1.1|eq=2.2"`
+	EnumBoolean bool    `validate:"eq=false"`
+	EnumUUID    *string `validate:"omitempty,oneof='550e8400-e29b-41d4-a716-446655440000' '550e8400-e29b-41d4-a716-446655440001'"`
 }
 
 type testValidationNestedModel struct {
@@ -29,6 +33,10 @@ type testValidationNestedModel struct {
 }
 
 func intPtr(i int) *int {
+	return &i
+}
+
+func strPtr(i string) *string {
 	return &i
 }
 
@@ -214,6 +222,42 @@ func TestValidateModel_Invalid(t *testing.T) {
 				ValueConfig: map[string]int{"key1": 11, "key2": 10},
 			},
 			expectedError: "field 'testValidationModel.ValueConfig[key1]' (value: '11') failed on rule 'max' (param: 10)",
+		},
+		{
+			name: "invalid enum integer",
+			model: testValidationModel{
+				Name:        "Test Name",
+				Age:         30,
+				EnumInteger: 3,
+			},
+			expectedError: "field 'testValidationModel.EnumInteger' (value: '3') failed on rule 'oneof' (param: 0 1 2)",
+		},
+		{
+			name: "invalid enum real",
+			model: testValidationModel{
+				Name:     "Test Name",
+				Age:      30,
+				EnumReal: 6.6,
+			},
+			expectedError: "field 'testValidationModel.EnumReal' (value: '6.6') failed on rule 'eq=0|eq=1.1|eq=2.2' (param: 2.2)",
+		},
+		{
+			name: "invalid enum bool",
+			model: testValidationModel{
+				Name:        "Test Name",
+				Age:         30,
+				EnumBoolean: true,
+			},
+			expectedError: "field 'testValidationModel.EnumBoolean' (value: 'true') failed on rule 'eq' (param: false)",
+		},
+		{
+			name: "invalid enum uuid",
+			model: testValidationModel{
+				Name:     "Test Name",
+				Age:      30,
+				EnumUUID: strPtr("550e8400-e29b-41d4-a716-446655440002"),
+			},
+			expectedError: "field 'testValidationModel.EnumUUID' (value: '550e8400-e29b-41d4-a716-446655440002') failed on rule 'oneof' (param: '550e8400-e29b-41d4-a716-446655440000' '550e8400-e29b-41d4-a716-446655440001')",
 		},
 	}
 

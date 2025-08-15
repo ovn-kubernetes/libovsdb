@@ -37,7 +37,15 @@ func TestNewTableTemplate(t *testing.T) {
 								 "enum": ["set", ["tcp", "udp", "sctp"]]},
 								 "min": 0, "max": 1}},
 					"event_type": {"type": {"key": {"type": "string",
-													"enum": ["set", ["empty_lb_backends"]]}}}
+													"enum": ["set", ["empty_lb_backends"]]}}},
+					"int_enum": {"type": {"key": {"type": "integer",
+												  "enum": ["set", [1, 2]]}}},
+					"real_enum": {"type": {"key": {"type": "real",
+												  "enum": ["set", [1.1, 2.2]]}}},
+					"boolean_enum": {"type": {"key": {"type": "boolean",
+												  "enum": ["set", [true, false]]}}},
+					"uuid_enum": {"type": {"key": {"type": "uuid",
+												  "enum": ["set", ["550e8400-e29b-41d4-a716-446655440000", "550e8400-e29b-41d4-a716-446655440001"]]}}}
 				}
 			}
 		}
@@ -60,25 +68,41 @@ package test
 const AtomicTableTable = "atomicTable"
 
 type (
-	AtomicTableEventType = string
-	AtomicTableProtocol  = string
+	AtomicTableBooleanEnum = bool
+	AtomicTableEventType   = string
+	AtomicTableIntEnum     = int
+	AtomicTableProtocol    = string
+	AtomicTableRealEnum    = float64
+	AtomicTableUUIDEnum    = string
 )
 
 var (
-	AtomicTableEventTypeEmptyLbBackends AtomicTableEventType = "empty_lb_backends"
-	AtomicTableProtocolTCP              AtomicTableProtocol  = "tcp"
-	AtomicTableProtocolUDP              AtomicTableProtocol  = "udp"
-	AtomicTableProtocolSCTP             AtomicTableProtocol  = "sctp"
+	AtomicTableBooleanEnumtrue                              AtomicTableBooleanEnum = true
+	AtomicTableBooleanEnumfalse                             AtomicTableBooleanEnum = false
+	AtomicTableEventTypeEmptyLbBackends                     AtomicTableEventType   = "empty_lb_backends"
+	AtomicTableIntEnum1                                     AtomicTableIntEnum     = 1
+	AtomicTableIntEnum2                                     AtomicTableIntEnum     = 2
+	AtomicTableProtocolTCP                                  AtomicTableProtocol    = "tcp"
+	AtomicTableProtocolUDP                                  AtomicTableProtocol    = "udp"
+	AtomicTableProtocolSCTP                                 AtomicTableProtocol    = "sctp"
+	AtomicTableRealEnum1_1                                  AtomicTableRealEnum    = 1.1
+	AtomicTableRealEnum2_2                                  AtomicTableRealEnum    = 2.2
+	AtomicTableUUIDEnum550e8400_e29b_41d4_a716_446655440000 AtomicTableUUIDEnum    = "550e8400-e29b-41d4-a716-446655440000"
+	AtomicTableUUIDEnum550e8400_e29b_41d4_a716_446655440001 AtomicTableUUIDEnum    = "550e8400-e29b-41d4-a716-446655440001"
 )
 
 // AtomicTable defines an object in atomicTable table
 type AtomicTable struct {
-	UUID      string               ` + "`" + `ovsdb:"_uuid"` + "`" + `
-	EventType AtomicTableEventType ` + "`" + `ovsdb:"event_type" validate:"oneof='empty_lb_backends'"` + "`" + `
-	Float     float64              ` + "`" + `ovsdb:"float"` + "`" + `
-	Int       int                  ` + "`" + `ovsdb:"int"` + "`" + `
-	Protocol  *AtomicTableProtocol ` + "`" + `ovsdb:"protocol" validate:"omitempty,oneof='tcp' 'udp' 'sctp'"` + "`" + `
-	Str       string               ` + "`" + `ovsdb:"str"` + "`" + `
+	UUID        string                 ` + "`" + `ovsdb:"_uuid"` + "`" + `
+	BooleanEnum AtomicTableBooleanEnum ` + "`" + `ovsdb:"boolean_enum"` + "`" + `
+	EventType   AtomicTableEventType   ` + "`" + `ovsdb:"event_type" validate:"oneof='empty_lb_backends'"` + "`" + `
+	Float       float64                ` + "`" + `ovsdb:"float"` + "`" + `
+	Int         int                    ` + "`" + `ovsdb:"int"` + "`" + `
+	IntEnum     AtomicTableIntEnum     ` + "`" + `ovsdb:"int_enum" validate:"oneof=1 2"` + "`" + `
+	Protocol    *AtomicTableProtocol   ` + "`" + `ovsdb:"protocol" validate:"omitempty,oneof='tcp' 'udp' 'sctp'"` + "`" + `
+	RealEnum    AtomicTableRealEnum    ` + "`" + `ovsdb:"real_enum" validate:"eq=1.1|eq=2.2"` + "`" + `
+	Str         string                 ` + "`" + `ovsdb:"str"` + "`" + `
+	UUIDEnum    AtomicTableUUIDEnum    ` + "`" + `ovsdb:"uuid_enum" validate:"oneof='550e8400-e29b-41d4-a716-446655440000' '550e8400-e29b-41d4-a716-446655440001'"` + "`" + `
 }
 `,
 		},
@@ -96,12 +120,16 @@ const AtomicTableTable = "atomicTable"
 
 // AtomicTable defines an object in atomicTable table
 type AtomicTable struct {
-	UUID      string  ` + "`" + `ovsdb:"_uuid"` + "`" + `
-	EventType string  ` + "`" + `ovsdb:"event_type" validate:"oneof='empty_lb_backends'"` + "`" + `
-	Float     float64 ` + "`" + `ovsdb:"float"` + "`" + `
-	Int       int     ` + "`" + `ovsdb:"int"` + "`" + `
-	Protocol  *string ` + "`" + `ovsdb:"protocol" validate:"omitempty,oneof='tcp' 'udp' 'sctp'"` + "`" + `
-	Str       string  ` + "`" + `ovsdb:"str"` + "`" + `
+	UUID        string  ` + "`" + `ovsdb:"_uuid"` + "`" + `
+	BooleanEnum bool    ` + "`" + `ovsdb:"boolean_enum"` + "`" + `
+	EventType   string  ` + "`" + `ovsdb:"event_type" validate:"oneof='empty_lb_backends'"` + "`" + `
+	Float       float64 ` + "`" + `ovsdb:"float"` + "`" + `
+	Int         int     ` + "`" + `ovsdb:"int"` + "`" + `
+	IntEnum     int     ` + "`" + `ovsdb:"int_enum" validate:"oneof=1 2"` + "`" + `
+	Protocol    *string ` + "`" + `ovsdb:"protocol" validate:"omitempty,oneof='tcp' 'udp' 'sctp'"` + "`" + `
+	RealEnum    float64 ` + "`" + `ovsdb:"real_enum" validate:"eq=1.1|eq=2.2"` + "`" + `
+	Str         string  ` + "`" + `ovsdb:"str"` + "`" + `
+	UUIDEnum    string  ` + "`" + `ovsdb:"uuid_enum" validate:"oneof='550e8400-e29b-41d4-a716-446655440000' '550e8400-e29b-41d4-a716-446655440001'"` + "`" + `
 }
 `,
 		},
@@ -124,32 +152,52 @@ package test
 const AtomicTableTable = "atomicTable"
 
 type (
-	AtomicTableEventType = string
-	AtomicTableProtocol  = string
+	AtomicTableBooleanEnum = bool
+	AtomicTableEventType   = string
+	AtomicTableIntEnum     = int
+	AtomicTableProtocol    = string
+	AtomicTableRealEnum    = float64
+	AtomicTableUUIDEnum    = string
 )
 
 var (
-	AtomicTableEventTypeEmptyLbBackends AtomicTableEventType = "empty_lb_backends"
-	AtomicTableProtocolTCP              AtomicTableProtocol  = "tcp"
-	AtomicTableProtocolUDP              AtomicTableProtocol  = "udp"
-	AtomicTableProtocolSCTP             AtomicTableProtocol  = "sctp"
+	AtomicTableBooleanEnumtrue                              AtomicTableBooleanEnum = true
+	AtomicTableBooleanEnumfalse                             AtomicTableBooleanEnum = false
+	AtomicTableEventTypeEmptyLbBackends                     AtomicTableEventType   = "empty_lb_backends"
+	AtomicTableIntEnum1                                     AtomicTableIntEnum     = 1
+	AtomicTableIntEnum2                                     AtomicTableIntEnum     = 2
+	AtomicTableProtocolTCP                                  AtomicTableProtocol    = "tcp"
+	AtomicTableProtocolUDP                                  AtomicTableProtocol    = "udp"
+	AtomicTableProtocolSCTP                                 AtomicTableProtocol    = "sctp"
+	AtomicTableRealEnum1_1                                  AtomicTableRealEnum    = 1.1
+	AtomicTableRealEnum2_2                                  AtomicTableRealEnum    = 2.2
+	AtomicTableUUIDEnum550e8400_e29b_41d4_a716_446655440000 AtomicTableUUIDEnum    = "550e8400-e29b-41d4-a716-446655440000"
+	AtomicTableUUIDEnum550e8400_e29b_41d4_a716_446655440001 AtomicTableUUIDEnum    = "550e8400-e29b-41d4-a716-446655440001"
 )
 
 // AtomicTable defines an object in atomicTable table
 type AtomicTable struct {
-	UUID      string               ` + "`" + `ovsdb:"_uuid"` + "`" + `
-	EventType AtomicTableEventType ` + "`" + `ovsdb:"event_type" validate:"oneof='empty_lb_backends'"` + "`" + `
-	Float     float64              ` + "`" + `ovsdb:"float"` + "`" + `
-	Int       int                  ` + "`" + `ovsdb:"int"` + "`" + `
-	Protocol  *AtomicTableProtocol ` + "`" + `ovsdb:"protocol" validate:"omitempty,oneof='tcp' 'udp' 'sctp'"` + "`" + `
-	Str       string               ` + "`" + `ovsdb:"str"` + "`" + `
+	UUID        string                 ` + "`" + `ovsdb:"_uuid"` + "`" + `
+	BooleanEnum AtomicTableBooleanEnum ` + "`" + `ovsdb:"boolean_enum"` + "`" + `
+	EventType   AtomicTableEventType   ` + "`" + `ovsdb:"event_type" validate:"oneof='empty_lb_backends'"` + "`" + `
+	Float       float64                ` + "`" + `ovsdb:"float"` + "`" + `
+	Int         int                    ` + "`" + `ovsdb:"int"` + "`" + `
+	IntEnum     AtomicTableIntEnum     ` + "`" + `ovsdb:"int_enum" validate:"oneof=1 2"` + "`" + `
+	Protocol    *AtomicTableProtocol   ` + "`" + `ovsdb:"protocol" validate:"omitempty,oneof='tcp' 'udp' 'sctp'"` + "`" + `
+	RealEnum    AtomicTableRealEnum    ` + "`" + `ovsdb:"real_enum" validate:"eq=1.1|eq=2.2"` + "`" + `
+	Str         string                 ` + "`" + `ovsdb:"str"` + "`" + `
+	UUIDEnum    AtomicTableUUIDEnum    ` + "`" + `ovsdb:"uuid_enum" validate:"oneof='550e8400-e29b-41d4-a716-446655440000' '550e8400-e29b-41d4-a716-446655440001'"` + "`" + `
 
-	OtherUUID      string
-	OtherEventType string
-	OtherFloat     float64
-	OtherInt       int
-	OtherProtocol  *string
-	OtherStr       string
+	OtherUUID        string
+	OtherBooleanEnum bool
+	OtherEventType   string
+	OtherFloat       float64
+	OtherInt         int
+	OtherIntEnum     int
+	OtherProtocol    *string
+	OtherRealEnum    float64
+	OtherStr         string
+	OtherUUIDEnum    string
 }
 `,
 		},
@@ -168,29 +216,49 @@ import "github.com/ovn-kubernetes/libovsdb/model"
 const AtomicTableTable = "atomicTable"
 
 type (
-	AtomicTableEventType = string
-	AtomicTableProtocol  = string
+	AtomicTableBooleanEnum = bool
+	AtomicTableEventType   = string
+	AtomicTableIntEnum     = int
+	AtomicTableProtocol    = string
+	AtomicTableRealEnum    = float64
+	AtomicTableUUIDEnum    = string
 )
 
 var (
-	AtomicTableEventTypeEmptyLbBackends AtomicTableEventType = "empty_lb_backends"
-	AtomicTableProtocolTCP              AtomicTableProtocol  = "tcp"
-	AtomicTableProtocolUDP              AtomicTableProtocol  = "udp"
-	AtomicTableProtocolSCTP             AtomicTableProtocol  = "sctp"
+	AtomicTableBooleanEnumtrue                              AtomicTableBooleanEnum = true
+	AtomicTableBooleanEnumfalse                             AtomicTableBooleanEnum = false
+	AtomicTableEventTypeEmptyLbBackends                     AtomicTableEventType   = "empty_lb_backends"
+	AtomicTableIntEnum1                                     AtomicTableIntEnum     = 1
+	AtomicTableIntEnum2                                     AtomicTableIntEnum     = 2
+	AtomicTableProtocolTCP                                  AtomicTableProtocol    = "tcp"
+	AtomicTableProtocolUDP                                  AtomicTableProtocol    = "udp"
+	AtomicTableProtocolSCTP                                 AtomicTableProtocol    = "sctp"
+	AtomicTableRealEnum1_1                                  AtomicTableRealEnum    = 1.1
+	AtomicTableRealEnum2_2                                  AtomicTableRealEnum    = 2.2
+	AtomicTableUUIDEnum550e8400_e29b_41d4_a716_446655440000 AtomicTableUUIDEnum    = "550e8400-e29b-41d4-a716-446655440000"
+	AtomicTableUUIDEnum550e8400_e29b_41d4_a716_446655440001 AtomicTableUUIDEnum    = "550e8400-e29b-41d4-a716-446655440001"
 )
 
 // AtomicTable defines an object in atomicTable table
 type AtomicTable struct {
-	UUID      string               ` + "`" + `ovsdb:"_uuid"` + "`" + `
-	EventType AtomicTableEventType ` + "`" + `ovsdb:"event_type" validate:"oneof='empty_lb_backends'"` + "`" + `
-	Float     float64              ` + "`" + `ovsdb:"float"` + "`" + `
-	Int       int                  ` + "`" + `ovsdb:"int"` + "`" + `
-	Protocol  *AtomicTableProtocol ` + "`" + `ovsdb:"protocol" validate:"omitempty,oneof='tcp' 'udp' 'sctp'"` + "`" + `
-	Str       string               ` + "`" + `ovsdb:"str"` + "`" + `
+	UUID        string                 ` + "`" + `ovsdb:"_uuid"` + "`" + `
+	BooleanEnum AtomicTableBooleanEnum ` + "`" + `ovsdb:"boolean_enum"` + "`" + `
+	EventType   AtomicTableEventType   ` + "`" + `ovsdb:"event_type" validate:"oneof='empty_lb_backends'"` + "`" + `
+	Float       float64                ` + "`" + `ovsdb:"float"` + "`" + `
+	Int         int                    ` + "`" + `ovsdb:"int"` + "`" + `
+	IntEnum     AtomicTableIntEnum     ` + "`" + `ovsdb:"int_enum" validate:"oneof=1 2"` + "`" + `
+	Protocol    *AtomicTableProtocol   ` + "`" + `ovsdb:"protocol" validate:"omitempty,oneof='tcp' 'udp' 'sctp'"` + "`" + `
+	RealEnum    AtomicTableRealEnum    ` + "`" + `ovsdb:"real_enum" validate:"eq=1.1|eq=2.2"` + "`" + `
+	Str         string                 ` + "`" + `ovsdb:"str"` + "`" + `
+	UUIDEnum    AtomicTableUUIDEnum    ` + "`" + `ovsdb:"uuid_enum" validate:"oneof='550e8400-e29b-41d4-a716-446655440000' '550e8400-e29b-41d4-a716-446655440001'"` + "`" + `
 }
 
 func (a *AtomicTable) GetUUID() string {
 	return a.UUID
+}
+
+func (a *AtomicTable) GetBooleanEnum() AtomicTableBooleanEnum {
+	return a.BooleanEnum
 }
 
 func (a *AtomicTable) GetEventType() AtomicTableEventType {
@@ -203,6 +271,10 @@ func (a *AtomicTable) GetFloat() float64 {
 
 func (a *AtomicTable) GetInt() int {
 	return a.Int
+}
+
+func (a *AtomicTable) GetIntEnum() AtomicTableIntEnum {
+	return a.IntEnum
 }
 
 func (a *AtomicTable) GetProtocol() *AtomicTableProtocol {
@@ -227,8 +299,16 @@ func equalAtomicTableProtocol(a, b *AtomicTableProtocol) bool {
 	return *a == *b
 }
 
+func (a *AtomicTable) GetRealEnum() AtomicTableRealEnum {
+	return a.RealEnum
+}
+
 func (a *AtomicTable) GetStr() string {
 	return a.Str
+}
+
+func (a *AtomicTable) GetUUIDEnum() AtomicTableUUIDEnum {
+	return a.UUIDEnum
 }
 
 func (a *AtomicTable) DeepCopyInto(b *AtomicTable) {
@@ -253,11 +333,15 @@ func (a *AtomicTable) CloneModel() model.Model {
 
 func (a *AtomicTable) Equals(b *AtomicTable) bool {
 	return a.UUID == b.UUID &&
+		a.BooleanEnum == b.BooleanEnum &&
 		a.EventType == b.EventType &&
 		a.Float == b.Float &&
 		a.Int == b.Int &&
+		a.IntEnum == b.IntEnum &&
 		equalAtomicTableProtocol(a.Protocol, b.Protocol) &&
-		a.Str == b.Str
+		a.RealEnum == b.RealEnum &&
+		a.Str == b.Str &&
+		a.UUIDEnum == b.UUIDEnum
 }
 
 func (a *AtomicTable) EqualsModel(b model.Model) bool {
@@ -326,32 +410,52 @@ import "fmt"
 const AtomicTableTable = "atomicTable"
 
 type (
-	AtomicTableEventType = string
-	AtomicTableProtocol  = string
+	AtomicTableBooleanEnum = bool
+	AtomicTableEventType   = string
+	AtomicTableIntEnum     = int
+	AtomicTableProtocol    = string
+	AtomicTableRealEnum    = float64
+	AtomicTableUUIDEnum    = string
 )
 
 var (
-	AtomicTableEventTypeEmptyLbBackends AtomicTableEventType = "empty_lb_backends"
-	AtomicTableProtocolTCP              AtomicTableProtocol  = "tcp"
-	AtomicTableProtocolUDP              AtomicTableProtocol  = "udp"
-	AtomicTableProtocolSCTP             AtomicTableProtocol  = "sctp"
+	AtomicTableBooleanEnumtrue                              AtomicTableBooleanEnum = true
+	AtomicTableBooleanEnumfalse                             AtomicTableBooleanEnum = false
+	AtomicTableEventTypeEmptyLbBackends                     AtomicTableEventType   = "empty_lb_backends"
+	AtomicTableIntEnum1                                     AtomicTableIntEnum     = 1
+	AtomicTableIntEnum2                                     AtomicTableIntEnum     = 2
+	AtomicTableProtocolTCP                                  AtomicTableProtocol    = "tcp"
+	AtomicTableProtocolUDP                                  AtomicTableProtocol    = "udp"
+	AtomicTableProtocolSCTP                                 AtomicTableProtocol    = "sctp"
+	AtomicTableRealEnum1_1                                  AtomicTableRealEnum    = 1.1
+	AtomicTableRealEnum2_2                                  AtomicTableRealEnum    = 2.2
+	AtomicTableUUIDEnum550e8400_e29b_41d4_a716_446655440000 AtomicTableUUIDEnum    = "550e8400-e29b-41d4-a716-446655440000"
+	AtomicTableUUIDEnum550e8400_e29b_41d4_a716_446655440001 AtomicTableUUIDEnum    = "550e8400-e29b-41d4-a716-446655440001"
 )
 
 // AtomicTable defines an object in atomicTable table
 type AtomicTable struct {
-	UUID      string               ` + "`" + `ovsdb:"_uuid"` + "`" + `
-	EventType AtomicTableEventType ` + "`" + `ovsdb:"event_type" validate:"oneof='empty_lb_backends'"` + "`" + `
-	Float     float64              ` + "`" + `ovsdb:"float"` + "`" + `
-	Int       int                  ` + "`" + `ovsdb:"int"` + "`" + `
-	Protocol  *AtomicTableProtocol ` + "`" + `ovsdb:"protocol" validate:"omitempty,oneof='tcp' 'udp' 'sctp'"` + "`" + `
-	Str       string               ` + "`" + `ovsdb:"str"` + "`" + `
+	UUID        string                 ` + "`" + `ovsdb:"_uuid"` + "`" + `
+	BooleanEnum AtomicTableBooleanEnum ` + "`" + `ovsdb:"boolean_enum"` + "`" + `
+	EventType   AtomicTableEventType   ` + "`" + `ovsdb:"event_type" validate:"oneof='empty_lb_backends'"` + "`" + `
+	Float       float64                ` + "`" + `ovsdb:"float"` + "`" + `
+	Int         int                    ` + "`" + `ovsdb:"int"` + "`" + `
+	IntEnum     AtomicTableIntEnum     ` + "`" + `ovsdb:"int_enum" validate:"oneof=1 2"` + "`" + `
+	Protocol    *AtomicTableProtocol   ` + "`" + `ovsdb:"protocol" validate:"omitempty,oneof='tcp' 'udp' 'sctp'"` + "`" + `
+	RealEnum    AtomicTableRealEnum    ` + "`" + `ovsdb:"real_enum" validate:"eq=1.1|eq=2.2"` + "`" + `
+	Str         string                 ` + "`" + `ovsdb:"str"` + "`" + `
+	UUIDEnum    AtomicTableUUIDEnum    ` + "`" + `ovsdb:"uuid_enum" validate:"oneof='550e8400-e29b-41d4-a716-446655440000' '550e8400-e29b-41d4-a716-446655440001'"` + "`" + `
 
-	OtherUUID      string
-	OtherEventType string
-	OtherFloat     float64
-	OtherInt       int
-	OtherProtocol  *string
-	OtherStr       string
+	OtherUUID        string
+	OtherBooleanEnum bool
+	OtherEventType   string
+	OtherFloat       float64
+	OtherInt         int
+	OtherIntEnum     int
+	OtherProtocol    *string
+	OtherRealEnum    float64
+	OtherStr         string
+	OtherUUIDEnum    string
 }
 
 func copyAtomicTableOtherProtocol(a *AtomicTableProtocol) *AtomicTableProtocol {
@@ -380,6 +484,10 @@ func (a *AtomicTable) GetUUID() string {
 	return a.UUID
 }
 
+func (a *AtomicTable) GetBooleanEnum() AtomicTableBooleanEnum {
+	return a.BooleanEnum
+}
+
 func (a *AtomicTable) GetEventType() AtomicTableEventType {
 	return a.EventType
 }
@@ -390,6 +498,10 @@ func (a *AtomicTable) GetFloat() float64 {
 
 func (a *AtomicTable) GetInt() int {
 	return a.Int
+}
+
+func (a *AtomicTable) GetIntEnum() AtomicTableIntEnum {
+	return a.IntEnum
 }
 
 func (a *AtomicTable) GetProtocol() *AtomicTableProtocol {
@@ -414,8 +526,16 @@ func equalAtomicTableProtocol(a, b *AtomicTableProtocol) bool {
 	return *a == *b
 }
 
+func (a *AtomicTable) GetRealEnum() AtomicTableRealEnum {
+	return a.RealEnum
+}
+
 func (a *AtomicTable) GetStr() string {
 	return a.Str
+}
+
+func (a *AtomicTable) GetUUIDEnum() AtomicTableUUIDEnum {
+	return a.UUIDEnum
 }
 
 func (a *AtomicTable) DeepCopyInto(b *AtomicTable) {
@@ -441,11 +561,15 @@ func (a *AtomicTable) CloneModel() model.Model {
 
 func (a *AtomicTable) Equals(b *AtomicTable) bool {
 	return a.UUID == b.UUID &&
+		a.BooleanEnum == b.BooleanEnum &&
 		a.EventType == b.EventType &&
 		a.Float == b.Float &&
 		a.Int == b.Int &&
+		a.IntEnum == b.IntEnum &&
 		equalAtomicTableProtocol(a.Protocol, b.Protocol) &&
+		a.RealEnum == b.RealEnum &&
 		a.Str == b.Str &&
+		a.UUIDEnum == b.UUIDEnum &&
 		equalAtomicTableOtherProtocol(a.OtherProtocol, b.OtherProtocol)
 }
 
@@ -475,16 +599,24 @@ const AtomicTableTable = "atomicTable"
 
 // AtomicTable defines an object in atomicTable table
 type AtomicTable struct {
-	UUID      string  ` + "`" + `ovsdb:"_uuid"` + "`" + `
-	EventType string  ` + "`" + `ovsdb:"event_type" validate:"oneof='empty_lb_backends'"` + "`" + `
-	Float     float64 ` + "`" + `ovsdb:"float"` + "`" + `
-	Int       int     ` + "`" + `ovsdb:"int"` + "`" + `
-	Protocol  *string ` + "`" + `ovsdb:"protocol" validate:"omitempty,oneof='tcp' 'udp' 'sctp'"` + "`" + `
-	Str       string  ` + "`" + `ovsdb:"str"` + "`" + `
+	UUID        string  ` + "`" + `ovsdb:"_uuid"` + "`" + `
+	BooleanEnum bool    ` + "`" + `ovsdb:"boolean_enum"` + "`" + `
+	EventType   string  ` + "`" + `ovsdb:"event_type" validate:"oneof='empty_lb_backends'"` + "`" + `
+	Float       float64 ` + "`" + `ovsdb:"float"` + "`" + `
+	Int         int     ` + "`" + `ovsdb:"int"` + "`" + `
+	IntEnum     int     ` + "`" + `ovsdb:"int_enum" validate:"oneof=1 2"` + "`" + `
+	Protocol    *string ` + "`" + `ovsdb:"protocol" validate:"omitempty,oneof='tcp' 'udp' 'sctp'"` + "`" + `
+	RealEnum    float64 ` + "`" + `ovsdb:"real_enum" validate:"eq=1.1|eq=2.2"` + "`" + `
+	Str         string  ` + "`" + `ovsdb:"str"` + "`" + `
+	UUIDEnum    string  ` + "`" + `ovsdb:"uuid_enum" validate:"oneof='550e8400-e29b-41d4-a716-446655440000' '550e8400-e29b-41d4-a716-446655440001'"` + "`" + `
 }
 
 func (a *AtomicTable) GetUUID() string {
 	return a.UUID
+}
+
+func (a *AtomicTable) GetBooleanEnum() bool {
+	return a.BooleanEnum
 }
 
 func (a *AtomicTable) GetEventType() string {
@@ -497,6 +629,10 @@ func (a *AtomicTable) GetFloat() float64 {
 
 func (a *AtomicTable) GetInt() int {
 	return a.Int
+}
+
+func (a *AtomicTable) GetIntEnum() int {
+	return a.IntEnum
 }
 
 func (a *AtomicTable) GetProtocol() *string {
@@ -521,8 +657,16 @@ func equalAtomicTableProtocol(a, b *string) bool {
 	return *a == *b
 }
 
+func (a *AtomicTable) GetRealEnum() float64 {
+	return a.RealEnum
+}
+
 func (a *AtomicTable) GetStr() string {
 	return a.Str
+}
+
+func (a *AtomicTable) GetUUIDEnum() string {
+	return a.UUIDEnum
 }
 
 func (a *AtomicTable) DeepCopyInto(b *AtomicTable) {
@@ -547,11 +691,15 @@ func (a *AtomicTable) CloneModel() model.Model {
 
 func (a *AtomicTable) Equals(b *AtomicTable) bool {
 	return a.UUID == b.UUID &&
+		a.BooleanEnum == b.BooleanEnum &&
 		a.EventType == b.EventType &&
 		a.Float == b.Float &&
 		a.Int == b.Int &&
+		a.IntEnum == b.IntEnum &&
 		equalAtomicTableProtocol(a.Protocol, b.Protocol) &&
-		a.Str == b.Str
+		a.RealEnum == b.RealEnum &&
+		a.Str == b.Str &&
+		a.UUIDEnum == b.UUIDEnum
 }
 
 func (a *AtomicTable) EqualsModel(b model.Model) bool {
@@ -585,25 +733,41 @@ package test
 const AtomicTableTable = "atomicTable"
 
 type (
-	AtomicTableEventType = string
-	AtomicTableProtocol  = string
+	AtomicTableBooleanEnum = bool
+	AtomicTableEventType   = string
+	AtomicTableIntEnum     = int
+	AtomicTableProtocol    = string
+	AtomicTableRealEnum    = float64
+	AtomicTableUUIDEnum    = string
 )
 
 var (
-	AtomicTableEventTypeEmptyLbBackends AtomicTableEventType = "empty_lb_backends"
-	AtomicTableProtocolTCP              AtomicTableProtocol  = "tcp"
-	AtomicTableProtocolUDP              AtomicTableProtocol  = "udp"
-	AtomicTableProtocolSCTP             AtomicTableProtocol  = "sctp"
+	AtomicTableBooleanEnumtrue                              AtomicTableBooleanEnum = true
+	AtomicTableBooleanEnumfalse                             AtomicTableBooleanEnum = false
+	AtomicTableEventTypeEmptyLbBackends                     AtomicTableEventType   = "empty_lb_backends"
+	AtomicTableIntEnum1                                     AtomicTableIntEnum     = 1
+	AtomicTableIntEnum2                                     AtomicTableIntEnum     = 2
+	AtomicTableProtocolTCP                                  AtomicTableProtocol    = "tcp"
+	AtomicTableProtocolUDP                                  AtomicTableProtocol    = "udp"
+	AtomicTableProtocolSCTP                                 AtomicTableProtocol    = "sctp"
+	AtomicTableRealEnum1_1                                  AtomicTableRealEnum    = 1.1
+	AtomicTableRealEnum2_2                                  AtomicTableRealEnum    = 2.2
+	AtomicTableUUIDEnum550e8400_e29b_41d4_a716_446655440000 AtomicTableUUIDEnum    = "550e8400-e29b-41d4-a716-446655440000"
+	AtomicTableUUIDEnum550e8400_e29b_41d4_a716_446655440001 AtomicTableUUIDEnum    = "550e8400-e29b-41d4-a716-446655440001"
 )
 
 // AtomicTable defines an object in atomicTable table
 type AtomicTable struct {
-	UUID      string               ` + "`" + `ovsdb:"_uuid"` + "`" + `
-	EventType AtomicTableEventType ` + "`" + `ovsdb:"event_type" validate:"oneof='empty_lb_backends'"` + "`" + `
-	Float     float64              ` + "`" + `ovsdb:"float"` + "`" + `
-	Int       int                  ` + "`" + `ovsdb:"int"` + "`" + `
-	Protocol  *AtomicTableProtocol ` + "`" + `ovsdb:"protocol" validate:"omitempty,oneof='tcp' 'udp' 'sctp'"` + "`" + `
-	Str       string               ` + "`" + `ovsdb:"str"` + "`" + `
+	UUID        string                 ` + "`" + `ovsdb:"_uuid"` + "`" + `
+	BooleanEnum AtomicTableBooleanEnum ` + "`" + `ovsdb:"boolean_enum"` + "`" + `
+	EventType   AtomicTableEventType   ` + "`" + `ovsdb:"event_type" validate:"oneof='empty_lb_backends'"` + "`" + `
+	Float       float64                ` + "`" + `ovsdb:"float"` + "`" + `
+	Int         int                    ` + "`" + `ovsdb:"int"` + "`" + `
+	IntEnum     AtomicTableIntEnum     ` + "`" + `ovsdb:"int_enum" validate:"oneof=1 2"` + "`" + `
+	Protocol    *AtomicTableProtocol   ` + "`" + `ovsdb:"protocol" validate:"omitempty,oneof='tcp' 'udp' 'sctp'"` + "`" + `
+	RealEnum    AtomicTableRealEnum    ` + "`" + `ovsdb:"real_enum" validate:"eq=1.1|eq=2.2"` + "`" + `
+	Str         string                 ` + "`" + `ovsdb:"str"` + "`" + `
+	UUIDEnum    AtomicTableUUIDEnum    ` + "`" + `ovsdb:"uuid_enum" validate:"oneof='550e8400-e29b-41d4-a716-446655440000' '550e8400-e29b-41d4-a716-446655440001'"` + "`" + `
 }
 
 func TestFunc() string {
@@ -891,7 +1055,7 @@ func TestValidationTag(t *testing.T) {
 		{
 			name:   "Real with min=0.5 max=99.9",
 			schema: schemaFromJSON(`{"type": {"key": {"type": "real", "minReal": 0.5, "maxReal": 99.9}}}`),
-			expect: ` validate:"min=0.500000,max=99.900000"`, // Note float formatting
+			expect: ` validate:"min=0.5,max=99.9"`, // Note float formatting
 		},
 		{
 			name:   "Simple String (no constraints)",
@@ -1045,6 +1209,31 @@ func TestValidationTag(t *testing.T) {
 			name:   "Map Integer 0-254 -> Integer 0-254",
 			schema: schemaFromJSON(`{"type": {"key": {"type": "integer", "minInteger": 0, "maxInteger": 254}, "value": {"type": "integer", "minInteger": 0, "maxInteger": 254}, "min": 0, "max": "unlimited"}}`),
 			expect: ` validate:"dive,keys,min=0,max=254,endkeys,min=0,max=254"`,
+		},
+		{
+			name:   "Enum Integer",
+			schema: schemaFromJSON(`{"type": {"key": {"type": "integer", "enum": ["set", [1, 2]]}}}`),
+			expect: ` validate:"oneof=1 2"`,
+		},
+		{
+			name:   "Enum Real",
+			schema: schemaFromJSON(`{"type": {"key": {"type": "real", "enum": ["set", [1.1, 2.2]]}}}`),
+			expect: ` validate:"eq=1.1|eq=2.2"`,
+		},
+		{
+			name:   "Enum Boolean",
+			schema: schemaFromJSON(`{"type": {"key": {"type": "boolean", "enum": ["set", [true, false]]}}}`),
+			expect: ``,
+		},
+		{
+			name:   "Enum Boolean2",
+			schema: schemaFromJSON(`{"type": {"key": {"type": "boolean", "enum": ["set", [true]]}}}`),
+			expect: ` validate:"eq=true"`,
+		},
+		{
+			name:   "Enum UUID",
+			schema: schemaFromJSON(`{"type": {"key": {"type": "uuid", "enum": ["set", ["550e8400-e29b-41d4-a716-446655440000", "550e8400-e29b-41d4-a716-446655440001"]]}}}`),
+			expect: ` validate:"oneof='550e8400-e29b-41d4-a716-446655440000' '550e8400-e29b-41d4-a716-446655440001'"`,
 		},
 	}
 
