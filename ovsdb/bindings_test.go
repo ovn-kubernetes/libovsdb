@@ -11,14 +11,22 @@ import (
 )
 
 var (
-	aString  = "foo"
-	aEnum    = "enum1"
-	aEnumSet = []string{"enum1", "enum2", "enum3"}
-	aSet     = []string{"a", "set", "of", "strings"}
-	aUUID0   = "2f77b348-9768-4866-b761-89d5177ecda0"
-	aUUID1   = "2f77b348-9768-4866-b761-89d5177ecda1"
-	aUUID2   = "2f77b348-9768-4866-b761-89d5177ecda2"
-	aUUID3   = "2f77b348-9768-4866-b761-89d5177ecda3"
+	aUUID0       = "2f77b348-9768-4866-b761-89d5177ecda0"
+	aUUID1       = "2f77b348-9768-4866-b761-89d5177ecda1"
+	aUUID2       = "2f77b348-9768-4866-b761-89d5177ecda2"
+	aUUID3       = "2f77b348-9768-4866-b761-89d5177ecda3"
+	aString      = "foo"
+	aEnum        = "enum1"
+	anIntEnum    = 1
+	aRealEnum    = 1.0
+	aBoolEnum    = true
+	aEnumSet     = []string{"enum1", "enum2", "enum3"}
+	anIntEnumSet = []int{1, 2, 3}
+	aRealEnumSet = []float64{1.0, 2.0, 3.0}
+	aBoolEnumSet = []bool{true, false}
+	aUUIDEnumSet = []UUID{{GoUUID: aUUID0}, {GoUUID: aUUID1}, {GoUUID: aUUID2}}
+
+	aSet = []string{"a", "set", "of", "strings"}
 
 	aSingleUUIDSet, _ = NewOvsSet(UUID{GoUUID: aUUID0})
 
@@ -80,6 +88,10 @@ func TestOvsToNativeAndNativeToOvs(t *testing.T) {
 
 	es, _ := NewOvsSet(aEmptySet)
 	ens, _ := NewOvsSet(aEnumSet)
+	ies, _ := NewOvsSet(anIntEnumSet)
+	bes, _ := NewOvsSet(aBoolEnumSet)
+	ues, _ := NewOvsSet(aUUIDEnumSet)
+	res, _ := NewOvsSet(aRealEnumSet)
 
 	m, _ := NewOvsMap(aMap)
 
@@ -333,6 +345,180 @@ func TestOvsToNativeAndNativeToOvs(t *testing.T) {
 			input:  ens,
 			native: aEnumSet,
 			ovs:    ens,
+		},
+		{
+			name: "Enum (integer)",
+			schema: []byte(`{
+			"type": {
+				"key": {
+					"enum": [
+						"set",
+						[
+							1,
+							2,
+							3
+						]
+					],
+					"type": "integer"
+				}
+			}
+		}`),
+			input:  anIntEnum,
+			native: anIntEnum,
+			ovs:    anIntEnum,
+		},
+		{
+			name: "Enum Set (integer)",
+			schema: []byte(`{
+			"type": {
+				"key": {
+					"enum": [
+						"set",
+						[
+							1,
+							2,
+							3
+						]
+					],
+					"type": "integer"
+				},
+				"max": "unlimited",
+				"min": 0
+			}
+		}`),
+			input:  ies,
+			native: anIntEnumSet,
+			ovs:    ies,
+		},
+		{
+			name: "Enum (real)",
+			schema: []byte(`{
+			"type": {
+				"key": {
+					"enum": [
+						"set",
+						[
+							1.0,
+							2.0,
+							3.0
+						]
+					],
+					"type": "real"
+				}
+			}
+		}`),
+			input:  aRealEnum,
+			native: aRealEnum,
+			ovs:    aRealEnum,
+		},
+		{
+			name: "Enum Set (real)",
+			schema: []byte(`{
+			"type": {
+				"key": {
+					"enum": [
+						"set",
+						[
+							1.0,
+							2.0,
+							3.0
+						]
+					],
+					"type": "real"
+				},
+				"max": "unlimited",
+				"min": 0
+			}
+		}`),
+			input:  res,
+			native: aRealEnumSet,
+			ovs:    res,
+		},
+		{
+			name: "Enum (bool)",
+			schema: []byte(`{
+			"type": {
+				"key": {
+					"enum": [
+						"set",
+						[
+							true,
+							false
+						]
+					],
+					"type": "boolean"
+				}
+			}
+		}`),
+			input:  aBoolEnum,
+			native: aBoolEnum,
+			ovs:    aBoolEnum,
+		},
+		{
+			name: "Enum Set (bool)",
+			schema: []byte(`{
+			"type": {
+				"key": {
+					"enum": [
+						"set",
+						[
+							true,
+							false
+						]
+					],
+					"type": "boolean"
+				},
+				"min": 0,
+				"max": "unlimited"
+			}
+		}`),
+			input:  bes,
+			native: aBoolEnumSet,
+			ovs:    bes,
+		},
+		{
+			name: "Enum (uuid)",
+			schema: []byte(`{
+			"type": {
+				"key": {
+					"enum": [
+						"set",
+						[
+							["uuid", "2f77b348-9768-4866-b761-89d5177ecda0"],
+							["uuid", "2f77b348-9768-4866-b761-89d5177ecda1"],
+							["uuid", "2f77b348-9768-4866-b761-89d5177ecda2"]
+						]
+					],
+					"type": "uuid"
+				}
+			}
+		}`),
+			input:  UUID{GoUUID: aUUID0},
+			native: aUUID0,
+			ovs:    UUID{GoUUID: aUUID0},
+		},
+		{
+			name: "Enum Set (uuid)",
+			schema: []byte(`{
+			"type": {
+				"key": {
+					"enum": [
+						"set",
+						[
+							["uuid", "2f77b348-9768-4866-b761-89d5177ecda0"],
+							["uuid", "2f77b348-9768-4866-b761-89d5177ecda1"],
+							["uuid", "2f77b348-9768-4866-b761-89d5177ecda2"]
+						]
+					],
+					"type": "uuid"
+				},
+				"min": 0,
+				"max": "unlimited"
+			}
+		}`),
+			input:  ues,
+			native: []string{aUUID0, aUUID1, aUUID2},
+			ovs:    ues,
 		},
 		{
 			name: "Map (string->string)",
