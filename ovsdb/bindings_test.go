@@ -1334,6 +1334,14 @@ func TestConditionValidation(t *testing.T) {
 			value:     map[string]int{"foo": 42},
 			valid:     false,
 		},
+		{
+			name: "enum",
+			column: []byte(`{"type": {"key": {"type": "string",
+                                            "enum": ["set", ["from-lport", "to-lport"]]}}}`),
+			functions: []ConditionFunction{ConditionEqual, ConditionIncludes, ConditionNotEqual, ConditionExcludes},
+			value:     "from-lport",
+			valid:     true,
+		},
 	}
 	for _, test := range tests {
 		t.Run(fmt.Sprintf("ConditionValidation: %s", test.name), func(t *testing.T) {

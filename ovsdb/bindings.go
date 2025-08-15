@@ -390,7 +390,7 @@ func ValidateCondition(column *ColumnSchema, function ConditionFunction, nativeV
 	}
 
 	switch column.Type {
-	case TypeSet, TypeMap, TypeBoolean, TypeString, TypeUUID:
+	case TypeSet, TypeMap, TypeBoolean, TypeString, TypeUUID, TypeEnum:
 		switch function {
 		case ConditionEqual, ConditionNotEqual, ConditionIncludes, ConditionExcludes:
 			return nil
