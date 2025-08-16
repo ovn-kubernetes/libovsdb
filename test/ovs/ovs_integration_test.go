@@ -1625,3 +1625,20 @@ func (suite *OVSIntegrationSuite) TestReferentialIntegrity() {
 		})
 	}
 }
+
+func (suite *OVSIntegrationSuite) TestWhereCache() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	var ovs []*ovsType
+	err := suite.clientWithoutInactvityCheck.WhereCache(func(*ovsType) bool { return true }).List(ctx, &ovs)
+	suite.Require().NoError(err)
+	suite.Len(ovs, 1)
+
+	var ovs1 []*ovsType
+	err = client.WhereCacheTyped(suite.clientWithoutInactvityCheck, func(*ovsType) bool { return true }).List(ctx, &ovs1)
+	suite.Require().NoError(err)
+	suite.Len(ovs, 1)
+
+	suite.Equal(ovs[0].UUID, ovs1[0].UUID)
+}
