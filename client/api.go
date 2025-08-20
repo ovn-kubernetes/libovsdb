@@ -9,6 +9,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
 	"github.com/ovn-kubernetes/libovsdb/cache"
+	"github.com/ovn-kubernetes/libovsdb/mapper"
 	"github.com/ovn-kubernetes/libovsdb/model"
 	"github.com/ovn-kubernetes/libovsdb/ovsdb"
 )
@@ -85,12 +86,6 @@ type ConditionalAPI interface {
 
 	// Select generates the OVSDB select operation based on the condition.
 	// It determines the target table and columns from the condition context.
-	// Returns an error if the condition was built using WhereCache.
-	// The correlation ID is handled internally and not exposed to the user.
-	//
-	// LIMITATION: Multiple Select operations for the same table within a single transaction are not supported.
-	// Each table can only have one Select operation per transaction. If you need to perform multiple
-	// selections on the same table, use separate transactions instead.
 	Select(columns ...string) ([]ovsdb.Operation, error)
 }
 
@@ -669,20 +664,13 @@ func newConditionalAPI(cache *cache.TableCache, cond Conditional, logger *logr.L
 }
 
 // Select generates the OVSDB select operation based on the conditions previously set
-// using Where, WhereAll, or WhereCache.
+// using Where, WhereAny, WhereAll, or WhereCache.
 // It determines the target table and columns from the condition context.
-// Returns an error if called after WhereCache.
-// If used with WhereAny, it will generate one select operation per condition.
-// The correlation ID is handled internally and not exposed to the user.
+// If used with WhereAny or WhereCache, it will generate one select operation per condition.
 func (a api) Select(columns ...string) ([]ovsdb.Operation, error) {
 	// Select now requires a condition to be set via WhereXxx first.
 	if a.cond == nil {
-		return nil, fmt.Errorf("Select called on API with no condition set (use Where, WhereAll, or WhereAny first)")
-	}
-
-	if _, ok := a.cond.(*predicateConditional); ok {
-		// Prevent select based on cache predicate function which cannot be translated
-		return nil, fmt.Errorf("cannot generate OVSDB select operation from a cache predicate function (WhereCache)")
+		return nil, fmt.Errorf("select called on API with no condition set (use WhereXXX first)")
 	}
 
 	// Get table name directly from the condition
@@ -718,7 +706,7 @@ func (a api) Select(columns ...string) ([]ovsdb.Operation, error) {
 
 		for _, col := range columns {
 			if _, ok := tableSchema.Columns[col]; !ok && col != "_uuid" {
-				return nil, fmt.Errorf("column '%s' not found in table '%s'", col, tableName)
+				return nil, mapper.NewErrColumnNotFound(col, tableName)
 			}
 			if _, ok := columnSet[col]; !ok {
 				columnsToSelect = append(columnsToSelect, col)
@@ -737,12 +725,12 @@ func (a api) Select(columns ...string) ([]ovsdb.Operation, error) {
 	operations := make([]ovsdb.Operation, 0, len(ovsdbConditionsList))
 	for _, whereClause := range ovsdbConditionsList {
 		selectOp := ovsdb.Operation{
-			Op:            ovsdb.OperationSelect,
-			Table:         tableName,
-			Where:         whereClause,
-			Columns:       columnsToSelect,
-			CorrelationID: correlationID,
+			Op:      ovsdb.OperationSelect,
+			Table:   tableName,
+			Where:   whereClause,
+			Columns: columnsToSelect,
 		}
+		ovsdb.SetCorrelationID(&selectOp, correlationID)
 		operations = append(operations, selectOp)
 	}
 

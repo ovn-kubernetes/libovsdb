@@ -44,9 +44,9 @@ type Operation struct {
 	UUID      string      `json:"uuid,omitempty"`
 	UUIDName  string      `json:"uuid-name,omitempty"`
 
-	// CorrelationID is a client-side mechanism to correlate a set of operations
+	// correlationID is a client-side mechanism to correlate a set of operations
 	// with their results. It is not serialized.
-	CorrelationID string `json:"-"`
+	correlationID string `json:"-"`
 }
 
 // MarshalJSON marshalls 'Operation' to a byte array
@@ -130,4 +130,12 @@ func ovsSliceToGoNotation(val any) (any, error) {
 		return val, nil
 	}
 	return val, nil
+}
+
+func GetCorrelationID(op Operation) string {
+	return op.correlationID
+}
+
+func SetCorrelationID(op *Operation, cid string) {
+	op.correlationID = cid
 }

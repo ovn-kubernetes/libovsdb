@@ -1337,6 +1337,28 @@ func TestConditionalAPISelect(t *testing.T) {
 	require.NoError(t, err, "Failed to connect OVSDB client for Open_vSwitch")
 	defer ovsClientForDefDB.Close()
 
+	tableCache := ovsClientForDefDB.Cache()
+	// Create some test bridges and add them to cache
+	cacheBridge1 := &Bridge{
+		UUID:         "cache-bridge-uuid-1",
+		Name:         "cache-br-1",
+		DatapathType: "system",
+	}
+	cacheBridge2 := &Bridge{
+		UUID:         "cache-bridge-uuid-2",
+		Name:         "cache-br-2",
+		DatapathType: "netdev",
+	}
+	cacheBridge3 := &Bridge{
+		UUID:         "cache-bridge-uuid-3",
+		Name:         "other-bridge", // This one won't match the WhereCache filter
+		DatapathType: "system",
+	}
+	bridgeTable := tableCache.Table("Bridge")
+	require.NoError(t, bridgeTable.Create("cache-bridge-uuid-1", cacheBridge1, false))
+	require.NoError(t, bridgeTable.Create("cache-bridge-uuid-2", cacheBridge2, false))
+	require.NoError(t, bridgeTable.Create("cache-bridge-uuid-3", cacheBridge3, false))
+
 	bridgeModel := &Bridge{Name: "br-selcond"}
 	bridgeModelCtx := &Bridge{} // Context model for WhereAll/WhereAny
 
@@ -1401,20 +1423,20 @@ func TestConditionalAPISelect(t *testing.T) {
 			conditionalAPI: func(api API) ConditionalAPI {
 				return api.WhereAll(bridgeModelCtx, model.Condition{
 					Field:    &bridgeModelCtx.Name,
-					Function: ovsdb.ConditionNotEqual,
+					Function: ovsdb.ConditionEqual,
 					Value:    "some-other-bridge",
 				})
 			},
 			selectColumns: nil, // Default: all columns
 			expectError:   false,
-			expectedWhere: []ovsdb.Condition{{Column: "name", Function: ovsdb.ConditionNotEqual, Value: "some-other-bridge"}},
+			expectedWhere: []ovsdb.Condition{{Column: "name", Function: ovsdb.ConditionEqual, Value: "some-other-bridge"}},
 			expectedTable: "Bridge",
 			expectedOps: func() []ovsdb.Operation {
 				expected := []ovsdb.Operation{
 					{
 						Op:      ovsdb.OperationSelect,
 						Table:   "Bridge",
-						Where:   []ovsdb.Condition{ovsdb.NewCondition("name", ovsdb.ConditionNotEqual, "some-other-bridge")},
+						Where:   []ovsdb.Condition{ovsdb.NewCondition("name", ovsdb.ConditionEqual, "some-other-bridge")},
 						Columns: nil, // nil means all columns per RFC 7047
 					},
 				}
@@ -1426,20 +1448,20 @@ func TestConditionalAPISelect(t *testing.T) {
 			conditionalAPI: func(api API) ConditionalAPI {
 				return api.WhereAll(bridgeModelCtx, model.Condition{
 					Field:    &bridgeModelCtx.Name,
-					Function: ovsdb.ConditionNotEqual,
+					Function: ovsdb.ConditionEqual,
 					Value:    "some-other-bridge",
 				})
 			},
 			selectColumns: []string{"name"},
 			expectError:   false,
-			expectedWhere: []ovsdb.Condition{{Column: "name", Function: ovsdb.ConditionNotEqual, Value: "some-other-bridge"}},
+			expectedWhere: []ovsdb.Condition{{Column: "name", Function: ovsdb.ConditionEqual, Value: "some-other-bridge"}},
 			expectedTable: "Bridge",
 			expectedOps: func() []ovsdb.Operation {
 				expected := []ovsdb.Operation{
 					{
 						Op:      ovsdb.OperationSelect,
 						Table:   "Bridge",
-						Where:   []ovsdb.Condition{ovsdb.NewCondition("name", ovsdb.ConditionNotEqual, "some-other-bridge")},
+						Where:   []ovsdb.Condition{ovsdb.NewCondition("name", ovsdb.ConditionEqual, "some-other-bridge")},
 						Columns: []string{"_uuid", "name"}, // Always includes _uuid
 					},
 				}
@@ -1556,19 +1578,42 @@ func TestConditionalAPISelect(t *testing.T) {
 			},
 			selectColumns: []string{"name", "invalid_column"},
 			expectError:   true,
-			errorContains: "column 'invalid_column' not found in table 'Bridge'",
+			errorContains: "column: invalid_column not found in table: Bridge",
 		},
 		{
-			name: "Error: Select after WhereCache",
+			name: "Select after WhereCache",
 			conditionalAPI: func(api API) ConditionalAPI {
-				return api.WhereCache(func(_ *Bridge) bool { return true })
+				return api.WhereCache(func(br *Bridge) bool {
+					// Filter for bridges with names starting with "cache-br"
+					return strings.HasPrefix(br.Name, "cache-br")
+				})
 			},
-			selectColumns: nil,
-			expectError:   true,
-			errorContains: "WhereCache",
+			selectColumns: nil, // Default: all columns
+			expectError:   false,
+			expectedWhere: []ovsdb.Condition{}, // WhereCache generates conditions based on cache matches
+			expectedTable: "Bridge",
+			expectedOps: func() []ovsdb.Operation {
+				// WhereCache will generate operations based on cached Bridge models
+				// We expect operations with UUID conditions for each matching bridge in cache
+				expected := []ovsdb.Operation{
+					{
+						Op:      ovsdb.OperationSelect,
+						Table:   "Bridge",
+						Where:   []ovsdb.Condition{ovsdb.NewCondition("_uuid", ovsdb.ConditionEqual, ovsdb.UUID{GoUUID: "cache-bridge-uuid-1"})},
+						Columns: nil, // nil means all columns per RFC 7047
+					},
+					{
+						Op:      ovsdb.OperationSelect,
+						Table:   "Bridge",
+						Where:   []ovsdb.Condition{ovsdb.NewCondition("_uuid", ovsdb.ConditionEqual, ovsdb.UUID{GoUUID: "cache-bridge-uuid-2"})},
+						Columns: nil, // nil means all columns per RFC 7047
+					},
+				}
+				return expected
+			}(),
 		},
 		{
-			name: "Success: Select after WhereAny with multiple OR conditions",
+			name: "Select after WhereAny with multiple OR conditions",
 			conditionalAPI: func(api API) ConditionalAPI {
 				return api.WhereAny(bridgeModelCtx,
 					model.Condition{Field: &bridgeModelCtx.Name, Function: ovsdb.ConditionEqual, Value: "a"},
@@ -1642,6 +1687,13 @@ func TestConditionalAPISelect(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				require.Len(t, ops, len(tt.expectedOps), "Select should return %d operation", len(tt.expectedOps))
+				if strings.Contains(tt.name, "WhereCache") {
+					// we can not control map access order
+					// sort ops by uuid
+					sort.Slice(ops, func(i, j int) bool {
+						return ops[i].Where[0].Value.(ovsdb.UUID).GoUUID < ops[j].Where[0].Value.(ovsdb.UUID).GoUUID
+					})
+				}
 				for i, op := range ops {
 					assert.Equal(t, tt.expectedOps[i].Op, op.Op)
 					assert.Equal(t, tt.expectedOps[i].Table, op.Table)
@@ -1706,22 +1758,26 @@ func TestGetSelectResults(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		ops           []ovsdb.Operation
+		ops           func() []ovsdb.Operation
 		results       []ovsdb.OperationResult
 		target        interface{}
+		index         int
 		verify        func(t *testing.T, target interface{})
 		expectError   bool
 		errorContains string
 	}{
 		{
 			name: "Single select operation with multiple results",
-			ops: []ovsdb.Operation{
-				{Op: ovsdb.OperationSelect, CorrelationID: queryID, Table: "Bridge"},
+			ops: func() []ovsdb.Operation {
+				op := ovsdb.Operation{Op: ovsdb.OperationSelect, Table: "Bridge"}
+				ovsdb.SetCorrelationID(&op, queryID)
+				return []ovsdb.Operation{op}
 			},
 			results: []ovsdb.OperationResult{
 				{Rows: []ovsdb.Row{rowBr1, rowBr2}},
 			},
 			target: &[]*Bridge{},
+			index:  0,
 			verify: func(t *testing.T, target interface{}) {
 				bridges := *target.(*[]*Bridge)
 				require.Len(t, bridges, 2)
@@ -1735,15 +1791,19 @@ func TestGetSelectResults(t *testing.T) {
 		},
 		{
 			name: "Multiple select operations with same correlation ID (deduplication)",
-			ops: []ovsdb.Operation{
-				{Op: ovsdb.OperationSelect, CorrelationID: queryID, Table: "Bridge"},
-				{Op: ovsdb.OperationSelect, CorrelationID: queryID, Table: "Bridge"},
+			ops: func() []ovsdb.Operation {
+				op1 := ovsdb.Operation{Op: ovsdb.OperationSelect, Table: "Bridge"}
+				ovsdb.SetCorrelationID(&op1, queryID)
+				op2 := ovsdb.Operation{Op: ovsdb.OperationSelect, Table: "Bridge"}
+				ovsdb.SetCorrelationID(&op2, queryID)
+				return []ovsdb.Operation{op1, op2}
 			},
 			results: []ovsdb.OperationResult{
 				{Rows: []ovsdb.Row{rowBr1, rowBr3}},
 				{Rows: []ovsdb.Row{rowBr2, rowBr3}}, // br3 is duplicated
 			},
 			target: &[]*Bridge{},
+			index:  0,
 			verify: func(t *testing.T, target interface{}) {
 				bridges := *target.(*[]*Bridge)
 				require.Len(t, bridges, 3, "should be 3 unique bridges after deduplication")
@@ -1758,10 +1818,12 @@ func TestGetSelectResults(t *testing.T) {
 		},
 		{
 			name: "Mixed Operations: non-select ops are ignored",
-			ops: []ovsdb.Operation{
-				{Op: ovsdb.OperationInsert}, // Non-select op
-				{Op: ovsdb.OperationSelect, CorrelationID: queryID, Table: "Bridge"}, // Select op
-				{Op: ovsdb.OperationDelete}, // Non-select op
+			ops: func() []ovsdb.Operation {
+				op1 := ovsdb.Operation{Op: ovsdb.OperationInsert}                  // Non-select op
+				op2 := ovsdb.Operation{Op: ovsdb.OperationSelect, Table: "Bridge"} // Select op
+				ovsdb.SetCorrelationID(&op2, queryID)
+				op3 := ovsdb.Operation{Op: ovsdb.OperationDelete} // Non-select op
+				return []ovsdb.Operation{op1, op2, op3}
 			},
 			results: []ovsdb.OperationResult{
 				{Count: 1},                  // Result for Insert
@@ -1769,6 +1831,7 @@ func TestGetSelectResults(t *testing.T) {
 				{Count: 1},                  // Result for Delete
 			},
 			target: &[]*Bridge{},
+			index:  0,
 			verify: func(t *testing.T, target interface{}) {
 				bridges := *target.(*[]*Bridge)
 				require.Len(t, bridges, 1)
@@ -1777,15 +1840,19 @@ func TestGetSelectResults(t *testing.T) {
 		},
 		{
 			name: "Multi-table select: only target table results are included (Bridge target)",
-			ops: []ovsdb.Operation{
-				{Op: ovsdb.OperationSelect, CorrelationID: "bridge-query", Table: "Bridge"},
-				{Op: ovsdb.OperationSelect, CorrelationID: "ovs-query", Table: "Open_vSwitch"},
+			ops: func() []ovsdb.Operation {
+				op1 := ovsdb.Operation{Op: ovsdb.OperationSelect, Table: "Bridge"}
+				ovsdb.SetCorrelationID(&op1, "bridge-query")
+				op2 := ovsdb.Operation{Op: ovsdb.OperationSelect, Table: "Open_vSwitch"}
+				ovsdb.SetCorrelationID(&op2, "ovs-query")
+				return []ovsdb.Operation{op1, op2}
 			},
 			results: []ovsdb.OperationResult{
 				{Rows: []ovsdb.Row{rowBr1, rowBr2}}, // Bridge results
 				{Rows: []ovsdb.Row{rowOvs1}},        // OpenvSwitch results
 			},
 			target: &[]*Bridge{}, // Target is Bridge slice
+			index:  0,
 			verify: func(t *testing.T, target interface{}) {
 				bridges := *target.(*[]*Bridge)
 				require.Len(t, bridges, 2, "should only contain Bridge results, not OpenvSwitch")
@@ -1803,15 +1870,19 @@ func TestGetSelectResults(t *testing.T) {
 		},
 		{
 			name: "Multi-table select: only target table results are included (OpenvSwitch target)",
-			ops: []ovsdb.Operation{
-				{Op: ovsdb.OperationSelect, CorrelationID: "bridge-query", Table: "Bridge"},
-				{Op: ovsdb.OperationSelect, CorrelationID: "ovs-query", Table: "Open_vSwitch"},
+			ops: func() []ovsdb.Operation {
+				op1 := ovsdb.Operation{Op: ovsdb.OperationSelect, Table: "Bridge"}
+				ovsdb.SetCorrelationID(&op1, "bridge-query")
+				op2 := ovsdb.Operation{Op: ovsdb.OperationSelect, Table: "Open_vSwitch"}
+				ovsdb.SetCorrelationID(&op2, "ovs-query")
+				return []ovsdb.Operation{op1, op2}
 			},
 			results: []ovsdb.OperationResult{
 				{Rows: []ovsdb.Row{rowBr1, rowBr2}}, // Bridge results
 				{Rows: []ovsdb.Row{rowOvs1}},        // OpenvSwitch results
 			},
 			target: &[]*OpenvSwitch{}, // Target is OpenvSwitch slice
+			index:  0,
 			verify: func(t *testing.T, target interface{}) {
 				ovsRows := *target.(*[]*OpenvSwitch)
 				require.Len(t, ovsRows, 1, "should only contain OpenvSwitch results, not Bridge")
@@ -1822,49 +1893,91 @@ func TestGetSelectResults(t *testing.T) {
 		},
 		{
 			name:          "Error: mismatched ops and results length",
-			ops:           []ovsdb.Operation{{}},
+			ops:           func() []ovsdb.Operation { return []ovsdb.Operation{{}} },
 			results:       []ovsdb.OperationResult{{}, {}},
 			target:        &[]*Bridge{},
+			index:         0,
 			expectError:   true,
 			errorContains: "must match",
 		},
 		{
 			name: "Error: OVSDB error in result",
-			ops: []ovsdb.Operation{
-				{Op: ovsdb.OperationSelect, CorrelationID: queryID, Table: "Bridge"},
+			ops: func() []ovsdb.Operation {
+				op := ovsdb.Operation{Op: ovsdb.OperationSelect, Table: "Bridge"}
+				ovsdb.SetCorrelationID(&op, queryID)
+				return []ovsdb.Operation{op}
 			},
 			results: []ovsdb.OperationResult{
 				{Error: "some ovsdb error", Details: "details here"},
 			},
 			target:        &[]*Bridge{},
+			index:         0,
 			expectError:   true,
 			errorContains: "some ovsdb error",
 		},
+
 		{
-			name: "Error: bad target type (not a pointer)",
-			ops: []ovsdb.Operation{
-				{Op: ovsdb.OperationSelect, CorrelationID: queryID, Table: "Bridge"},
+			name: "Success: same table with different correlation IDs - returns first group by default",
+			ops: func() []ovsdb.Operation {
+				op1 := ovsdb.Operation{Op: ovsdb.OperationSelect, Table: "Bridge"}
+				ovsdb.SetCorrelationID(&op1, "query-1")
+				op2 := ovsdb.Operation{Op: ovsdb.OperationSelect, Table: "Bridge"}
+				ovsdb.SetCorrelationID(&op2, "query-2")
+				return []ovsdb.Operation{op1, op2}
 			},
 			results: []ovsdb.OperationResult{
 				{Rows: []ovsdb.Row{rowBr1}},
+				{Rows: []ovsdb.Row{rowBr2}},
 			},
-			target:        []*Bridge{}, // Should be *[]*Bridge
-			expectError:   true,
-			errorContains: "must be a non-nil pointer",
+			target: &[]*Bridge{},
+			index:  0,
+			verify: func(t *testing.T, target interface{}) {
+				bridges := *target.(*[]*Bridge)
+				require.Len(t, bridges, 1, "should return only first query group results")
+				assert.Equal(t, "br1", bridges[0].Name)
+			},
 		},
 		{
-			name: "Error: validation intercept - same table with different correlation IDs",
-			ops: []ovsdb.Operation{
-				{Op: ovsdb.OperationSelect, CorrelationID: "query-1", Table: "Bridge"},
-				{Op: ovsdb.OperationSelect, CorrelationID: "query-2", Table: "Bridge"},
+			name: "Error: index out of range",
+			ops: func() []ovsdb.Operation {
+				op1 := ovsdb.Operation{Op: ovsdb.OperationSelect, Table: "Bridge"}
+				ovsdb.SetCorrelationID(&op1, "query-1")
+				op2 := ovsdb.Operation{Op: ovsdb.OperationSelect, Table: "Bridge"}
+				ovsdb.SetCorrelationID(&op2, "query-2")
+				return []ovsdb.Operation{op1, op2}
 			},
 			results: []ovsdb.OperationResult{
 				{Rows: []ovsdb.Row{rowBr1}},
 				{Rows: []ovsdb.Row{rowBr2}},
 			},
 			target:        &[]*Bridge{},
+			index:         5, // Out of range - only 2 query groups (0, 1)
 			expectError:   true,
-			errorContains: "multiple Select operations for table 'Bridge' with different correlation IDs",
+			errorContains: "index 5 is out of range: found 2 query groups",
+		},
+		{
+			name: "Success: same table with different correlation IDs - returns second group with index=1",
+			ops: func() []ovsdb.Operation {
+				op1 := ovsdb.Operation{Op: ovsdb.OperationSelect, Table: "Bridge"}
+				ovsdb.SetCorrelationID(&op1, "first-query")
+				op2 := ovsdb.Operation{Op: ovsdb.OperationSelect, Table: "Bridge"}
+				ovsdb.SetCorrelationID(&op2, "second-query")
+				op3 := ovsdb.Operation{Op: ovsdb.OperationSelect, Table: "Bridge"}
+				ovsdb.SetCorrelationID(&op3, "third-query")
+				return []ovsdb.Operation{op1, op2, op3}
+			},
+			results: []ovsdb.OperationResult{
+				{Rows: []ovsdb.Row{rowBr1}},         // first-query results
+				{Rows: []ovsdb.Row{rowBr2}},         // second-query results
+				{Rows: []ovsdb.Row{rowBr3, rowBr1}}, // third-query results (with duplicate)
+			},
+			target: &[]*Bridge{},
+			index:  1, // Request second query group (second-query)
+			verify: func(t *testing.T, target interface{}) {
+				bridges := *target.(*[]*Bridge)
+				require.Len(t, bridges, 1, "should return only second query group results")
+				assert.Equal(t, "br2", bridges[0].Name, "should return br2 from second query group")
+			},
 		},
 	}
 
@@ -1879,7 +1992,13 @@ func TestGetSelectResults(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ovs.GetSelectResults(tt.ops, tt.results, tt.target)
+			if bridges, ok := tt.target.(*[]*Bridge); ok {
+				err = ovs.GetSelectResults(tt.ops(), tt.results, bridges, tt.index)
+			} else if ovsRows, ok := tt.target.(*[]*OpenvSwitch); ok {
+				err = ovs.GetSelectResults(tt.ops(), tt.results, ovsRows, tt.index)
+			} else {
+				t.Fatalf("Unsupported target type: %T", tt.target)
+			}
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -1888,8 +2007,38 @@ func TestGetSelectResults(t *testing.T) {
 				}
 			} else {
 				require.NoError(t, err)
-				tt.verify(t, tt.target)
+				if tt.verify != nil {
+					tt.verify(t, tt.target)
+				}
 			}
 		})
 	}
+
+	// Test index parameter functionality
+	t.Run("Index parameter test", func(t *testing.T) {
+		op1 := ovsdb.Operation{Op: ovsdb.OperationSelect, Table: "Bridge"}
+		ovsdb.SetCorrelationID(&op1, "query-1")
+		op2 := ovsdb.Operation{Op: ovsdb.OperationSelect, Table: "Bridge"}
+		ovsdb.SetCorrelationID(&op2, "query-2")
+		ops := []ovsdb.Operation{op1, op2}
+		results := []ovsdb.OperationResult{
+			{Rows: []ovsdb.Row{rowBr1}},
+			{Rows: []ovsdb.Row{rowBr2}},
+		}
+
+		// Test index 1 (second query group)
+		var bridges2 []*Bridge
+		idx := 1
+		err := ovs.GetSelectResults(ops, results, &bridges2, idx)
+		require.NoError(t, err)
+		require.Len(t, bridges2, 1)
+		assert.Equal(t, "br2", bridges2[0].Name)
+
+		// Test invalid index
+		var bridges3 []*Bridge
+		invalidIdx := 5
+		err = ovs.GetSelectResults(ops, results, &bridges3, invalidIdx)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "index 5 is out of range")
+	})
 }
