@@ -11,8 +11,8 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/ory/dockertest/v3 v3.12.0
 	github.com/prometheus/client_golang v1.23.0
-	github.com/stretchr/testify v1.10.0
-	golang.org/x/text v0.25.0
+	github.com/stretchr/testify v1.11.0
+	golang.org/x/text v0.28.0
 )
 
 require (
