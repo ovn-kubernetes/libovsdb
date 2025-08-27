@@ -1,11 +1,11 @@
 package ovsdb
 
 import (
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"testing"
 
+	"github.com/ovn-kubernetes/libovsdb/internal/json"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -705,7 +705,7 @@ func TestOvsToNativeErr(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		t.Run(fmt.Sprintf(tt.name), func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			var column ColumnSchema
 			err := json.Unmarshal(tt.schema, &column)
 			require.NoError(t, err)
@@ -782,7 +782,7 @@ func TestNativeToOvsErr(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		t.Run(fmt.Sprintf(tt.name), func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			var column ColumnSchema
 			if err := json.Unmarshal(tt.schema, &column); err != nil {
 				t.Fatal(err)
