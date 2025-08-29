@@ -84,8 +84,9 @@ type ConditionalAPI interface {
 	// by the until condition, timeout, row and columns based on provided parameters.
 	Wait(ovsdb.WaitCondition, *int, model.Model, ...any) ([]ovsdb.Operation, error)
 
-	// Select generates the OVSDB select operation based on the condition.
-	// It determines the target table and columns from the condition context.
+	// Select returns the operations to search on the database.
+	// Depending on the Condition, it might return one or many operations.
+	// Use GetSelectResults on the results of the transaction to gather the found Models
 	Select(columns ...string) ([]ovsdb.Operation, error)
 }
 
@@ -222,29 +223,26 @@ func (a api) conditionFromFunc(predicate any) Conditional {
 
 // conditionFromModels returns a Conditional from one or more models.
 func (a api) conditionFromModels(models []model.Model) Conditional {
-	tableName := ""
-	var err error
-	// If models is empty, this is a select all on a table to be determined
-	// by the operation that uses it, e.g: List()
-	if len(models) > 0 {
-		tableName, err = a.getTableFromModel(models[0])
-		if err != nil {
-			return newErrorConditional(err)
-		}
+	if len(models) == 0 {
+		return newErrorConditional(fmt.Errorf("at least one model required"))
 	}
 
-	// Check if it's a "select all" call: single zero-value model
+	tableName, err := a.getTableFromModel(models[0])
+	if err != nil {
+		return newErrorConditional(err)
+	}
+
+	// Special case: detect zero-value model for potential "select all" usage
 	if len(models) == 1 {
 		modelVal := reflect.ValueOf(models[0])
-		// Check if the underlying element (if pointer) or the value itself is zero
-		if modelVal.Kind() == reflect.Ptr {
-			if !modelVal.IsNil() && modelVal.Elem().IsZero() {
-				// select all case
-				models = []model.Model{}
+		// Only handle pointer types and check if it's a zero-value pointer to struct
+		if modelVal.Kind() == reflect.Ptr && !modelVal.IsNil() && modelVal.Elem().IsZero() {
+			// Create zeroValueConditional that can be detected by Select for select-all
+			conditional, err := newZeroValueConditional(tableName, a.cache, models[0])
+			if err != nil {
+				return newErrorConditional(err)
 			}
-		} else if modelVal.IsZero() {
-			// Handle non-pointer struct case if models can be non-pointers
-			models = []model.Model{}
+			return conditional
 		}
 	}
 
@@ -663,10 +661,9 @@ func newConditionalAPI(cache *cache.TableCache, cond Conditional, logger *logr.L
 	}
 }
 
-// Select generates the OVSDB select operation based on the conditions previously set
-// using Where, WhereAny, WhereAll, or WhereCache.
-// It determines the target table and columns from the condition context.
-// If used with WhereAny or WhereCache, it will generate one select operation per condition.
+// Select returns the operations to search on the database.
+// Depending on the Condition, it might return one or many operations.
+// Use GetSelectResults on the results of the transaction to gather the found Models
 func (a api) Select(columns ...string) ([]ovsdb.Operation, error) {
 	// Select now requires a condition to be set via WhereXxx first.
 	if a.cond == nil {
@@ -680,9 +677,17 @@ func (a api) Select(columns ...string) ([]ovsdb.Operation, error) {
 		return nil, fmt.Errorf("cannot determine table name from the condition for Select")
 	}
 
-	ovsdbConditionsList, err := a.cond.Generate()
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate conditions for select: %w", err)
+	// Special handling for zeroValueConditional - convert to select all
+	var ovsdbConditionsList [][]ovsdb.Condition
+	if zeroValCond, ok := a.cond.(*zeroValueConditional); ok && zeroValCond.IsZeroValue() {
+		// For Select operations, zero-value models mean "select all"
+		ovsdbConditionsList = [][]ovsdb.Condition{{}} // Empty conditions = select all
+	} else {
+		var err error
+		ovsdbConditionsList, err = a.cond.Generate()
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate conditions for select: %w", err)
+		}
 	}
 
 	// Determine columns to select
@@ -718,7 +723,7 @@ func (a api) Select(columns ...string) ([]ovsdb.Operation, error) {
 	// If no conditions were generated (e.g. select all), create a single
 	// operation with an empty where clause which selects all rows.
 	if len(ovsdbConditionsList) == 0 {
-		ovsdbConditionsList = append(ovsdbConditionsList, []ovsdb.Condition{})
+		ovsdbConditionsList = [][]ovsdb.Condition{{}}
 	}
 
 	correlationID := uuid.NewString()

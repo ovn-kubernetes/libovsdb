@@ -260,7 +260,7 @@ selectOps, err := ovs.Where(&MyLogicalSwitch{}).Select()
 reply, err := ovs.Transact(ctx, selectOps...)
 // ...
 // 3. Parse result
-err = ovs.GetSelectResults(selectOps, reply, &allSwitches, 0)
+err = ovs.GetSelectResults(selectOps, reply, &allSwitches)
 // ...
 ```
 
@@ -350,49 +350,57 @@ By default, `Select` queries all columns of a table. You can pass column names t
 selectOps, err := ovs.Where(&MyLogicalSwitch{Name: "sw1"}).Select("name", "ports")
 ```
 
-#### Processing Select Results with GetSelectResults
+#### Processing Select Results with GetSelectResults and GetSelectResultsByIndex
 
-The `GetSelectResults` helper function processes the results from `Transact` operations that contain `select` operations. It takes an `index` parameter that allows you to choose which select query results to retrieve when multiple select queries exist for the same table.
-
-**Function Signature:**
+**GetSelectResults** processes the results from the first select query (most common case):
 ```go
-func (c Client) GetSelectResults(ops []ovsdb.Operation, results []ovsdb.OperationResult, target interface{}, index int) error
+func (c Client) GetSelectResults(ops []ovsdb.Operation, results []ovsdb.OperationResult, target interface{}) error
+```
+
+**GetSelectResultsByIndex** allows you to choose which select query results to retrieve when you have multiple separate calls to `Select()` for the same model/table:
+```go
+func (c Client) GetSelectResultsByIndex(ops []ovsdb.Operation, results []ovsdb.OperationResult, target interface{}, index int) error
 ```
 
 **Parameters:**
 - `ops`: The operations that were sent to `Transact`
 - `results`: The results returned from `Transact`
-- `target`: A pointer to a slice where results will be stored (e.g., `&[]MyLogicalSwitch`)
-- `index`: Which select query to retrieve (0-based index)
+- `target`: A pointer to a slice of models (e.g., `*[]MyLogicalSwitch` or `*[]*MyLogicalSwitch`)
+- `index`: Which select query to retrieve (0 = first `Select()` call, 1 = second, etc.)
 
-**Understanding Select Queries:**
+**Understanding the Index Parameter:**
 
-When you have multiple select queries for the same table (created by separate calls to `Select()`), `GetSelectResults` groups them by the select query they belong to. The `index` parameter lets you choose which query's results to retrieve:
+The `index` parameter refers to the **order of separate `Select()` calls** for the same model/table, not individual operations within a single query:
 
 ```go
-// Example: Multiple select queries for the same table
-var results1, results2 []MyLogicalSwitch
+// Example: Multiple separate Select() calls for the same model
+var results1, results2 []MyLogicalSwitch        // Value slice
+var ptrResults1, ptrResults2 []*MyLogicalSwitch  // Pointer slice (both are supported)
 
-// Create two separate select queries
+// First Select() call - creates select query #0
 selectOps1, _ := ovs.Where(&MyLogicalSwitch{Name: "sw1"}).Select()
+
+// Second Select() call - creates select query #1  
 selectOps2, _ := ovs.Where(&MyLogicalSwitch{Name: "sw2"}).Select()
 
 // Combine operations for a single transaction
 allOps := append(selectOps1, selectOps2...)
 reply, _ := ovs.Transact(ctx, allOps...)
 
-// Get results from the first select query (index 0)
-err = ovs.GetSelectResults(allOps, reply, &results1, 0)
+// Get results from first Select() call (index 0) - both types work
+err = ovs.GetSelectResults(allOps, reply, &results1)           // Value slice
+err = ovs.GetSelectResults(allOps, reply, &ptrResults1)        // Pointer slice  
+err = ovs.GetSelectResultsByIndex(allOps, reply, &results1, 0) // Explicit index 0
 
-// Get results from the second select query (index 1)
-err = ovs.GetSelectResults(allOps, reply, &results2, 1)
+// Get results from second Select() call (index 1)
+err = ovs.GetSelectResultsByIndex(allOps, reply, &results2, 1)
 ```
 
-**Common Usage Patterns:**
-
-- **Single Select Query**: When using `WhereAny()`, `WhereCache()`, or any single call to `Select()`, always use `index = 0`
-- **Multiple Select Queries**: When combining different select queries in one transaction, use different index values to access each query's results
-- **Error Handling**: If the index is out of range, `GetSelectResults` returns an error
+**Important Notes:**
+- `WhereAny()` and `WhereCache()` may generate multiple operations, but they all belong to a **single** select query (index 0)
+- Only **separate calls** to `Select()` create different query indices
+- Use `GetSelectResults()` for most cases (single select query)
+- Use `GetSelectResultsByIndex()` only when combining multiple select queries in one transaction
 
 ## Monitor for updates
 
