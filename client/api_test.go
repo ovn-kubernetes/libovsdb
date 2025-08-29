@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -651,7 +652,17 @@ func TestConditionFromModel(t *testing.T) {
 				if len(tt.conds) > 0 {
 					assert.IsType(t, &explicitConditional{}, condition)
 				} else {
-					assert.IsType(t, &equalityConditional{}, condition)
+					// Check if the model is a zero-value pointer to struct
+					if len(tt.models) == 1 {
+						modelVal := reflect.ValueOf(tt.models[0])
+						if modelVal.Kind() == reflect.Ptr && !modelVal.IsNil() && modelVal.Elem().IsZero() {
+							assert.IsType(t, &zeroValueConditional{}, condition)
+						} else {
+							assert.IsType(t, &equalityConditional{}, condition)
+						}
+					} else {
+						assert.IsType(t, &equalityConditional{}, condition)
+					}
 				}
 
 			}
@@ -1088,6 +1099,21 @@ func TestAPIMutate(t *testing.T) {
 			},
 			err: true,
 		},
+		{
+			name: "empty model with Where should return error for Mutate (zeroValueConditional)",
+			condition: func(a API) ConditionalAPI {
+				// This should create a zeroValueConditional
+				return a.Where(&testLogicalSwitchPort{})
+			},
+			mutations: []model.Mutation{
+				{
+					Field:   &testObj.ExternalIDs,
+					Mutator: ovsdb.MutateOperationInsert,
+					Value:   map[string]string{"new": "value"},
+				},
+			},
+			err: true,
+		},
 	}
 	for _, tt := range test {
 		t.Run(fmt.Sprintf("ApiMutate: %s", tt.name), func(t *testing.T) {
@@ -1455,6 +1481,18 @@ func TestAPIUpdate(t *testing.T) {
 			},
 			err: true,
 		},
+		{
+			name: "empty model with Where should return error for Update (zeroValueConditional)",
+			condition: func(a API) ConditionalAPI {
+				// This should create a zeroValueConditional
+				return a.Where(&testLogicalSwitchPort{})
+			},
+			prepare: func(t *testLogicalSwitchPort) {
+				t.Type = "somethingElse"
+				t.Tag = &six
+			},
+			err: true,
+		},
 	}
 	for _, tt := range test {
 		t.Run(fmt.Sprintf("ApiUpdate: %s", tt.name), func(t *testing.T) {
@@ -1678,6 +1716,14 @@ func TestAPIDelete(t *testing.T) {
 			name: "fails if conditional is an error",
 			condition: func(_ API) ConditionalAPI {
 				return newConditionalAPI(nil, newErrorConditional(fmt.Errorf("error")), &discardLogger, false)
+			},
+			err: true,
+		},
+		{
+			name: "empty model with Where should return error for Delete (zeroValueConditional)",
+			condition: func(a API) ConditionalAPI {
+				// This should create a zeroValueConditional
+				return a.Where(&testLogicalSwitchPort{})
 			},
 			err: true,
 		},

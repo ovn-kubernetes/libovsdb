@@ -1743,7 +1743,7 @@ func (suite *OVSIntegrationSuite) TestSelectIntegrity() {
 	_, err = ovsdb.CheckOperationResults(replyInitial, selectOpInitial)
 	suite.Require().NoError(err, "Error in initial transact results")
 	// 4. Parse Results
-	err = selectClient.GetSelectResults(selectOpInitial, replyInitial, &initialBridges, 0)
+	err = selectClient.GetSelectResults(selectOpInitial, replyInitial, &initialBridges)
 	suite.Require().NoError(err, "Initial GetSelectResults failed")
 	suite.Require().Empty(initialBridges, "Should be no bridges initially")
 
@@ -1771,7 +1771,7 @@ func (suite *OVSIntegrationSuite) TestSelectIntegrity() {
 	suite.Require().NoError(err, "Transact failed for select all post-create")
 	_, err = ovsdb.CheckOperationResults(replyAllPostCreate, selectOpAllPostCreate)
 	suite.Require().NoError(err, "Error in transact results for select all post-create")
-	err = selectClient.GetSelectResults(selectOpAllPostCreate, replyAllPostCreate, &bridges, 0)
+	err = selectClient.GetSelectResults(selectOpAllPostCreate, replyAllPostCreate, &bridges)
 	suite.Require().NoError(err)
 	suite.Require().Len(bridges, 3, "Select without conditions should return three bridges after creation")
 
@@ -1788,7 +1788,7 @@ func (suite *OVSIntegrationSuite) TestSelectIntegrity() {
 	suite.Require().NoError(err, "Transact failed for select specific")
 	_, err = ovsdb.CheckOperationResults(replySpecific, selectOpSpecific)
 	suite.Require().NoError(err, "Error in transact results for select specific")
-	err = selectClient.GetSelectResults(selectOpSpecific, replySpecific, &specificBridges, 0)
+	err = selectClient.GetSelectResults(selectOpSpecific, replySpecific, &specificBridges)
 	suite.Require().NoError(err)
 	suite.Require().Len(specificBridges, 1, "Select with condition for br-sel2 should return one bridge")
 	suite.Require().Equal(bridgeName2, specificBridges[0].Name, "Select (br-sel2) returned wrong bridge name")
@@ -1814,7 +1814,7 @@ func (suite *OVSIntegrationSuite) TestSelectIntegrity() {
 	suite.Require().NoError(err, "Transact failed for multi-condition select")
 	_, err = ovsdb.CheckOperationResults(replyMulti, selectOpMulti)
 	suite.Require().NoError(err, "Error in transact results for multi-condition select")
-	err = selectClient.GetSelectResults(selectOpMulti, replyMulti, &multiCondBridges, 0)
+	err = selectClient.GetSelectResults(selectOpMulti, replyMulti, &multiCondBridges)
 	suite.Require().NoError(err, "GetSelectResults with multiple conditions failed")
 	suite.Require().Len(multiCondBridges, 1, "Select with multiple conditions should return exactly one bridge")
 	suite.Require().Equal(bridgeName1, multiCondBridges[0].Name, "Multi-condition select returned wrong bridge name")
@@ -1830,7 +1830,7 @@ func (suite *OVSIntegrationSuite) TestSelectIntegrity() {
 	suite.Require().NoError(err, "Transact failed for partial select")
 	_, err = ovsdb.CheckOperationResults(replyPartial, selectOpPartial)
 	suite.Require().NoError(err, "Error in transact results for partial select")
-	err = selectClient.GetSelectResults(selectOpPartial, replyPartial, &partialBridgeResult, 0)
+	err = selectClient.GetSelectResults(selectOpPartial, replyPartial, &partialBridgeResult)
 	suite.Require().NoError(err, "GetSelectResults with partial columns failed")
 	suite.Require().Len(partialBridgeResult, 1, "Select with partial columns should return one bridge")
 	// Verify selected fields are populated
@@ -1864,7 +1864,7 @@ func (suite *OVSIntegrationSuite) TestSelectIntegrity() {
 	_, err = ovsdb.CheckOperationResults(replyOvs, selectOvsOp)
 	suite.Require().NoError(err, "Error in transact results for select OVS row")
 	// 4. Parse Result
-	err = selectClient.GetSelectResults(selectOvsOp, replyOvs, &ovsRows, 0)
+	err = selectClient.GetSelectResults(selectOvsOp, replyOvs, &ovsRows)
 	suite.Require().NoError(err, "Failed to parse select result for OVS row")
 
 	suite.Require().NotEmpty(ovsRows, "OVS row not found for delete mutation using Select") // Updated assertion message
@@ -1895,7 +1895,7 @@ func (suite *OVSIntegrationSuite) TestSelectIntegrity() {
 	suite.Require().NoError(err, "Transact failed for select all after delete")
 	_, err = ovsdb.CheckOperationResults(replyAfterDelete, selectOpAfterDelete)
 	suite.Require().NoError(err, "Error in transact results for select all after delete")
-	err = selectClient.GetSelectResults(selectOpAfterDelete, replyAfterDelete, &bridgesAfterDelete, 0)
+	err = selectClient.GetSelectResults(selectOpAfterDelete, replyAfterDelete, &bridgesAfterDelete)
 	suite.Require().NoError(err, "GetSelectResults after delete failed")
 	suite.Require().Len(bridgesAfterDelete, 2, "Should be two bridges remaining after delete")
 	// Find which one is which (order isn't guaranteed)
@@ -1929,7 +1929,7 @@ func (suite *OVSIntegrationSuite) TestSelectIntegrity() {
 	suite.Require().NoError(err, "Transact failed for select deleted")
 	_, err = ovsdb.CheckOperationResults(replyDeleted, selectOpDeleted)
 	suite.Require().NoError(err, "Error in transact results for select deleted")
-	err = selectClient.GetSelectResults(selectOpDeleted, replyDeleted, &deletedBridgeResult, 0)
+	err = selectClient.GetSelectResults(selectOpDeleted, replyDeleted, &deletedBridgeResult)
 	suite.Require().NoError(err, "GetSelectResults for deleted bridge failed")
 	suite.Require().Empty(deletedBridgeResult, "Select for deleted bridge should return empty result")
 
@@ -1946,7 +1946,7 @@ func (suite *OVSIntegrationSuite) TestSelectIntegrity() {
 	suite.Require().NoError(err, "Transact failed for select remaining")
 	_, err = ovsdb.CheckOperationResults(replyRemaining, selectOpRemaining)
 	suite.Require().NoError(err, "Error in transact results for select remaining")
-	err = selectClient.GetSelectResults(selectOpRemaining, replyRemaining, &remainingBridgeResult, 0)
+	err = selectClient.GetSelectResults(selectOpRemaining, replyRemaining, &remainingBridgeResult)
 	suite.Require().NoError(err, "GetSelectResults for remaining bridge failed")
 	suite.Require().Len(remainingBridgeResult, 1, "Select for remaining bridge should return one result")
 	suite.Require().Equal(bridgeName2, remainingBridgeResult[0].Name)
@@ -1972,7 +1972,7 @@ func (suite *OVSIntegrationSuite) TestSelectIntegrity() {
 	suite.Require().NoError(err, "Transact failed for select other remaining")
 	_, err = ovsdb.CheckOperationResults(replyOtherRemaining, selectOpOtherRemaining)
 	suite.Require().NoError(err, "Error in transact results for select other remaining")
-	err = selectClient.GetSelectResults(selectOpOtherRemaining, replyOtherRemaining, &otherRemainingBridgeResult, 0)
+	err = selectClient.GetSelectResults(selectOpOtherRemaining, replyOtherRemaining, &otherRemainingBridgeResult)
 	suite.Require().NoError(err, "GetSelectResults for other remaining bridge failed")
 	suite.Require().Len(otherRemainingBridgeResult, 1, "Select for other remaining bridge should return one result")
 	suite.Require().Equal(bridgeName3, otherRemainingBridgeResult[0].Name)
@@ -1998,7 +1998,7 @@ func (suite *OVSIntegrationSuite) TestSelectIntegrity() {
 	suite.Require().NoError(err, "Transact failed for select where any")
 	_, err = ovsdb.CheckOperationResults(replyWhereAny, selectOpWhereAny)
 	suite.Require().NoError(err, "Error in transact results for select where any")
-	err = selectClient.GetSelectResults(selectOpWhereAny, replyWhereAny, &whereAnyBridgeResult, 0)
+	err = selectClient.GetSelectResults(selectOpWhereAny, replyWhereAny, &whereAnyBridgeResult)
 	suite.Require().NoError(err, "GetSelectResults for where any bridge failed")
 	suite.Require().Len(whereAnyBridgeResult, 2, "Select for where any bridge should return all remaining result")
 
@@ -2019,9 +2019,9 @@ func (suite *OVSIntegrationSuite) TestSelectIntegrity() {
 	_, err = ovsdb.CheckOperationResults(replyMultiSelect, allOps)
 	suite.Require().NoError(err, "Error in transact results for multi-select")
 
-	err = selectClient.GetSelectResults(allOps, replyMultiSelect, &multiSelectBridges, 0)
+	err = selectClient.GetSelectResults(allOps, replyMultiSelect, &multiSelectBridges)
 	suite.Require().NoError(err, "GetSelectResults for multi-select failed")
-	err = selectClient.GetSelectResults(allOps, replyMultiSelect, &multiSelectOvs, 0)
+	err = selectClient.GetSelectResults(allOps, replyMultiSelect, &multiSelectOvs)
 	suite.Require().NoError(err, "GetSelectResults for multi-select failed")
 
 	suite.Require().Len(multiSelectBridges, 2, "Multi-select should return two bridges")

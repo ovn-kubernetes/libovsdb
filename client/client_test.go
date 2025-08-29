@@ -1715,7 +1715,7 @@ func TestConditionalAPISelect(t *testing.T) {
 	}
 }
 
-func TestGetSelectResults(t *testing.T) {
+func TestGetSelectResultsByIndex(t *testing.T) {
 	var s ovsdb.DatabaseSchema
 	err := json.Unmarshal([]byte(schema), &s)
 	require.NoError(t, err)
@@ -1979,6 +1979,102 @@ func TestGetSelectResults(t *testing.T) {
 				assert.Equal(t, "br2", bridges[0].Name, "should return br2 from second query group")
 			},
 		},
+
+		// Test cases for value slice support ([]Model instead of []*Model)
+		{
+			name: "Value slice support: Single select operation with multiple results",
+			ops: func() []ovsdb.Operation {
+				op := ovsdb.Operation{Op: ovsdb.OperationSelect, Table: "Bridge"}
+				ovsdb.SetCorrelationID(&op, queryID)
+				return []ovsdb.Operation{op}
+			},
+			results: []ovsdb.OperationResult{
+				{Rows: []ovsdb.Row{rowBr1, rowBr2}},
+			},
+			target: &[]Bridge{}, // Value slice instead of pointer slice
+			index:  0,
+			verify: func(t *testing.T, target interface{}) {
+				bridges := *target.(*[]Bridge)
+				require.Len(t, bridges, 2)
+				bridgeMap := make(map[string]Bridge)
+				for _, b := range bridges {
+					bridgeMap[b.Name] = b
+				}
+				assert.Contains(t, bridgeMap, "br1")
+				assert.Contains(t, bridgeMap, "br2")
+			},
+		},
+		{
+			name: "Value slice support: Multiple operations with deduplication",
+			ops: func() []ovsdb.Operation {
+				op1 := ovsdb.Operation{Op: ovsdb.OperationSelect, Table: "Bridge"}
+				ovsdb.SetCorrelationID(&op1, queryID)
+				op2 := ovsdb.Operation{Op: ovsdb.OperationSelect, Table: "Bridge"}
+				ovsdb.SetCorrelationID(&op2, queryID)
+				return []ovsdb.Operation{op1, op2}
+			},
+			results: []ovsdb.OperationResult{
+				{Rows: []ovsdb.Row{rowBr1, rowBr3}},
+				{Rows: []ovsdb.Row{rowBr2, rowBr3}}, // br3 is duplicated
+			},
+			target: &[]Bridge{}, // Value slice
+			index:  0,
+			verify: func(t *testing.T, target interface{}) {
+				bridges := *target.(*[]Bridge)
+				require.Len(t, bridges, 3, "should be 3 unique bridges after deduplication")
+				bridgeMap := make(map[string]Bridge)
+				for _, b := range bridges {
+					bridgeMap[b.Name] = b
+				}
+				assert.Contains(t, bridgeMap, "br1")
+				assert.Contains(t, bridgeMap, "br2")
+				assert.Contains(t, bridgeMap, "br3")
+			},
+		},
+		{
+			name: "Value slice support: Multi-table select with OpenvSwitch target",
+			ops: func() []ovsdb.Operation {
+				op1 := ovsdb.Operation{Op: ovsdb.OperationSelect, Table: "Bridge"}
+				ovsdb.SetCorrelationID(&op1, "bridge-query")
+				op2 := ovsdb.Operation{Op: ovsdb.OperationSelect, Table: "Open_vSwitch"}
+				ovsdb.SetCorrelationID(&op2, "ovs-query")
+				return []ovsdb.Operation{op1, op2}
+			},
+			results: []ovsdb.OperationResult{
+				{Rows: []ovsdb.Row{rowBr1, rowBr2}}, // Bridge results
+				{Rows: []ovsdb.Row{rowOvs1}},        // OpenvSwitch results
+			},
+			target: &[]OpenvSwitch{}, // Value slice for OpenvSwitch
+			index:  0,
+			verify: func(t *testing.T, target interface{}) {
+				ovsRows := *target.(*[]OpenvSwitch)
+				require.Len(t, ovsRows, 1, "should only contain OpenvSwitch results, not Bridge")
+				ovs := ovsRows[0]
+				assert.NotEmpty(t, ovs.UUID, "OpenvSwitch should have UUID")
+				assert.Equal(t, map[string]string{"test": "value"}, ovs.ExternalIDs, "should have correct ExternalIDs")
+			},
+		},
+		{
+			name: "Value slice support: Different correlation IDs - returns second group with index=1",
+			ops: func() []ovsdb.Operation {
+				op1 := ovsdb.Operation{Op: ovsdb.OperationSelect, Table: "Bridge"}
+				ovsdb.SetCorrelationID(&op1, "first-query")
+				op2 := ovsdb.Operation{Op: ovsdb.OperationSelect, Table: "Bridge"}
+				ovsdb.SetCorrelationID(&op2, "second-query")
+				return []ovsdb.Operation{op1, op2}
+			},
+			results: []ovsdb.OperationResult{
+				{Rows: []ovsdb.Row{rowBr1}}, // first-query results
+				{Rows: []ovsdb.Row{rowBr2}}, // second-query results
+			},
+			target: &[]Bridge{}, // Value slice
+			index:  1,           // Request second query group
+			verify: func(t *testing.T, target interface{}) {
+				bridges := *target.(*[]Bridge)
+				require.Len(t, bridges, 1, "should return only second query group results")
+				assert.Equal(t, "br2", bridges[0].Name, "should return br2 from second query group")
+			},
+		},
 	}
 
 	// Create an ovsdbClient using the local, consistent ClientDBModel
@@ -1993,9 +2089,15 @@ func TestGetSelectResults(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if bridges, ok := tt.target.(*[]*Bridge); ok {
-				err = ovs.GetSelectResults(tt.ops(), tt.results, bridges, tt.index)
+				err = ovs.GetSelectResultsByIndex(tt.ops(), tt.results, bridges, tt.index)
 			} else if ovsRows, ok := tt.target.(*[]*OpenvSwitch); ok {
-				err = ovs.GetSelectResults(tt.ops(), tt.results, ovsRows, tt.index)
+				err = ovs.GetSelectResultsByIndex(tt.ops(), tt.results, ovsRows, tt.index)
+			} else if bridgeValues, ok := tt.target.(*[]Bridge); ok {
+				// Support for value slice (*[]Model)
+				err = ovs.GetSelectResultsByIndex(tt.ops(), tt.results, bridgeValues, tt.index)
+			} else if ovsValues, ok := tt.target.(*[]OpenvSwitch); ok {
+				// Support for value slice (*[]Model)
+				err = ovs.GetSelectResultsByIndex(tt.ops(), tt.results, ovsValues, tt.index)
 			} else {
 				t.Fatalf("Unsupported target type: %T", tt.target)
 			}
@@ -2026,18 +2128,31 @@ func TestGetSelectResults(t *testing.T) {
 			{Rows: []ovsdb.Row{rowBr2}},
 		}
 
-		// Test index 1 (second query group)
+		// Test index 1 (second query group) with pointer slice
 		var bridges2 []*Bridge
 		idx := 1
-		err := ovs.GetSelectResults(ops, results, &bridges2, idx)
+		err := ovs.GetSelectResultsByIndex(ops, results, &bridges2, idx)
 		require.NoError(t, err)
 		require.Len(t, bridges2, 1)
 		assert.Equal(t, "br2", bridges2[0].Name)
 
-		// Test invalid index
+		// Test invalid index with pointer slice
 		var bridges3 []*Bridge
 		invalidIdx := 5
-		err = ovs.GetSelectResults(ops, results, &bridges3, invalidIdx)
+		err = ovs.GetSelectResultsByIndex(ops, results, &bridges3, invalidIdx)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "index 5 is out of range")
+
+		// Test index 1 (second query group) with value slice
+		var bridgeValues []Bridge
+		err = ovs.GetSelectResultsByIndex(ops, results, &bridgeValues, idx)
+		require.NoError(t, err)
+		require.Len(t, bridgeValues, 1)
+		assert.Equal(t, "br2", bridgeValues[0].Name)
+
+		// Test invalid index with value slice
+		var bridgeValues2 []Bridge
+		err = ovs.GetSelectResultsByIndex(ops, results, &bridgeValues2, invalidIdx)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "index 5 is out of range")
 	})
