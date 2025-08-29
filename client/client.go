@@ -65,6 +65,12 @@ type Client interface {
 	NewMonitor(...MonitorOption) *Monitor
 	CurrentEndpoint() string
 	API
+	// GetSelectResultsByIndex parses the results of a transaction containing select operations
+	// and populates the target slice with the specified select query's results.
+	// The index parameter specifies which select query to retrieve (0-based).
+	// Use index=0 for single select queries (WhereAny, WhereCache, etc.).
+	GetSelectResultsByIndex(ops []ovsdb.Operation, results []ovsdb.OperationResult, target interface{}, index int) error
+	GetSelectResults(ops []ovsdb.Operation, results []ovsdb.OperationResult, target interface{}) error
 }
 
 type bufferedUpdate struct {
@@ -1438,4 +1444,154 @@ func (o *ovsdbClient) WhereAll(m model.Model, conditions ...model.Condition) Con
 // WhereCache implements the API interface's WhereCache function
 func (o *ovsdbClient) WhereCache(predicate any) ConditionalAPI {
 	return o.primaryDB().api.WhereCache(predicate)
+}
+
+// GetSelectResultsByIndex parses the results of a transaction containing select operations
+// and populates the target slice with the specified select query's results.
+// The index parameter specifies which select query to retrieve (0-based) when you have
+// multiple separate calls to Select() for the same model/table.
+//
+// Parameters:
+//   - ops: The operations that were sent to Transact
+//   - results: The operation results returned from Transact
+//   - target: A pointer to a slice of models (e.g., *[]MyModel or *[]*MyModel)
+//   - index: Which select query to retrieve (0 = first Select() call, 1 = second, etc.)
+func (o *ovsdbClient) GetSelectResultsByIndex(ops []ovsdb.Operation, results []ovsdb.OperationResult, target interface{}, index int) error {
+	if len(ops) != len(results) {
+		return fmt.Errorf("number of operations (%d) and results (%d) must match", len(ops), len(results))
+	}
+
+	// Validate target parameter
+	slicePtr := reflect.ValueOf(target)
+	if slicePtr.Type().Kind() != reflect.Ptr || slicePtr.IsNil() {
+		return &ErrWrongType{slicePtr.Type(), "target must be a non-nil pointer to a slice of models"}
+	}
+
+	sliceVal := reflect.Indirect(slicePtr)
+	if sliceVal.Type().Kind() != reflect.Slice {
+		return &ErrWrongType{slicePtr.Type(), "target must be a pointer to a slice of models"}
+	}
+
+	// GetSelectResultsByIndex accepts a slice of Models that can be either structs or pointer to structs
+	// Similar to List method design
+	modelType := sliceVal.Type().Elem()
+	isPtr := modelType.Kind() == reflect.Ptr
+	if isPtr {
+		modelType = modelType.Elem()
+	}
+
+	o.primaryDB().modelMutex.RLock()
+	dbModel := o.primaryDB().model
+	o.primaryDB().modelMutex.RUnlock()
+
+	// Determine the target table name from the model type
+	dummyModel := reflect.New(modelType).Interface().(model.Model)
+	info, err := dbModel.NewModelInfo(dummyModel)
+	if err != nil {
+		return fmt.Errorf("failed to get model info for target type: %w", err)
+	}
+	targetTable := info.Metadata.TableName
+
+	// Single pass to find and collect results for the target index
+	var selectedResults []ovsdb.OperationResult
+	var currentCorrelationID string
+	var correlationIDCount int
+	var foundTargetGroup bool
+
+	for i, op := range ops {
+		correlationID := ovsdb.GetCorrelationID(op)
+
+		if op.Op == ovsdb.OperationSelect && op.Table == targetTable {
+			// Check if correlation ID changed
+			if correlationID != currentCorrelationID {
+				// If we've already found our target group and the correlation ID changes, we're done
+				if foundTargetGroup {
+					break
+				}
+
+				// Update current correlation ID
+				currentCorrelationID = correlationID
+
+				// If this is our target index, start collecting results
+				if correlationIDCount == index {
+					foundTargetGroup = true
+					selectedResults = []ovsdb.OperationResult{results[i]}
+				}
+				correlationIDCount++
+			} else if foundTargetGroup {
+				// Same correlation ID and we're in the target group, collect this result
+				selectedResults = append(selectedResults, results[i])
+			}
+		}
+	}
+
+	// Check if we found any results
+	if !foundTargetGroup {
+		if correlationIDCount == 0 {
+			// No select operations found for the target table
+			return nil
+		}
+		return fmt.Errorf("index %d is out of range: found %d query groups for table '%s'",
+			index, correlationIDCount, targetTable)
+	}
+
+	// Create a map to store merged results (deduplicated by UUID)
+	mergedRows := make(map[string]reflect.Value)
+
+	for _, result := range selectedResults {
+		if result.Error != "" {
+			return fmt.Errorf("operation error: %s: %s", result.Error, result.Details)
+		}
+
+		for _, rowData := range result.Rows {
+			newModelVal := reflect.New(modelType)
+			newModel := newModelVal.Interface().(model.Model)
+
+			info, err := dbModel.NewModelInfo(newModel)
+			if err != nil {
+				return fmt.Errorf("failed to get model info: %w", err)
+			}
+
+			if err := dbModel.Mapper.GetRowDataWithUUID(&rowData, info); err != nil {
+				return fmt.Errorf("failed to convert row to model: %w", err)
+			}
+
+			uuid, err := info.FieldByColumn("_uuid")
+			if err != nil {
+				return fmt.Errorf("failed to get UUID from model: %w", err)
+			}
+			// Deduplicate by UUID - later results overwrite earlier ones
+			mergedRows[uuid.(string)] = newModelVal
+		}
+	}
+
+	// Populate the target slice with optimized memory allocation
+	resultCount := len(mergedRows)
+
+	// Pre-allocate slice with exact capacity to avoid repeated allocations
+	if sliceVal.IsNil() || sliceVal.Cap() < resultCount {
+		sliceVal.Set(reflect.MakeSlice(sliceVal.Type(), resultCount, resultCount))
+	} else {
+		// Reuse existing slice but set to exact length
+		sliceVal.SetLen(resultCount)
+	}
+
+	// Use index-based assignment to avoid append overhead
+	i := 0
+	for _, modelVal := range mergedRows {
+		if isPtr {
+			sliceVal.Index(i).Set(modelVal)
+		} else {
+			sliceVal.Index(i).Set(reflect.Indirect(modelVal))
+		}
+		i++
+	}
+
+	return nil
+}
+
+// GetSelectResults parses select operation results from a transaction.
+// Equivalent to GetSelectResultsByIndex with index 0 (first select query)
+func (o *ovsdbClient) GetSelectResults(ops []ovsdb.Operation, results []ovsdb.OperationResult, target interface{}) error {
+	return o.GetSelectResultsByIndex(ops, results, target, 0)
 }
