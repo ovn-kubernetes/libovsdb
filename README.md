@@ -237,6 +237,171 @@ They can also be created based on a list of Conditions:
         }).Delete()
     ovs.Transact(ops...)
 
+### Querying with Select
+
+The `Select` operation is used to build an OVSDB `select` query. Unlike the `List` operation, which returns results directly from the cache, `Select` only generates `ovsdb.Operation`(s). You must pass these operations to `Transact` to execute them against the database, and then use a helper function like `GetSelectResults` to parse the reply.
+
+The core workflow is: `WhereXxx(...).Select() -> Transact(...) -> GetSelectResults(...)`
+
+#### Selecting Rows
+
+**Select All Rows from a Table:**
+
+To select all rows from a table, you can call `Where()` with a zero-value instance of the model struct (e.g., `&MyLogicalSwitch{}`). This sets the table context for the `Select` operation without adding any conditions.
+
+```go
+// var ovs client.Client
+// var ctx context.Context
+var allSwitches []MyLogicalSwitch
+// 1. Generate Op: Where(&MyLogicalSwitch{}) specifies the table
+selectOps, err := ovs.Where(&MyLogicalSwitch{}).Select()
+// ...
+// 2. Execute transaction
+reply, err := ovs.Transact(ctx, selectOps...)
+// ...
+// 3. Parse result
+err = ovs.GetSelectResults(selectOps, reply, &allSwitches)
+// ...
+```
+
+**Select by Index:**
+
+You can also use `Where()` with a model instance that has indexed fields populated. This will create a condition to find matching rows based on the first available index.
+
+```go
+// Assuming "Name" is an indexed field
+ls := &MyLogicalSwitch{Name: "switch1"}
+var results []MyLogicalSwitch
+// 1. Generate Op
+selectOps, err := ovs.Where(ls).Select()
+// ...
+// 2. Transact and parse
+reply, err := ovs.Transact(ctx, selectOps...)
+err = ovs.GetSelectResults(selectOps, reply, &results, 0)
+// ...
+```
+
+**Select with Conditions (AND):**
+
+Use `WhereAll()` to set the table context and one or more filter conditions. All conditions are combined with an `AND` operator.
+
+```go
+var specificSwitches []MyLogicalSwitch
+lsModel := &MyLogicalSwitch{}
+cond1 := model.Condition{Field: &lsModel.Name, Function: ovsdb.ConditionEqual, Value: "sw1"}
+cond2 := model.Condition{Field: &lsModel.Ports, Function: ovsdb.ConditionIncludes, Value: "some_port_uuid"}
+
+// 1. Generate Op: Use WhereAll for one or more AND conditions
+selectOps, err := ovs.WhereAll(lsModel, cond1, cond2).Select()
+// ...
+// 2. Transact and parse
+reply, err := ovs.Transact(ctx, selectOps...)
+err = ovs.GetSelectResults(selectOps, reply, &specificSwitches)
+// ...
+```
+
+**Select with Conditions (OR):**
+
+Use `WhereAny()` to set the table context and one or more filter conditions. `WhereAny` will generate one `select` operation per condition. All generated operations belong to the same select query, allowing `GetSelectResults` to aggregate the results into a single slice.
+
+```go
+var specificSwitches []MyLogicalSwitch
+lsModel := &MyLogicalSwitch{}
+cond1 := model.Condition{Field: &lsModel.Name, Function: ovsdb.ConditionEqual, Value: "sw1"}
+cond2 := model.Condition{Field: &lsModel.Ports, Function: ovsdb.ConditionIncludes, Value: "some_port_uuid"}
+
+// 1. Generate Ops: Use WhereAny for one or more OR conditions
+// This generates multiple operations, one for each condition
+selectOps, err := ovs.WhereAny(lsModel, cond1, cond2).Select()
+// ...
+// 2. Transact and parse
+reply, err := ovs.Transact(ctx, selectOps...)
+// GetSelectResults will parse all results and populate them into the target slice.
+err = ovs.GetSelectResults(selectOps, reply, &specificSwitches, 0)
+// ...
+```
+
+**Select with Cache-based Filtering:**
+
+Use `WhereCache()` to filter rows based on a predicate function that operates on cached data. This generates one `select` operation per matching cached row, using UUID-based conditions. All generated operations belong to the same select query.
+
+```go
+var matchingSwitches []MyLogicalSwitch
+
+// 1. Generate Ops: Use WhereCache with a predicate function
+// This generates multiple operations, one for each matching row in cache
+selectOps, err := ovs.WhereCache(func(ls *MyLogicalSwitch) bool {
+    return strings.HasPrefix(ls.Name, "ext_")
+}).Select()
+// ...
+// 2. Transact and parse
+reply, err := ovs.Transact(ctx, selectOps...)
+// GetSelectResults will parse all results and populate them into the target slice.
+err = ovs.GetSelectResults(selectOps, reply, &matchingSwitches, 0)
+// ...
+```
+
+#### Selecting Specific Columns
+
+By default, `Select` queries all columns of a table. You can pass column names to the `Select` method to retrieve only specific columns. The `_uuid` column is always included in the result.
+
+```go
+// Selects only the "name" and "ports" columns
+selectOps, err := ovs.Where(&MyLogicalSwitch{Name: "sw1"}).Select("name", "ports")
+```
+
+#### Processing Select Results with GetSelectResults and GetSelectResultsByIndex
+
+**GetSelectResults** processes the results from the first select query (most common case):
+```go
+func (c Client) GetSelectResults(ops []ovsdb.Operation, results []ovsdb.OperationResult, target interface{}) error
+```
+
+**GetSelectResultsByIndex** allows you to choose which select query results to retrieve when you have multiple separate calls to `Select()` for the same model/table:
+```go
+func (c Client) GetSelectResultsByIndex(ops []ovsdb.Operation, results []ovsdb.OperationResult, target interface{}, index int) error
+```
+
+**Parameters:**
+- `ops`: The operations that were sent to `Transact`
+- `results`: The results returned from `Transact`
+- `target`: A pointer to a slice of models (e.g., `*[]MyLogicalSwitch` or `*[]*MyLogicalSwitch`)
+- `index`: Which select query to retrieve (0 = first `Select()` call, 1 = second, etc.)
+
+**Understanding the Index Parameter:**
+
+The `index` parameter refers to the **order of separate `Select()` calls** for the same model/table, not individual operations within a single query:
+
+```go
+// Example: Multiple separate Select() calls for the same model
+var results1, results2 []MyLogicalSwitch        // Value slice
+var ptrResults1, ptrResults2 []*MyLogicalSwitch  // Pointer slice (both are supported)
+
+// First Select() call - creates select query #0
+selectOps1, _ := ovs.Where(&MyLogicalSwitch{Name: "sw1"}).Select()
+
+// Second Select() call - creates select query #1  
+selectOps2, _ := ovs.Where(&MyLogicalSwitch{Name: "sw2"}).Select()
+
+// Combine operations for a single transaction
+allOps := append(selectOps1, selectOps2...)
+reply, _ := ovs.Transact(ctx, allOps...)
+
+// Get results from first Select() call (index 0) - both types work
+err = ovs.GetSelectResults(allOps, reply, &results1)           // Value slice
+err = ovs.GetSelectResults(allOps, reply, &ptrResults1)        // Pointer slice  
+err = ovs.GetSelectResultsByIndex(allOps, reply, &results1, 0) // Explicit index 0
+
+// Get results from second Select() call (index 1)
+err = ovs.GetSelectResultsByIndex(allOps, reply, &results2, 1)
+```
+
+**Important Notes:**
+- `WhereAny()` and `WhereCache()` may generate multiple operations, but they all belong to a **single** select query (index 0)
+- Only **separate calls** to `Select()` create different query indices
+- Use `GetSelectResults()` for most cases (single select query)
+- Use `GetSelectResultsByIndex()` only when combining multiple select queries in one transaction
+
 ## Monitor for updates
 
 You can also register a notification handler to get notified every time an element is added, deleted or updated from the database.

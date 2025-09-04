@@ -246,3 +246,40 @@ func newErrorConditional(err error) Conditional {
 		err: fmt.Errorf("conditionerror: %s", err.Error()),
 	}
 }
+
+// zeroValueConditional handles the case where Where(&Model{}) is called with a zero-value model
+// For most operations, it behaves like a normal equality conditional (matching nothing)
+// For Select operations, it can be detected and converted to select-all
+type zeroValueConditional struct {
+	tableName string
+	model     model.Model
+	cache     *cache.TableCache
+}
+
+func (c *zeroValueConditional) Generate() ([][]ovsdb.Condition, error) {
+	// Zero-value models are not supported for operations that modify data (Update, Delete, Mutate)
+	// Only Select operations handle zeroValueConditional specially by detecting the type before calling Generate()
+	return nil, fmt.Errorf("empty model conditions are not supported for data modification operations (Update, Delete, Mutate). Use specific conditions to target the rows you want to modify")
+}
+
+func (c *zeroValueConditional) Matches() (map[string]model.Model, error) {
+	// Zero-value models typically don't match any existing rows in the database
+	// Return empty results directly instead of doing expensive lookups
+	return make(map[string]model.Model), nil
+}
+
+func (c *zeroValueConditional) Table() string {
+	return c.tableName
+}
+
+func (c *zeroValueConditional) IsZeroValue() bool {
+	return true
+}
+
+func newZeroValueConditional(table string, cache *cache.TableCache, model model.Model) (Conditional, error) {
+	return &zeroValueConditional{
+		tableName: table,
+		model:     model,
+		cache:     cache,
+	}, nil
+}
