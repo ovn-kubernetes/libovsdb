@@ -239,6 +239,77 @@ func TestMapperGetData(t *testing.T) {
 	assert.Equal(t, expected, test)
 }
 
+func TestMapperGetDataWithUUID(t *testing.T) {
+	type ormWithUUID struct {
+		UUID    string `ovsdb:"_uuid"`
+		AString string `ovsdb:"aString"`
+	}
+	type ormWithoutUUID struct {
+		AString string `ovsdb:"aString"`
+	}
+
+	var schema ovsdb.DatabaseSchema
+	err := json.Unmarshal(testSchema, &schema)
+	require.NoError(t, err)
+	mapper := NewMapper(schema)
+
+	rowWithUUID := getOvsTestRow(t)
+	rowWithUUID["_uuid"] = ovsdb.UUID{GoUUID: aUUID0}
+	rowWithoutUUID := getOvsTestRow(t)
+	delete(rowWithoutUUID, "_uuid")
+
+	tests := []struct {
+		name        string
+		ovsRow      ovsdb.Row
+		model       interface{}
+		expected    interface{}
+		shouldError bool
+	}{
+		{
+			name:   "Model with _uuid tag and row with _uuid",
+			ovsRow: rowWithUUID,
+			model:  &ormWithUUID{},
+			expected: &ormWithUUID{
+				UUID:    aUUID0,
+				AString: aString,
+			},
+		},
+		{
+			name:   "Model with _uuid tag and row without _uuid",
+			ovsRow: rowWithoutUUID,
+			model:  &ormWithUUID{},
+			expected: &ormWithUUID{
+				UUID:    "",
+				AString: aString,
+			},
+		},
+		{
+			name:   "Model without _uuid tag and row with _uuid",
+			ovsRow: rowWithUUID,
+			model:  &ormWithoutUUID{},
+			expected: &ormWithoutUUID{
+				AString: aString,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testInfo, err := NewInfo("TestTable", schema.Table("TestTable"), tt.model)
+			require.NoError(t, err)
+
+			err = mapper.GetRowDataWithUUID(&tt.ovsRow, testInfo)
+
+			if tt.shouldError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expected, tt.model)
+			}
+		})
+	}
+}
+
 func TestMapperNewRow(t *testing.T) {
 	var schema ovsdb.DatabaseSchema
 	if err := json.Unmarshal(testSchema, &schema); err != nil {

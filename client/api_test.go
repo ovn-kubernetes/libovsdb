@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"sort"
 	"strings"
 	"testing"
 
@@ -1088,6 +1089,20 @@ func TestAPIMutate(t *testing.T) {
 			},
 			err: true,
 		},
+		{
+			name: "empty model with Where should return error for Mutate",
+			condition: func(a API) ConditionalAPI {
+				return a.Where(&testLogicalSwitchPort{})
+			},
+			mutations: []model.Mutation{
+				{
+					Field:   &testObj.ExternalIDs,
+					Mutator: ovsdb.MutateOperationInsert,
+					Value:   map[string]string{"new": "value"},
+				},
+			},
+			err: true,
+		},
 	}
 	for _, tt := range test {
 		t.Run(fmt.Sprintf("ApiMutate: %s", tt.name), func(t *testing.T) {
@@ -1455,6 +1470,17 @@ func TestAPIUpdate(t *testing.T) {
 			},
 			err: true,
 		},
+		{
+			name: "empty model with Where should return error for Update",
+			condition: func(a API) ConditionalAPI {
+				return a.Where(&testLogicalSwitchPort{})
+			},
+			prepare: func(t *testLogicalSwitchPort) {
+				t.Type = "somethingElse"
+				t.Tag = &six
+			},
+			err: true,
+		},
 	}
 	for _, tt := range test {
 		t.Run(fmt.Sprintf("ApiUpdate: %s", tt.name), func(t *testing.T) {
@@ -1678,6 +1704,13 @@ func TestAPIDelete(t *testing.T) {
 			name: "fails if conditional is an error",
 			condition: func(_ API) ConditionalAPI {
 				return newConditionalAPI(nil, newErrorConditional(fmt.Errorf("error")), &discardLogger, false)
+			},
+			err: true,
+		},
+		{
+			name: "empty model with Where should return error for Delete",
+			condition: func(a API) ConditionalAPI {
+				return a.Where(&testLogicalSwitchPort{})
 			},
 			err: true,
 		},
@@ -2762,6 +2795,86 @@ func TestAPIValidationUpdate(t *testing.T) {
 					assert.False(t, nameInOpRow, "Immutable field 'Name' should not be in the update operation row for: %s", tc.name)
 				}
 			}
+		})
+	}
+}
+
+func TestNoneConditionalAPISelect(t *testing.T) {
+	lspcacheList := []model.Model{
+		&testLogicalSwitchPort{
+			UUID: aUUID0,
+			Name: "lsp0",
+		},
+		&testLogicalSwitchPort{
+			UUID: aUUID1,
+			Name: "lsp1",
+		},
+	}
+	lspcache := map[string]model.Model{}
+	for i := range lspcacheList {
+		lspcache[lspcacheList[i].(*testLogicalSwitchPort).UUID] = lspcacheList[i]
+	}
+	testData := cache.Data{
+		"Logical_Switch_Port": lspcache,
+	}
+	tcache := apiTestCache(t, testData)
+	api := newAPI(tcache, &discardLogger, false)
+
+	var lsp testLogicalSwitchPort
+	tests := []struct {
+		name     string
+		model    model.Model
+		fields   []interface{}
+		expected ovsdb.Operation
+	}{
+		{
+			name:  "SelectAll without fields",
+			model: &testLogicalSwitchPort{},
+			expected: ovsdb.Operation{
+				Op:      ovsdb.OperationSelect,
+				Table:   "Logical_Switch_Port",
+				Where:   []ovsdb.Condition{},
+				Columns: nil,
+			},
+		},
+		{
+			name:   "SelectAll with fields",
+			model:  &lsp,
+			fields: []interface{}{&lsp.Name},
+			expected: ovsdb.Operation{
+				Op:      ovsdb.OperationSelect,
+				Table:   "Logical_Switch_Port",
+				Where:   []ovsdb.Condition{},
+				Columns: []string{"_uuid", "name"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ops, err := api.Select(tt.model, tt.fields...)
+			require.NoError(t, err)
+			require.Len(t, ops, 1)
+			ovsdb.SetCorrelationID(&ops[0], "")
+
+			// Compare everything except Columns first
+			expected := tt.expected
+			actual := ops[0]
+
+			// Sort columns for comparison to avoid order dependency
+			expectedCols := make([]string, len(expected.Columns))
+			copy(expectedCols, expected.Columns)
+			sort.Strings(expectedCols)
+
+			actualCols := make([]string, len(actual.Columns))
+			copy(actualCols, actual.Columns)
+			sort.Strings(actualCols)
+
+			// Compare all fields except columns
+			assert.Equal(t, expected.Op, actual.Op)
+			assert.Equal(t, expected.Table, actual.Table)
+			assert.Equal(t, expected.Where, actual.Where)
+			assert.Equal(t, expectedCols, actualCols, "Selected columns mismatch")
 		})
 	}
 }
