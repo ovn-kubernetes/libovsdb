@@ -1,12 +1,12 @@
 package server
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
 	"github.com/ovn-kubernetes/libovsdb/database/inmemory"
+	"github.com/ovn-kubernetes/libovsdb/internal/json"
 	"github.com/ovn-kubernetes/libovsdb/model"
 	"github.com/ovn-kubernetes/libovsdb/ovsdb"
 	"github.com/ovn-kubernetes/libovsdb/test"

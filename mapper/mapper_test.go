@@ -1,10 +1,10 @@
 package mapper
 
 import (
-	"encoding/json"
 	"fmt"
 	"testing"
 
+	"github.com/ovn-kubernetes/libovsdb/internal/json"
 	"github.com/ovn-kubernetes/libovsdb/ovsdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
