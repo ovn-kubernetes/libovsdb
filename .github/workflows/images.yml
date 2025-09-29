@@ -43,7 +43,7 @@ jobs:
           echo "ARCH_VERSION_TUPLE=${{ matrix.image.tag }}-${arch//\//-}" >> $GITHUB_ENV
 
       - name: Check Out Repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Docker Buildx
         id: buildx
