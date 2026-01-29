@@ -406,6 +406,13 @@ func (o *ovsdbClient) tryEndpoint(ctx context.Context, u *url.URL) (string, erro
 		db.cacheMutex.Unlock()
 	}
 
+	// Declare db_change_aware so the server does not disconnect us when
+	// databases are added/removed; avoids "half-disconnect" where monitor
+	// stops but TCP stays up.
+	if err := o.setDbChangeAware(ctx); err != nil {
+		o.logger.V(3).Error(err, "set_db_change_aware failed, continuing anyway")
+	}
+
 	// check that this is the leader
 	var sid string
 	if o.options.leaderOnly {
@@ -443,7 +450,49 @@ func (o *ovsdbClient) createRPC2Client(conn net.Conn) {
 	o.rpcClient.Handle("update3", func(_ *rpc2.Client, args []json.RawMessage, reply *[]any) error {
 		return o.update3(args, reply)
 	})
+	o.rpcClient.Handle("monitor_canceled", func(_ *rpc2.Client, args []json.RawMessage, reply *[]any) error {
+		return o.monitorCanceled(args, reply)
+	})
 	go o.rpcClient.Run()
+}
+
+// setDbChangeAware calls set_db_change_aware so the server does not disconnect
+// us when databases are added/removed. Should only be called when rpcMutex is held.
+func (o *ovsdbClient) setDbChangeAware(ctx context.Context) error {
+	args := ovsdb.NewSetDbChangeAwareArgs()
+	var reply ovsdb.SetDbChangeAwareResponse
+	err := o.rpcClient.CallWithContext(ctx, "set_db_change_aware", args, &reply)
+	if err != nil {
+		if err == rpc2.ErrShutdown {
+			return ErrNotConnected
+		}
+		if err.Error() == "unknown method" {
+			o.logger.V(3).Info("server does not support set_db_change_aware, continuing without it")
+			return nil
+		}
+		return fmt.Errorf("failed to set_db_change_aware: %w", err)
+	}
+	o.logger.V(3).Info("set_db_change_aware enabled")
+	return nil
+}
+
+// monitorCanceled handles monitor_canceled notification from the server.
+// When the server cancels a monitor (e.g. after db change), we disconnect
+// so that WithReconnect will re-establish and re-create monitors.
+func (o *ovsdbClient) monitorCanceled(params []json.RawMessage, reply *[]any) error {
+	*reply = []any{}
+	if len(params) != 1 {
+		return fmt.Errorf("monitor_canceled requires exactly 1 arg")
+	}
+	var cookie MonitorCookie
+	if err := json.Unmarshal(params[0], &cookie); err != nil {
+		o.logger.V(3).Error(err, "failed to unmarshal monitor_canceled")
+		return err
+	}
+	o.logger.V(3).Info("monitor canceled by server", "databaseName", cookie.DatabaseName, "monitorID", cookie.ID)
+	// Disconnect from a goroutine to avoid closing the connection from inside the RPC read path.
+	go o.Disconnect()
+	return nil
 }
 
 // isEndpointLeader returns true if the currently connected endpoint is leader,

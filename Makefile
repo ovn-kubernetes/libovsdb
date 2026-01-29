@@ -23,12 +23,12 @@ build: prebuild
 .PHONY: test
 test: prebuild
 	@echo "+ $@"
-	@go test -race -coverprofile=unit.cov -test.short -timeout 30s -v $(if $(TESTS),-run $(TESTS)) ./...
+	@go test -count=1 -race -coverprofile=unit.cov -test.short -timeout 30s -v $(if $(TESTS),-run $(TESTS)) ./...
 
 .PHONY: integration-test
 integration-test:
 	@echo "+ $@"
-	@go test -race -coverprofile=integration.cov -coverpkg=github.com/ovn-kubernetes/libovsdb/... -timeout 60s -v $(if $(TESTS),-run $(TESTS)) ./test/ovs
+	@go test -count=1 -race -coverprofile=integration.cov -coverpkg=github.com/ovn-kubernetes/libovsdb/... -timeout 60s -v $(if $(TESTS),-run $(TESTS)) ./test/ovs
 
 .PHONY: coverage
 coverage: test integration-test
