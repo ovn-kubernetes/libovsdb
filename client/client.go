@@ -1252,7 +1252,7 @@ func (o *ovsdbClient) handleDisconnectNotification() {
 	// wait for client related handlers to shutdown
 	o.handlerShutdown.Wait()
 	o.rpcMutex.Lock()
-	if o.options.reconnect && !o.shutdown {
+	if o.options.reconnect && !o.isShutdown() {
 		o.rpcClient = nil
 		o.rpcMutex.Unlock()
 		suppressionCounter := 1
