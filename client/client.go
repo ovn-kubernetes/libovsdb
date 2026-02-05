@@ -107,6 +107,11 @@ type ovsdbClient struct {
 	shutdown      bool
 	shutdownMutex sync.Mutex
 
+	// disconnected is set to true when the client is disconnecting,
+	// before trafficSeen channel is closed, to prevent send on closed channel panic
+	disconnected      bool
+	disconnectedMutex sync.Mutex
+
 	handlerShutdown *sync.WaitGroup
 
 	trafficSeen chan struct{}
@@ -426,6 +431,8 @@ func (o *ovsdbClient) tryEndpoint(ctx context.Context, u *url.URL) (string, erro
 // Should only be called when the mutex is held
 func (o *ovsdbClient) createRPC2Client(conn net.Conn) {
 	o.stopCh = make(chan struct{})
+	// Reset disconnected flag before creating new trafficSeen channel
+	o.setDisconnected(false)
 	if o.options.inactivityTimeout > 0 {
 		o.trafficSeen = make(chan struct{})
 	}
@@ -846,7 +853,7 @@ func (o *ovsdbClient) transact(ctx context.Context, dbName string, skipChWrite b
 		return nil, err
 	}
 
-	if !skipChWrite && o.trafficSeen != nil {
+	if !skipChWrite && o.trafficSeen != nil && !o.isDisconnected() {
 		select {
 		case o.trafficSeen <- struct{}{}:
 		default:
@@ -1238,6 +1245,9 @@ func (o *ovsdbClient) handleDisconnectNotification() {
 	<-o.rpcClient.DisconnectNotify()
 	// close the stopCh, which will stop the cache event processor
 	close(o.stopCh)
+	// Set disconnected before closing trafficSeen to prevent
+	// send on closed channel panic in transact()
+	o.setDisconnected(true)
 	if o.trafficSeen != nil {
 		close(o.trafficSeen)
 	}
@@ -1350,6 +1360,21 @@ func (o *ovsdbClient) Close() {
 	defer o.shutdownMutex.Unlock()
 	o.shutdown = true
 	o.rpcClient.Close()
+}
+
+// isDisconnected returns true if the client is in the process of disconnecting.
+// This is used to prevent sending on the trafficSeen channel after it's been closed.
+func (o *ovsdbClient) isDisconnected() bool {
+	o.disconnectedMutex.Lock()
+	defer o.disconnectedMutex.Unlock()
+	return o.disconnected
+}
+
+// setDisconnected sets the disconnected state of the client.
+func (o *ovsdbClient) setDisconnected(val bool) {
+	o.disconnectedMutex.Lock()
+	defer o.disconnectedMutex.Unlock()
+	o.disconnected = val
 }
 
 // Ensures the cache is consistent by evaluating that the client is connected
