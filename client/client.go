@@ -312,7 +312,6 @@ func (o *ovsdbClient) connect(ctx context.Context, reconnect bool) error {
 		}
 	}
 
-	go o.handleDisconnectNotification()
 	if o.options.inactivityTimeout > 0 {
 		o.handlerShutdown.Add(1)
 		go o.handleInactivityProbes()
@@ -328,6 +327,10 @@ func (o *ovsdbClient) connect(ctx context.Context, reconnect bool) error {
 			close(eventStopChan)
 		}(db)
 	}
+
+	// handleDisconnectNotification must be started after all Add() calls
+	// to handlerShutdown, since it will call Wait() on reconnection
+	go o.handleDisconnectNotification()
 
 	o.connected = true
 	return nil
