@@ -108,7 +108,7 @@ type ovsdbClient struct {
 	shutdownMutex sync.Mutex
 
 	// disconnected is set to true when the client is disconnecting,
-	// before trafficSeen channel is closed, to prevent send on closed channel panic
+	// to prevent further sends to trafficSeen channel
 	disconnected      bool
 	disconnectedMutex sync.Mutex
 
@@ -1245,12 +1245,11 @@ func (o *ovsdbClient) handleDisconnectNotification() {
 	<-o.rpcClient.DisconnectNotify()
 	// close the stopCh, which will stop the cache event processor
 	close(o.stopCh)
-	// Set disconnected before closing trafficSeen to prevent
-	// send on closed channel panic in transact()
+	// Set disconnected to prevent further sends to trafficSeen channel.
+	// We don't close trafficSeen because handleInactivityProbes() will
+	// exit via stopCh (already closed above), and closing trafficSeen
+	// would race with concurrent sends in transact().
 	o.setDisconnected(true)
-	if o.trafficSeen != nil {
-		close(o.trafficSeen)
-	}
 	o.metrics.numDisconnects.Inc()
 	// wait for client related handlers to shutdown
 	o.handlerShutdown.Wait()
@@ -1363,7 +1362,7 @@ func (o *ovsdbClient) Close() {
 }
 
 // isDisconnected returns true if the client is in the process of disconnecting.
-// This is used to prevent sending on the trafficSeen channel after it's been closed.
+// This is used to prevent sending on the trafficSeen channel during disconnect.
 func (o *ovsdbClient) isDisconnected() bool {
 	o.disconnectedMutex.Lock()
 	defer o.disconnectedMutex.Unlock()
