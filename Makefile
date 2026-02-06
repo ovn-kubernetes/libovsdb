@@ -49,7 +49,7 @@ install-deps:
 .PHONY: lint
 lint: install-deps prebuild
 	@echo "+ $@"
-	@golangci-lint run
+	@$(shell go env GOPATH)/bin/golangci-lint run
 
 ovsdb/serverdb/_server.ovsschema:
 	@curl -sSL https://raw.githubusercontent.com/openvswitch/ovs/${OVS_VERSION}/ovsdb/_server.ovsschema -o $@
