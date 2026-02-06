@@ -878,11 +878,15 @@ func NewTableCache(dbModel model.DatabaseModel, data Data, logger *logr.Logger) 
 
 // Mapper returns the mapper
 func (t *TableCache) Mapper() mapper.Mapper {
+	t.mutex.RLock()
+	defer t.mutex.RUnlock()
 	return t.dbModel.Mapper
 }
 
 // DatabaseModel returns the DatabaseModelRequest
 func (t *TableCache) DatabaseModel() model.DatabaseModel {
+	t.mutex.RLock()
+	defer t.mutex.RUnlock()
 	return t.dbModel
 }
 
