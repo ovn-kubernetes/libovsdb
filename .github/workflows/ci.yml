@@ -26,6 +26,9 @@ jobs:
       - name: Generate Code
         run: make prebuild
 
+      - name: Check generated files are up to date
+        run: make check-generated
+
       # This cannot be run in parallel because we require running go-generate first
       # We need to skip the go installation and caching to avoid "File exists" errors in tbe logs
       - name: Lint

@@ -15,6 +15,15 @@ prebuild: modelgen ovsdb/serverdb/_server.ovsschema example/vswitchd/ovs.ovssche
 	@echo "+ $@"
 	@go generate -v ./...
 
+.PHONY: check-generated
+check-generated: prebuild
+	@echo "+ $@"
+	@if ! git diff --quiet; then \
+		echo "Error: generated files are out of date. Please run 'make prebuild' and commit the changes."; \
+		git diff --stat; \
+		exit 1; \
+	fi
+
 .PHONY: build
 build: prebuild
 	@echo "+ $@"
