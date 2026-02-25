@@ -2063,3 +2063,80 @@ func TestGetSelectResultsByIndex(t *testing.T) {
 		assert.Contains(t, err.Error(), "index 5 is out of range")
 	})
 }
+
+func TestConditionalWhereListWaitsForCacheConsistency(t *testing.T) {
+	ovs, err := newOVSDBClient(defDB)
+	require.NoError(t, err)
+
+	var s ovsdb.DatabaseSchema
+	err = json.Unmarshal([]byte(schema), &s)
+	require.NoError(t, err)
+
+	dbModel, errs := model.NewDatabaseModel(s, defDB)
+	require.Empty(t, errs)
+
+	bridge := &Bridge{
+		UUID: aUUID0,
+		Name: "br0",
+	}
+	tcache, err := cache.NewTableCache(dbModel, cache.Data{
+		"Bridge": {
+			bridge.UUID: bridge,
+		},
+	}, nil)
+	require.NoError(t, err)
+
+	// Simulate reconnect/startup state:
+	// cache exists but monitor replay is still in progress (deferUpdates=true).
+	primaryDB := ovs.primaryDB()
+	primaryDB.cacheMutex.Lock()
+	primaryDB.cache = tcache
+	logger := logr.Discard()
+	primaryDB.api = newAPI(tcache, &logger, false, func(ctx context.Context) func() {
+		waitForCacheConsistent(ctx, primaryDB, &logger, ovs.primaryDBName)
+		return primaryDB.cacheMutex.RUnlock
+	})
+	primaryDB.deferUpdates = true
+	primaryDB.cacheMutex.Unlock()
+
+	// waitForCacheConsistent() only waits when monitors are present.
+	primaryDB.monitorsMutex.Lock()
+	primaryDB.monitors["monitor"] = &Monitor{}
+	primaryDB.monitorsMutex.Unlock()
+
+	type whereResult struct {
+		err  error
+		rows []*Bridge
+	}
+	done := make(chan whereResult, 1)
+	go func() {
+		var rows []*Bridge
+		err := ovs.Where(&Bridge{Name: "br0"}).List(context.Background(), &rows)
+		done <- whereResult{
+			err:  err,
+			rows: rows,
+		}
+	}()
+
+	// While cache is inconsistent, conditional List should block.
+	select {
+	case result := <-done:
+		t.Fatalf("Where(...).List returned before cache was marked consistent: err=%v rows=%d", result.err, len(result.rows))
+	case <-time.After(120 * time.Millisecond):
+	}
+
+	// Mark replay complete; reads should now proceed.
+	primaryDB.cacheMutex.Lock()
+	primaryDB.deferUpdates = false
+	primaryDB.cacheMutex.Unlock()
+
+	// After consistency, the same conditional List should complete and return the row.
+	select {
+	case result := <-done:
+		require.NoError(t, result.err)
+		require.Len(t, result.rows, 1)
+		require.Equal(t, bridge.UUID, result.rows[0].UUID)
+	case <-time.After(time.Second):
+		t.Fatal("Where(...).List did not complete after cache became consistent")
+	}
+}

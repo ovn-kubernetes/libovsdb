@@ -401,7 +401,12 @@ func (o *ovsdbClient) tryEndpoint(ctx context.Context, u *url.URL) (string, erro
 				db.cacheMutex.Unlock()
 				return "", err
 			}
-			db.api = newAPI(db.cache, o.logger, o.options.validateModel)
+			dbNameForWait := dbName
+			dbForWait := db
+			db.api = newAPI(db.cache, o.logger, o.options.validateModel, func(ctx context.Context) func() {
+				waitForCacheConsistent(ctx, dbForWait, o.logger, dbNameForWait)
+				return dbForWait.cacheMutex.RUnlock
+			})
 		}
 		db.cacheMutex.Unlock()
 	}
@@ -1408,10 +1413,7 @@ func hasMonitors(db *database) bool {
 
 // Get implements the API interface's Get function
 func (o *ovsdbClient) Get(ctx context.Context, model model.Model) error {
-	primaryDB := o.primaryDB()
-	waitForCacheConsistent(ctx, primaryDB, o.logger, o.primaryDBName)
-	defer primaryDB.cacheMutex.RUnlock()
-	return primaryDB.api.Get(ctx, model)
+	return o.primaryDB().api.Get(ctx, model)
 }
 
 // Create implements the API interface's Create function
@@ -1421,10 +1423,7 @@ func (o *ovsdbClient) Create(models ...model.Model) ([]ovsdb.Operation, error) {
 
 // List implements the API interface's List function
 func (o *ovsdbClient) List(ctx context.Context, result any) error {
-	primaryDB := o.primaryDB()
-	waitForCacheConsistent(ctx, primaryDB, o.logger, o.primaryDBName)
-	defer primaryDB.cacheMutex.RUnlock()
-	return primaryDB.api.List(ctx, result)
+	return o.primaryDB().api.List(ctx, result)
 }
 
 // Where implements the API interface's Where function
