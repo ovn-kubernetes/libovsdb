@@ -115,10 +115,18 @@ type api struct {
 	cond          Conditional
 	logger        *logr.Logger
 	validateModel bool
+	// withReadLock optionally acquires a read lock (and any preconditions such as
+	// cache-consistency checks) and returns an unlock function.
+	withReadLock func(context.Context) func()
 }
 
 // List populates a slice of Models given as parameter based on the configured Condition
-func (a api) List(_ context.Context, result any) error {
+func (a api) List(ctx context.Context, result any) error {
+	unlock := a.lockForRead(ctx)
+	if unlock != nil {
+		defer unlock()
+	}
+
 	resultPtr := reflect.ValueOf(result)
 	if resultPtr.Type().Kind() != reflect.Ptr {
 		return &ErrWrongType{resultPtr.Type(), "Expected pointer to slice of valid Models"}
@@ -191,24 +199,24 @@ func (a api) List(_ context.Context, result any) error {
 // Where returns a conditionalAPI based on model indexes. All provided models
 // must be the same type.
 func (a api) Where(models ...model.Model) ConditionalAPI {
-	return newConditionalAPI(a.cache, a.conditionFromModels(models), a.logger, a.validateModel)
+	return newConditionalAPI(a.cache, a.conditionFromModels(models), a.logger, a.validateModel, a.withReadLock)
 }
 
 // WhereAny returns a conditionalAPI based on a Condition list that matches any
 // of the conditions individually
 func (a api) WhereAny(m model.Model, cond ...model.Condition) ConditionalAPI {
-	return newConditionalAPI(a.cache, a.conditionFromExplicitConditions(false, m, cond...), a.logger, a.validateModel)
+	return newConditionalAPI(a.cache, a.conditionFromExplicitConditions(false, m, cond...), a.logger, a.validateModel, a.withReadLock)
 }
 
 // WhereAll returns a conditionalAPI based on a Condition list that matches all
 // of the conditions together
 func (a api) WhereAll(m model.Model, cond ...model.Condition) ConditionalAPI {
-	return newConditionalAPI(a.cache, a.conditionFromExplicitConditions(true, m, cond...), a.logger, a.validateModel)
+	return newConditionalAPI(a.cache, a.conditionFromExplicitConditions(true, m, cond...), a.logger, a.validateModel, a.withReadLock)
 }
 
 // WhereCache returns a conditionalAPI based a Predicate
 func (a api) WhereCache(predicate any) ConditionalAPI {
-	return newConditionalAPI(a.cache, a.conditionFromFunc(predicate), a.logger, a.validateModel)
+	return newConditionalAPI(a.cache, a.conditionFromFunc(predicate), a.logger, a.validateModel, a.withReadLock)
 }
 
 // Conditional interface implementation
@@ -269,7 +277,12 @@ func (a api) conditionFromExplicitConditions(matchAll bool, m model.Model, cond 
 //
 // The way the cache is searched depends on the fields already populated in 'result'
 // Any table index (including _uuid) will be used for comparison
-func (a api) Get(_ context.Context, m model.Model) error {
+func (a api) Get(ctx context.Context, m model.Model) error {
+	unlock := a.lockForRead(ctx)
+	if unlock != nil {
+		defer unlock()
+	}
+
 	table, err := a.getTableFromModel(m)
 	if err != nil {
 		return err
@@ -290,6 +303,15 @@ func (a api) Get(_ context.Context, m model.Model) error {
 	model.CloneInto(found, m)
 
 	return nil
+}
+
+// lockForRead runs the optional read-lock hook and returns an unlock function.
+// If no hook is configured, it returns nil.
+func (a api) lockForRead(ctx context.Context) func() {
+	if a.withReadLock == nil {
+		return nil
+	}
+	return a.withReadLock(ctx)
 }
 
 // Create is a generic function capable of creating any row in the DB
@@ -633,22 +655,38 @@ func (a api) getTableFromFunc(predicate any) (string, error) {
 	return table, nil
 }
 
-// newAPI returns a new API to interact with the database
-func newAPI(cache *cache.TableCache, logger *logr.Logger, validateModel bool) API {
+// newAPI returns a new API to interact with the database.
+// If withReadLock is provided, the first hook is used by read-path methods
+// (currently Get and List) to guard cache reads and return a matching unlock func.
+func newAPI(cache *cache.TableCache, logger *logr.Logger, validateModel bool, withReadLock ...func(context.Context) func()) API {
+	var readLockFn func(context.Context) func()
+	if len(withReadLock) > 0 {
+		readLockFn = withReadLock[0]
+	}
+
 	return api{
 		cache:         cache,
 		logger:        logger,
 		validateModel: validateModel,
+		withReadLock:  readLockFn,
 	}
 }
 
-// newConditionalAPI returns a new ConditionalAPI to interact with the database
-func newConditionalAPI(cache *cache.TableCache, cond Conditional, logger *logr.Logger, validateModel bool) ConditionalAPI {
+// newConditionalAPI returns a new ConditionalAPI to interact with the database.
+// If withReadLock is provided, the first hook is propagated to conditional
+// read-path methods (currently List) to guard cache reads.
+func newConditionalAPI(cache *cache.TableCache, cond Conditional, logger *logr.Logger, validateModel bool, withReadLock ...func(context.Context) func()) ConditionalAPI {
+	var readLockFn func(context.Context) func()
+	if len(withReadLock) > 0 {
+		readLockFn = withReadLock[0]
+	}
+
 	return api{
 		cache:         cache,
 		cond:          cond,
 		logger:        logger,
 		validateModel: validateModel,
+		withReadLock:  readLockFn,
 	}
 }
 
