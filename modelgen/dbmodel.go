@@ -30,7 +30,7 @@ func NewDBTemplate() *template.Template {
 {{- define "preDBDefinitions" }}
  import (
 	"encoding/json"
-
+	
 	"github.com/ovn-kubernetes/libovsdb/model"
 	"github.com/ovn-kubernetes/libovsdb/ovsdb"
 )

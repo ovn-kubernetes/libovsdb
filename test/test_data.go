@@ -1,9 +1,9 @@
 package test
 
 import (
-	"encoding/json"
 	"fmt"
 
+	"github.com/ovn-kubernetes/libovsdb/internal/json"
 	"github.com/ovn-kubernetes/libovsdb/model"
 	"github.com/ovn-kubernetes/libovsdb/ovsdb"
 )

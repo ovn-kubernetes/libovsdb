@@ -3,7 +3,6 @@ package client
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
@@ -22,6 +21,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/ovn-kubernetes/libovsdb/cache"
 	"github.com/ovn-kubernetes/libovsdb/database/inmemory"
+	"github.com/ovn-kubernetes/libovsdb/internal/json"
 	"github.com/ovn-kubernetes/libovsdb/mapper"
 	"github.com/ovn-kubernetes/libovsdb/model"
 	"github.com/ovn-kubernetes/libovsdb/ovsdb"
