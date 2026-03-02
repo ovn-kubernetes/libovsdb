@@ -43,7 +43,7 @@ jobs:
           echo "ARCH_VERSION_TUPLE=${{ matrix.image.tag }}-${arch//\//-}" >> $GITHUB_ENV
 
       - name: Check Out Repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
         id: buildx
@@ -100,7 +100,7 @@ jobs:
 
       - name: Upload digest
         if: github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: digests-${{ env.ARCH_VERSION_TUPLE }}
           path: ${{ runner.temp }}/digests/*
@@ -121,7 +121,7 @@ jobs:
           - tag: 3.3.0
     steps:
       - name: Download digests
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v7
         with:
           path: ${{ runner.temp }}/digests
           pattern: digests-${{ matrix.image.tag }}-*
