@@ -246,11 +246,11 @@ func (b *BaseType) MinInteger() (int, error) {
 	if b.minInteger != nil {
 		return *b.minInteger, nil
 	}
-	return int(math.Pow(-2, 63)), nil
+	return math.MinInt64, nil
 }
 
-// MaxInteger returns the minimum integer value
-// RFC7047 specifies the minimum to be 2^63-1
+// MaxInteger returns the maximum integer value
+// RFC7047 specifies the maximum to be 2^63-1
 func (b *BaseType) MaxInteger() (int, error) {
 	if b.Type != TypeInteger {
 		return 0, fmt.Errorf("%s is not an integer", b.Type)
@@ -258,7 +258,7 @@ func (b *BaseType) MaxInteger() (int, error) {
 	if b.maxInteger != nil {
 		return *b.maxInteger, nil
 	}
-	return int(math.Pow(2, 63)) - 1, nil
+	return math.MaxInt64, nil
 }
 
 // MinLength returns the minimum string length
@@ -276,15 +276,15 @@ func (b *BaseType) MinLength() (int, error) {
 
 // MaxLength returns the maximum string length
 // RFC7047 doesn't specify a default, but we assume
-// that it must 2^63-1
+// that it must be 2^63-1
 func (b *BaseType) MaxLength() (int, error) {
 	if b.Type != TypeString {
-		return 0, fmt.Errorf("%s is not an string", b.Type)
+		return 0, fmt.Errorf("%s is not a string", b.Type)
 	}
 	if b.maxLength != nil {
 		return *b.maxLength, nil
 	}
-	return int(math.Pow(2, 63)) - 1, nil
+	return math.MaxInt64, nil
 }
 
 // RefTable returns the table to which a UUID type refers
