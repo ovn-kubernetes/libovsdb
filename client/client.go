@@ -1096,6 +1096,7 @@ func (o *ovsdbClient) Echo(ctx context.Context) error {
 		if err == rpc2.ErrShutdown {
 			return ErrNotConnected
 		}
+		return err
 	}
 	if !reflect.DeepEqual(args, reply) {
 		return fmt.Errorf("incorrect server response: %v, %v", args, reply)
