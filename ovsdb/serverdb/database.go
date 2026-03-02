@@ -22,11 +22,11 @@ type Database struct {
 	UUID      string        `ovsdb:"_uuid"`
 	Cid       *string       `ovsdb:"cid"`
 	Connected bool          `ovsdb:"connected"`
-	Index     *int          `ovsdb:"index" validate:"omitempty,max=9223372036854775806"`
+	Index     *int          `ovsdb:"index"`
 	Leader    bool          `ovsdb:"leader"`
-	Model     DatabaseModel `ovsdb:"model" validate:"max=9223372036854775806,oneof='standalone' 'clustered' 'relay'"`
-	Name      string        `ovsdb:"name" validate:"max=9223372036854775806"`
-	Schema    *string       `ovsdb:"schema" validate:"omitempty,max=9223372036854775806"`
+	Model     DatabaseModel `ovsdb:"model" validate:"oneof='standalone' 'clustered' 'relay'"`
+	Name      string        `ovsdb:"name"`
+	Schema    *string       `ovsdb:"schema"`
 	Sid       *string       `ovsdb:"sid"`
 }
 
