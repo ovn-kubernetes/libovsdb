@@ -12,7 +12,7 @@ fi
 # Check if benchstat is installed
 if ! command -v benchstat &> /dev/null; then
     echo "Installing benchstat..."
-    go install golang.org/x/perf/cmd/benchstat@latest
+    go install golang.org/x/perf/cmd/benchstat@b57e4e3
 else
     echo "benchstat is already installed."
 fi
