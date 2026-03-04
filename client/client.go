@@ -586,7 +586,7 @@ func (o *ovsdbClient) UpdateEndpoints(endpoints []string) {
 func (o *ovsdbClient) SetOption(opt Option) error {
 	o.rpcMutex.RLock()
 	defer o.rpcMutex.RUnlock()
-	if o.rpcClient != nil {
+	if o.connected {
 		return fmt.Errorf("cannot set option when client is connected")
 	}
 	return opt(o.options)

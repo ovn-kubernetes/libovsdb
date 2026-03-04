@@ -950,6 +950,7 @@ func TestSetOption(t *testing.T) {
 	require.NoError(t, err)
 
 	o.rpcClient = &rpc2.Client{}
+	o.connected = true
 
 	err = o.SetOption(WithEndpoint("tcp::6641"))
 	assert.EqualError(t, err, "cannot set option when client is connected")
