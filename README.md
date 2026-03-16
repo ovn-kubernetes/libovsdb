@@ -86,6 +86,15 @@ create an equality condition (using `ovsdb.ConditionEqual`) on the `_uuid` field
 
 The table is inferred from the type that the function accepts as only argument.
 
+**WhereCacheTyped()**: `WhereCacheTyped()` is a high-performance, type-safe alternative to `WhereCache()` that uses Go generics. It provides the same functionality as `WhereCache()` but with significantly better performance and zero memory allocations for predicate evaluation. This is the recommended approach for performance-critical applications. Example:
+
+    lsList := []LogicalSwitch{}
+    client.WhereCacheTyped(ovs, func(ls *MyLogicalSwitch) bool {
+        return strings.HasPrefix(ls.Name, "ext_")
+    }).List(&lsList)
+
+The generic type parameter is automatically inferred from the predicate function signature, eliminating the need for runtime type assertions and reflection. This API is available for all operations that `WhereCache()` supports, including `List()`, `Update()`, `Delete()`, and `Mutate()`.
+
 ### Client indexes
 
 The client will track schema indexes and use them when appropriate in `Get`, `Where`, and `WhereAll` as explained above.
@@ -174,6 +183,17 @@ Search the cache for elements that match a certain predicate:
     ovs.WhereCache(
         func(ls *MyLogicalSwitch) bool {
             return strings.HasPrefix(ls.Name, "ext_")
+    }).List(&lsList)
+
+    for _, ls := range lsList {
+        fmt.Printf("%+v\n", ls)
+    }
+
+Search the cache using the high-performance typed API:
+
+    var lsList *[]MyLogicalSwitch
+    client.WhereCacheTyped(ovs, func(ls *MyLogicalSwitch) bool {
+        return strings.HasPrefix(ls.Name, "ext_")
     }).List(&lsList)
 
     for _, ls := range lsList {
