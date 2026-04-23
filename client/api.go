@@ -636,6 +636,9 @@ func (a api) getTableFromFunc(predicate any) (string, error) {
 	if predType == nil || predType.Kind() != reflect.Func {
 		return "", &ErrWrongType{predType, "Expected function"}
 	}
+	if reflect.ValueOf(predicate).IsNil() {
+		return "", &ErrWrongType{predType, "Expected non-nil function"}
+	}
 	if predType.NumIn() != 1 || predType.NumOut() != 1 || predType.Out(0).Kind() != reflect.Bool {
 		return "", &ErrWrongType{predType, "Expected func(Model) bool"}
 	}

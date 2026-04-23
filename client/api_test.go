@@ -241,7 +241,7 @@ func TestAPIListPredicate(t *testing.T) {
 			err:     false,
 		},
 		{
-			name: "nil function must fail",
+			name: "nil interface must fail",
 			err:  true,
 		},
 		{
@@ -276,6 +276,17 @@ func TestAPIListPredicate(t *testing.T) {
 
 		})
 	}
+
+	t.Run("ApiListPredicate: typed nil function must fail", func(t *testing.T) {
+		var predicate func(*testLogicalSwitch) bool
+		var result []*testLogicalSwitch
+		api := newAPI(tcache, &discardLogger, false)
+		cond := api.WhereCache(predicate)
+
+		err := cond.List(context.Background(), &result)
+		require.Error(t, err)
+		require.ErrorContains(t, err, "Expected non-nil function")
+	})
 }
 
 func TestAPIListWhereConditions(t *testing.T) {
