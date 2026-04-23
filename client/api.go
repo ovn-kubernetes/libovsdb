@@ -158,9 +158,14 @@ func (a api) List(ctx context.Context, result any) error {
 		return err
 	}
 
-	if a.cond != nil && a.cond.Table() != table {
-		return &ErrWrongType{resultPtr.Type(),
-			fmt.Sprintf("Table derived from input type (%s) does not match Table from Condition (%s)", table, a.cond.Table())}
+	if a.cond != nil {
+		if errCond, ok := a.cond.(*errorConditional); ok {
+			return errCond.err
+		}
+		if a.cond.Table() != table {
+			return &ErrWrongType{resultPtr.Type(),
+				fmt.Sprintf("Table derived from input type (%s) does not match Table from Condition (%s)", table, a.cond.Table())}
+		}
 	}
 
 	tableCache := a.cache.Table(table)

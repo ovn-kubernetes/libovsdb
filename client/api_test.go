@@ -223,6 +223,7 @@ func TestAPIListPredicate(t *testing.T) {
 		predicate any
 		content   []model.Model
 		err       bool
+		errText   string
 	}{
 		{
 			name: "none",
@@ -241,8 +242,9 @@ func TestAPIListPredicate(t *testing.T) {
 			err:     false,
 		},
 		{
-			name: "nil interface must fail",
-			err:  true,
+			name:    "nil interface must fail",
+			err:     true,
+			errText: "Expected function",
 		},
 		{
 			name: "arbitrary condition",
@@ -269,6 +271,9 @@ func TestAPIListPredicate(t *testing.T) {
 			err := cond.List(context.Background(), &result)
 			if tt.err {
 				require.Error(t, err)
+				if tt.errText != "" {
+					require.ErrorContains(t, err, tt.errText)
+				}
 			} else {
 				require.NoError(t, err)
 				assert.ElementsMatchf(t, tt.content, result, "Content should match")
