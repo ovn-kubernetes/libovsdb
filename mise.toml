@@ -1,0 +1,4 @@
+[tools]
+go = "1.24.0"
+golangci-lint = "2.2.1"
+"go:golang.org/x/perf/cmd/benchstat" = "b57e4e3"

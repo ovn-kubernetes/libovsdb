@@ -45,7 +45,7 @@ coverage: test integration-test
 	@cat unit.cov integration.cov > profile.cov
 
 .PHONY: bench
-bench: install-deps prebuild
+bench: prebuild
 	@echo "+ $@"
 	@go test -run=XXX -count=3 $(if $(TESTS),-bench $(TESTS),-bench .) ./... | tee bench.out
 	@benchstat bench.out
@@ -53,10 +53,10 @@ bench: install-deps prebuild
 .PHONY: install-deps
 install-deps:
 	@echo "+ $@"
-	@./hack/install-deps.sh
+	@mise install
 
 .PHONY: lint
-lint: install-deps prebuild
+lint: prebuild
 	@echo "+ $@"
 	@golangci-lint run
 
