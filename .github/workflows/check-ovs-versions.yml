@@ -32,10 +32,14 @@ jobs:
         if: steps.check_ovs.outputs.exit_code == '2'
         uses: peter-evans/create-pull-request@v8
         with:
-          commit-message: "chore: update OVS versions in images.yml to latest 3 releases"
+          commit-message: |
+            chore: update OVS versions in images.yml to latest 3 releases
+
+            Signed-off-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+          author: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+          committer: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
           branch: update-ovs-versions
           title: "Update OVS versions in images.yml to latest 3 releases"
           body: |
             This PR updates the OVS versions in `.github/workflows/images.yml` to the latest patch release of the last 3 major.minor versions, as determined from https://github.com/openvswitch/ovs/tags.
           labels: "automation,dependencies"
-          sign-commits: true
