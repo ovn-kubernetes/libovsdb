@@ -95,9 +95,10 @@ type ovsdbClient struct {
 	closeOnce       sync.Once
 	eventLoopWg     sync.WaitGroup // waited in Close() so event loop and error handler exit before stopCh is closed
 
-	cm      *ConnectionManager
-	eventCh chan Event
-	logger  *logr.Logger
+	cm          *ConnectionManager
+	lifecycleCh chan Event // receives EventDisconnected/Reconnected/SchemaData; blocking send from CM
+	eventCh     chan Event // receives EventInboundRPC; non-blocking send from CM
+	logger      *logr.Logger
 
 	// currentEndpointServerID is set on Connect/Reconnected so watchForLeaderChange can use it without blocking on CM.
 	currentEndpointServerIDMu sync.Mutex
@@ -152,6 +153,7 @@ func newOVSDBClient(clientDBModel model.ClientDBModel, opts ...Option) (*ovsdbCl
 		disconnect:      make(chan struct{}, 1), // buffered so one DisconnectNotify is never dropped
 		doneCh:          make(chan struct{}),
 		stopCh:          make(chan struct{}),
+		lifecycleCh:     make(chan Event, 8),
 		eventCh:         make(chan Event, 64),
 	}
 	var err error
@@ -185,7 +187,7 @@ func newOVSDBClient(clientDBModel model.ClientDBModel, opts ...Option) (*ovsdbCl
 	for name := range ovs.databases {
 		dbNames = append(dbNames, name)
 	}
-	ovs.cm = NewConnectionManager(ovs.options, ovs.primaryDBName, dbNames, ovs.eventCh)
+	ovs.cm = NewConnectionManager(ovs.options, ovs.primaryDBName, dbNames, ovs.lifecycleCh, ovs.eventCh)
 	go ovs.cm.Run()
 	ovs.eventLoopWg.Add(2)
 	go func() {
@@ -200,59 +202,73 @@ func newOVSDBClient(clientDBModel model.ClientDBModel, opts ...Option) (*ovsdbCl
 	return ovs, nil
 }
 
-// runEventLoop reads from the connection manager event channel and dispatches.
+// runEventLoop dispatches events from the connection manager.
+// Lifecycle events (lifecycleCh) are given priority over inbound updates (eventCh).
 func (o *ovsdbClient) runEventLoop() {
 	for {
+		// Drain any pending lifecycle event before blocking on updates.
 		select {
 		case <-o.doneCh:
 			return
-		case ev, ok := <-o.eventCh:
-			if !ok {
-				return
+		case ev := <-o.lifecycleCh:
+			o.dispatchEvent(ev)
+			continue
+		default:
+		}
+		select {
+		case <-o.doneCh:
+			return
+		case ev := <-o.lifecycleCh:
+			o.dispatchEvent(ev)
+		case ev := <-o.eventCh:
+			o.dispatchEvent(ev)
+		}
+	}
+}
+
+// dispatchEvent processes a single event from the connection manager.
+func (o *ovsdbClient) dispatchEvent(ev Event) {
+	switch ev.Type {
+	case EventDisconnected:
+		// Purge caches and reset deferUpdates on all databases so that:
+		// 1. Stale data is not served while disconnected.
+		// 2. Any incoming server-push notifications during the subsequent reconnect
+		//    phase are buffered rather than applied directly to the stale cache.
+		for _, db := range o.databases {
+			db.modelMutex.RLock()
+			dbModel := db.model
+			db.modelMutex.RUnlock()
+			db.cacheMutex.Lock()
+			if db.cache != nil {
+				db.cache.Purge(dbModel)
 			}
-			switch ev.Type {
-			case EventDisconnected:
-				// Purge caches and reset deferUpdates on all databases so that:
-				// 1. Stale data is not served while disconnected.
-				// 2. Any incoming server-push notifications during the subsequent reconnect
-				//    phase are buffered rather than applied directly to the stale cache.
-				for _, db := range o.databases {
-					db.modelMutex.RLock()
-					dbModel := db.model
-					db.modelMutex.RUnlock()
-					db.cacheMutex.Lock()
-					if db.cache != nil {
-						db.cache.Purge(dbModel)
-					}
-					db.deferUpdates = true
-					db.deferredUpdates = make([]*bufferedUpdate, 0)
-					db.cacheMutex.Unlock()
-				}
+			db.deferUpdates = true
+			db.deferredUpdates = make([]*bufferedUpdate, 0)
+			db.cacheMutex.Unlock()
+		}
+		select {
+		case o.disconnect <- struct{}{}:
+		default:
+			// Buffer full or no listener; leave previous value for next receiver
+		}
+	case EventReconnected, EventSchemaData:
+		o.setCurrentEndpointServerID(ev.EndpointServerID)
+		if ev.Schema != nil {
+			o.applySchema(ev.Schema, true)
+			ctx, cancel := context.WithCancel(context.Background())
+			go func() {
 				select {
-				case o.disconnect <- struct{}{}:
-				default:
-					// Buffer full or no listener; leave previous value for next receiver
-				}
-			case EventReconnected, EventSchemaData:
-				o.setCurrentEndpointServerID(ev.EndpointServerID)
-				if ev.Schema != nil {
-					o.applySchema(ev.Schema, true)
-					ctx, cancel := context.WithCancel(context.Background())
-					go func() {
-						select {
-						case <-o.doneCh:
-							cancel()
-						case <-ctx.Done():
-						}
-					}()
-					o.reestablishMonitors(ctx)
+				case <-o.doneCh:
 					cancel()
+				case <-ctx.Done():
 				}
-			case EventInboundRPC:
-				if ev.Inbound != nil {
-					o.applyInboundRPC(ev.Inbound)
-				}
-			}
+			}()
+			o.reestablishMonitors(ctx)
+			cancel()
+		}
+	case EventInboundRPC:
+		if ev.Inbound != nil {
+			o.applyInboundRPC(ev.Inbound)
 		}
 	}
 }

@@ -27,11 +27,6 @@ const (
 	StateConnected
 )
 
-// reconnectDrainWindow is the time to wait after a successful reconnect before checking
-// serverDisconnectedCh again. It allows in-flight disconnect notifications from the old
-// connection to land so we can drain them and avoid tearing down the new connection.
-const reconnectDrainWindow = 10 * time.Millisecond
-
 // inactivityProbeFirstDelay is the delay before the first inactivity probe tick when
 // opts.inactivityTimeout is large; min(10ms, timeout/2) so tests can detect unresponsive servers quickly.
 const inactivityProbeFirstDelay = 10 * time.Millisecond
@@ -127,11 +122,9 @@ type ConnectionManager struct {
 	dbNames       []string
 	primaryDBName string
 
-	cmdCh   chan Command
-	eventCh chan Event
-
-	// serverDisconnectedCh is sent one value when rpc2 client sees disconnect (so run loop can react).
-	serverDisconnectedCh chan struct{}
+	cmdCh       chan Command
+	lifecycleCh chan Event // for EventDisconnected/Reconnected/SchemaData; blocking send, never dropped
+	eventCh     chan Event // for EventInboundRPC; non-blocking send, may drop under load
 
 	// inactivity probe: when Connected and opts.inactivityTimeout > 0, a goroutine sends on inactivityProbeCh
 	// every inactivityTimeout; run loop performs Echo and on failure closes the connection.
@@ -142,29 +135,24 @@ type ConnectionManager struct {
 
 	rpcClient *rpc2.Client
 	shutdown  atomic.Bool
-	// reconnectTime: after a successful reconnect, ignore serverDisconnectedCh for this long
-	// (wall time) so stale/spurious disconnects don't tear down the new connection.
-	reconnectTimeMu sync.Mutex
-	reconnectTime   time.Time
 
 	endpoints []*epInfo
 	logger    *logr.Logger
 }
 
-// NewConnectionManager creates a connection manager. eventCh is the channel the client reads from (client creates it).
-// The client must consume events promptly; sendEvent is non-blocking and will drop events (including EventDisconnected
-// and EventReconnected) if the channel is full. Use a sufficiently large buffer (e.g. 64) and ensure the event loop
-// drains the channel to avoid missed disconnect/reconnect notifications.
-// dbNames is the list of database names to use for list_dbs/get_schema (e.g. primary DB and optionally _Server).
-func NewConnectionManager(opts *options, primaryDBName string, dbNames []string, eventCh chan Event) *ConnectionManager {
+// NewConnectionManager creates a connection manager.
+// lifecycleCh receives EventDisconnected/Reconnected/SchemaData events via a blocking send (must not be full).
+// eventCh receives EventInboundRPC events via a non-blocking send (may drop under load).
+// dbNames is the list of database names to use for list_dbs/get_schema.
+func NewConnectionManager(opts *options, primaryDBName string, dbNames []string, lifecycleCh, eventCh chan Event) *ConnectionManager {
 	cm := &ConnectionManager{
-		opts:                 opts,
-		dbNames:              dbNames,
-		primaryDBName:        primaryDBName,
-		cmdCh:                make(chan Command, 32),
-		eventCh:              eventCh,
-		serverDisconnectedCh: make(chan struct{}, 8), // allow multiple reconnect attempts to signal without blocking
-		logger:               opts.logger,
+		opts:          opts,
+		dbNames:       dbNames,
+		primaryDBName: primaryDBName,
+		cmdCh:         make(chan Command, 32),
+		lifecycleCh:   lifecycleCh,
+		eventCh:       eventCh,
+		logger:        opts.logger,
 	}
 	if cm.logger == nil {
 		l := logr.Discard()
@@ -219,21 +207,12 @@ func (cm *ConnectionManager) Run() {
 			}
 			continue
 		}
-		// Drain server disconnect first so we always process disconnect before new commands (avoids race where
-		// inactivity echo fails, we signal, but the next select picks a command and returns still-Connected state).
-		select {
-		case <-cm.serverDisconnectedCh:
-			if cm.withinReconnectGrace() {
-				continue
-			}
-			cm.handleServerDisconnected()
-			continue
-		default:
-		}
-		// When connected, we must listen for server disconnect and (optionally) inactivity probe.
+		// Use the current rpcClient's own disconnect channel. Each new connection produces a new
+		// channel, so signals from a previous (now-closed) rpcClient are never selected here —
+		// no grace timer needed.
 		var serverCh <-chan struct{}
 		if cm.rpcClient != nil {
-			serverCh = cm.serverDisconnectedCh
+			serverCh = cm.rpcClient.DisconnectNotify()
 		}
 		cm.inactivityMu.Lock()
 		probeCh := cm.inactivityProbeCh
@@ -241,9 +220,6 @@ func (cm *ConnectionManager) Run() {
 
 		select {
 		case <-serverCh:
-			if cm.withinReconnectGrace() {
-				continue
-			}
 			cm.handleServerDisconnected()
 
 		case <-probeCh:
@@ -261,25 +237,11 @@ func (cm *ConnectionManager) Run() {
 	}
 }
 
-func (cm *ConnectionManager) setReconnectTime() {
-	cm.reconnectTimeMu.Lock()
-	cm.reconnectTime = time.Now()
-	cm.reconnectTimeMu.Unlock()
-}
-
-func (cm *ConnectionManager) withinReconnectGrace() bool {
-	const grace = 3 * time.Second
-	cm.reconnectTimeMu.Lock()
-	t := cm.reconnectTime
-	cm.reconnectTimeMu.Unlock()
-	return !t.IsZero() && time.Since(t) < grace
-}
-
 // handleServerDisconnected clears connection state and either reconnects or notifies client.
 func (cm *ConnectionManager) handleServerDisconnected() {
 	cm.closeRPCClient()
 	cm.state.Store(int32(StateDisconnected))
-	cm.sendEvent(Event{Type: EventDisconnected})
+	cm.sendLifecycleEvent(Event{Type: EventDisconnected})
 
 	if cm.shutdown.Load() {
 		return
@@ -363,27 +325,6 @@ func (cm *ConnectionManager) doCmdConnect(cmd Command) bool {
 	}
 	cm.state.Store(int32(StateConnected))
 	cm.startInactivityProbe()
-	// Drain any stale serverDisconnectedCh signals from a previous connection so that the
-	// run loop does not immediately tear down this new connection. Mirror the logic in
-	// runReconnectLoop: drain, wait the reconnect window, drain again, then set the grace timer.
-	for {
-		select {
-		case <-cm.serverDisconnectedCh:
-		default:
-			goto firstDrain
-		}
-	}
-firstDrain:
-	time.Sleep(reconnectDrainWindow)
-	for {
-		select {
-		case <-cm.serverDisconnectedCh:
-		default:
-			cm.setReconnectTime()
-			goto doneDrain
-		}
-	}
-doneDrain:
 	cm.sendCmdResult(cmd.ResponseCh, CommandResult{Schema: schema, EndpointServerID: serverID})
 	return false
 }
@@ -401,18 +342,14 @@ func (cm *ConnectionManager) doCmdDisconnect(cmd Command) bool {
 		// Disconnect as a signal to reconnect. We send EventDisconnected and then trigger the
 		// reconnect loop by calling handleServerDisconnected indirectly: set state to Connecting
 		// and run the reconnect loop from here (we are already on the run loop goroutine).
-		// No grace timer: we want the reconnect loop to run immediately.
-		cm.sendEvent(Event{Type: EventDisconnected})
+		cm.sendLifecycleEvent(Event{Type: EventDisconnected})
 		cm.sendCmdResult(cmd.ResponseCh, CommandResult{})
 		cm.state.Store(int32(StateConnecting))
 		cm.runReconnectLoop()
 		return false
 	}
 
-	// Non-reconnect clients: stop here. Activate grace timer so the disconnect watcher
-	// goroutine's stale signal is discarded rather than causing an unexpected reconnect.
-	cm.setReconnectTime()
-	cm.sendEvent(Event{Type: EventDisconnected})
+	cm.sendLifecycleEvent(Event{Type: EventDisconnected})
 	cm.sendCmdResult(cmd.ResponseCh, CommandResult{})
 	return false
 }
@@ -491,7 +428,7 @@ func (cm *ConnectionManager) doCmdUpdateEndpoints(cmd Command) bool {
 			// during that time are serviced inline by runReconnectLoop's inner select.
 			cm.closeRPCClient()
 			cm.state.Store(int32(StateDisconnected))
-			cm.sendEvent(Event{Type: EventDisconnected})
+			cm.sendLifecycleEvent(Event{Type: EventDisconnected})
 			if needReconnect {
 				cm.state.Store(int32(StateConnecting))
 				cm.runReconnectLoop()
@@ -611,7 +548,6 @@ func (cm *ConnectionManager) runConnectSequence(ctx context.Context) (SchemaPayl
 			cm.endpoints = append([]*epInfo{first}, rest...)
 		}
 
-		cm.startDisconnectWatcher()
 		cm.logger.V(3).Info("connected", "endpoint", ep.address)
 		return schemaPayload, ep.serverID, nil
 	}
@@ -729,19 +665,6 @@ func (cm *ConnectionManager) registerInboundHandlers() {
 	})
 }
 
-// startDisconnectWatcher starts a goroutine that sends on serverDisconnectedCh when rpc2 disconnects.
-func (cm *ConnectionManager) startDisconnectWatcher() {
-	disconnectCh := cm.rpcClient.DisconnectNotify()
-	go func() {
-		<-disconnectCh
-		select {
-		case cm.serverDisconnectedCh <- struct{}{}:
-		default:
-			// already pending
-		}
-	}()
-}
-
 // startInactivityProbe starts a goroutine that sends on inactivityProbeCh every inactivityTimeout when opts set.
 func (cm *ConnectionManager) startInactivityProbe() {
 	cm.optsMu.RLock()
@@ -797,10 +720,7 @@ func (cm *ConnectionManager) stopInactivityProbe() {
 }
 
 // runInactivityEcho runs a single Echo RPC; on failure triggers a disconnect.
-// Called from the run loop goroutine, so it may call handleServerDisconnected directly
-// without going through serverDisconnectedCh. This avoids the grace timer suppressing
-// a legitimate inactivity-probe failure (the grace timer only protects against stale
-// signals from old disconnect-watcher goroutines, not from the current probe).
+// Called from the run loop goroutine, so it may call handleServerDisconnected directly.
 // Returns the error from the echo call (for testing).
 func (cm *ConnectionManager) runInactivityEcho() error {
 	if cm.rpcClient == nil {
@@ -821,9 +741,7 @@ func (cm *ConnectionManager) runInactivityEcho() error {
 	return nil
 }
 
-// runReconnectLoop runs connect with backoff until success or shutdown. After a successful
-// reconnect the grace timer is set so stale serverDisconnectedCh signals from the old
-// connection are suppressed.
+// runReconnectLoop runs connect with backoff until success or shutdown.
 func (cm *ConnectionManager) runReconnectLoop() {
 	cm.optsMu.RLock()
 	backoff := cm.opts.backoff
@@ -841,35 +759,14 @@ func (cm *ConnectionManager) runReconnectLoop() {
 		if err == nil {
 			cm.state.Store(int32(StateConnected))
 			cm.startInactivityProbe()
-			cm.sendEvent(Event{Type: EventReconnected, Schema: schema, EndpointServerID: serverID})
-			// Drain stale serverDisconnectedCh so run loop doesn't immediately tear down this connection.
-			for {
-				select {
-				case <-cm.serverDisconnectedCh:
-				default:
-					goto doneDrain
-				}
-			}
-		doneDrain:
-			time.Sleep(reconnectDrainWindow)
-			for {
-				select {
-				case <-cm.serverDisconnectedCh:
-				default:
-					// Always set the grace timer after a successful reconnect so that the run
-					// loop discards any stale disconnect signals from the old connection that
-					// arrive after the drain window. Without this, a late-firing watcher
-					// goroutine would tear down the freshly established connection.
-					cm.setReconnectTime()
-					return
-				}
-			}
+			cm.sendLifecycleEvent(Event{Type: EventReconnected, Schema: schema, EndpointServerID: serverID})
+			return
 		}
 		next := backoff.NextBackOff()
 		if next < 0 {
 			cm.logger.V(2).Info("reconnect backoff exhausted, giving up")
 			cm.state.Store(int32(StateDisconnected))
-			cm.sendEvent(Event{Type: EventDisconnected})
+			cm.sendLifecycleEvent(Event{Type: EventDisconnected})
 			return
 		}
 		// Wait next or a command that should interrupt the reconnect loop.
@@ -924,12 +821,18 @@ func (cm *ConnectionManager) runRPCCommand(cmd Command) {
 	cm.sendCmdResult(cmd.ResponseCh, CommandResult{})
 }
 
-// sendEvent sends an event to the client. Non-blocking; if event channel is full, the event is dropped
-// (EventDisconnected and EventReconnected can be dropped, so the client should consume promptly).
+// sendLifecycleEvent sends a lifecycle event (EventDisconnected/Reconnected/SchemaData) on lifecycleCh.
+// Blocks until the client consumes it; lifecycleCh has capacity 8 so this is fast in practice.
+func (cm *ConnectionManager) sendLifecycleEvent(ev Event) {
+	cm.lifecycleCh <- ev
+}
+
+// sendEvent sends an inbound-update event (EventInboundRPC) on eventCh.
+// Non-blocking: drops the event if eventCh is full. Inbound-update drops are acceptable under bursts.
 func (cm *ConnectionManager) sendEvent(ev Event) {
 	select {
 	case cm.eventCh <- ev:
 	default:
-		cm.logger.V(5).Info("event channel full, dropping event", "type", ev.Type)
+		cm.logger.V(5).Info("event channel full, dropping inbound update", "type", ev.Type)
 	}
 }

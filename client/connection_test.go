@@ -18,8 +18,9 @@ import (
 func TestConnectionManagerFSMState(t *testing.T) {
 	opts, err := newOptions(WithEndpoint("unix:/nonexistent"))
 	require.NoError(t, err)
-	eventCh := make(chan Event, 8)
-	cm := NewConnectionManager(opts, "Open_vSwitch", []string{"Open_vSwitch"}, eventCh)
+	lifecycleCh := make(chan Event, 8)
+	eventCh := make(chan Event, 64)
+	cm := NewConnectionManager(opts, "Open_vSwitch", []string{"Open_vSwitch"}, lifecycleCh, eventCh)
 	go cm.Run()
 	defer func() {
 		cm.CommandChannel() <- Command{Type: CmdClose, ResponseCh: make(chan CommandResult, 1)}
@@ -46,8 +47,9 @@ func TestConnectionManagerFSMState(t *testing.T) {
 func TestConnectionManagerClose(t *testing.T) {
 	opts, err := newOptions(WithEndpoint("unix:/nonexistent"))
 	require.NoError(t, err)
-	eventCh := make(chan Event, 8)
-	cm := NewConnectionManager(opts, "Open_vSwitch", []string{"Open_vSwitch"}, eventCh)
+	lifecycleCh := make(chan Event, 8)
+	eventCh := make(chan Event, 64)
+	cm := NewConnectionManager(opts, "Open_vSwitch", []string{"Open_vSwitch"}, lifecycleCh, eventCh)
 	go cm.Run()
 
 	// Close the manager.
@@ -74,8 +76,9 @@ func TestConnectionManagerClose(t *testing.T) {
 func TestConnectionManagerRPCWhenDisconnected(t *testing.T) {
 	opts, err := newOptions(WithEndpoint("unix:/nonexistent"))
 	require.NoError(t, err)
-	eventCh := make(chan Event, 8)
-	cm := NewConnectionManager(opts, "Open_vSwitch", []string{"Open_vSwitch"}, eventCh)
+	lifecycleCh := make(chan Event, 8)
+	eventCh := make(chan Event, 64)
+	cm := NewConnectionManager(opts, "Open_vSwitch", []string{"Open_vSwitch"}, lifecycleCh, eventCh)
 	go cm.Run()
 	defer func() {
 		cm.CommandChannel() <- Command{Type: CmdClose, ResponseCh: make(chan CommandResult, 1)}
@@ -94,8 +97,9 @@ func TestConnectionManagerRPCWhenDisconnected(t *testing.T) {
 func TestConnectionManagerUpdateOptions(t *testing.T) {
 	opts, err := newOptions(WithEndpoint("unix:/a"))
 	require.NoError(t, err)
-	eventCh := make(chan Event, 8)
-	cm := NewConnectionManager(opts, "Open_vSwitch", []string{"Open_vSwitch"}, eventCh)
+	lifecycleCh := make(chan Event, 8)
+	eventCh := make(chan Event, 64)
+	cm := NewConnectionManager(opts, "Open_vSwitch", []string{"Open_vSwitch"}, lifecycleCh, eventCh)
 	go cm.Run()
 	defer func() {
 		cm.CommandChannel() <- Command{Type: CmdClose, ResponseCh: make(chan CommandResult, 1)}
@@ -117,8 +121,9 @@ func TestConnectionManagerUpdateOptions(t *testing.T) {
 func TestConnectionManagerUpdateEndpoints(t *testing.T) {
 	opts, err := newOptions(WithEndpoint("unix:/a"))
 	require.NoError(t, err)
-	eventCh := make(chan Event, 8)
-	cm := NewConnectionManager(opts, "Open_vSwitch", []string{"Open_vSwitch"}, eventCh)
+	lifecycleCh := make(chan Event, 8)
+	eventCh := make(chan Event, 64)
+	cm := NewConnectionManager(opts, "Open_vSwitch", []string{"Open_vSwitch"}, lifecycleCh, eventCh)
 	go cm.Run()
 	defer func() {
 		cm.CommandChannel() <- Command{Type: CmdClose, ResponseCh: make(chan CommandResult, 1)}
@@ -147,8 +152,9 @@ func TestConnectionManagerConnectSuccess(t *testing.T) {
 	endpoint := fmt.Sprintf("unix:%s", sock)
 	opts, err := newOptions(WithEndpoint(endpoint))
 	require.NoError(t, err)
-	eventCh := make(chan Event, 8)
-	cm := NewConnectionManager(opts, "Open_vSwitch", []string{"Open_vSwitch"}, eventCh)
+	lifecycleCh := make(chan Event, 8)
+	eventCh := make(chan Event, 64)
+	cm := NewConnectionManager(opts, "Open_vSwitch", []string{"Open_vSwitch"}, lifecycleCh, eventCh)
 	go cm.Run()
 	defer func() {
 		cm.CommandChannel() <- Command{Type: CmdClose, ResponseCh: make(chan CommandResult, 1)}
@@ -180,8 +186,9 @@ func TestConnectionManagerConnectSuccess(t *testing.T) {
 func TestConnectionManagerConnectInvalidEndpoint(t *testing.T) {
 	opts, err := newOptions(WithEndpoint("unix:/tmp/ovsdb-nonexistent-" + fmt.Sprintf("%d", rand.Intn(100000)) + ".sock"))
 	require.NoError(t, err)
-	eventCh := make(chan Event, 8)
-	cm := NewConnectionManager(opts, "Open_vSwitch", []string{"Open_vSwitch"}, eventCh)
+	lifecycleCh := make(chan Event, 8)
+	eventCh := make(chan Event, 64)
+	cm := NewConnectionManager(opts, "Open_vSwitch", []string{"Open_vSwitch"}, lifecycleCh, eventCh)
 	go cm.Run()
 	defer func() {
 		cm.CommandChannel() <- Command{Type: CmdClose, ResponseCh: make(chan CommandResult, 1)}
@@ -213,8 +220,9 @@ func TestConnectionManagerDisconnectAfterConnect(t *testing.T) {
 	endpoint := fmt.Sprintf("unix:%s", sock)
 	opts, err := newOptions(WithEndpoint(endpoint))
 	require.NoError(t, err)
-	eventCh := make(chan Event, 8)
-	cm := NewConnectionManager(opts, "Open_vSwitch", []string{"Open_vSwitch"}, eventCh)
+	lifecycleCh := make(chan Event, 8)
+	eventCh := make(chan Event, 64)
+	cm := NewConnectionManager(opts, "Open_vSwitch", []string{"Open_vSwitch"}, lifecycleCh, eventCh)
 	go cm.Run()
 	defer func() {
 		cm.CommandChannel() <- Command{Type: CmdClose, ResponseCh: make(chan CommandResult, 1)}
@@ -247,8 +255,9 @@ func TestConnectionManagerEventDisconnected(t *testing.T) {
 	endpoint := fmt.Sprintf("unix:%s", sock)
 	opts, err := newOptions(WithEndpoint(endpoint))
 	require.NoError(t, err)
-	eventCh := make(chan Event, 8)
-	cm := NewConnectionManager(opts, "Open_vSwitch", []string{"Open_vSwitch"}, eventCh)
+	lifecycleCh := make(chan Event, 8)
+	eventCh := make(chan Event, 64)
+	cm := NewConnectionManager(opts, "Open_vSwitch", []string{"Open_vSwitch"}, lifecycleCh, eventCh)
 	go cm.Run()
 	defer func() {
 		cm.CommandChannel() <- Command{Type: CmdClose, ResponseCh: make(chan CommandResult, 1)}
@@ -264,7 +273,7 @@ func TestConnectionManagerEventDisconnected(t *testing.T) {
 
 	// We should see EventDisconnected (server close is detected by rpc2 DisconnectNotify)
 	select {
-	case ev := <-eventCh:
+	case ev := <-lifecycleCh:
 		assert.Equal(t, EventDisconnected, ev.Type)
 	case <-time.After(3 * time.Second):
 		// rpc2 may not always detect socket close immediately on all platforms
@@ -276,8 +285,9 @@ func TestConnectionManagerEventDisconnected(t *testing.T) {
 func TestConnectionManagerQueryEndpointWhenDisconnected(t *testing.T) {
 	opts, err := newOptions(WithEndpoint("unix:/x"))
 	require.NoError(t, err)
-	eventCh := make(chan Event, 8)
-	cm := NewConnectionManager(opts, "Open_vSwitch", []string{"Open_vSwitch"}, eventCh)
+	lifecycleCh := make(chan Event, 8)
+	eventCh := make(chan Event, 64)
+	cm := NewConnectionManager(opts, "Open_vSwitch", []string{"Open_vSwitch"}, lifecycleCh, eventCh)
 	go cm.Run()
 	defer func() {
 		cm.CommandChannel() <- Command{Type: CmdClose, ResponseCh: make(chan CommandResult, 1)}
@@ -306,8 +316,9 @@ func TestConnectionManagerInactivityProbeDisconnect(t *testing.T) {
 		WithInactivityCheck(100*time.Millisecond, 50*time.Millisecond, &backoff.ZeroBackOff{}),
 	)
 	require.NoError(t, err)
-	eventCh := make(chan Event, 8)
-	cm := NewConnectionManager(opts, "Open_vSwitch", []string{"Open_vSwitch"}, eventCh)
+	lifecycleCh := make(chan Event, 8)
+	eventCh := make(chan Event, 64)
+	cm := NewConnectionManager(opts, "Open_vSwitch", []string{"Open_vSwitch"}, lifecycleCh, eventCh)
 	go cm.Run()
 	defer func() {
 		cm.CommandChannel() <- Command{Type: CmdClose, ResponseCh: make(chan CommandResult, 1)}
@@ -323,7 +334,7 @@ func TestConnectionManagerInactivityProbeDisconnect(t *testing.T) {
 
 	// First probe fires after ~10ms; we should get EventDisconnected soon.
 	select {
-	case ev := <-eventCh:
+	case ev := <-lifecycleCh:
 		assert.Equal(t, EventDisconnected, ev.Type)
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not receive EventDisconnected after server DoEcho(false)")
@@ -343,8 +354,9 @@ func TestConnectionManagerEchoError(t *testing.T) {
 	endpoint := fmt.Sprintf("unix:%s", sock)
 	opts, err := newOptions(WithEndpoint(endpoint))
 	require.NoError(t, err)
-	eventCh := make(chan Event, 8)
-	cm := NewConnectionManager(opts, "Open_vSwitch", []string{"Open_vSwitch"}, eventCh)
+	lifecycleCh := make(chan Event, 8)
+	eventCh := make(chan Event, 64)
+	cm := NewConnectionManager(opts, "Open_vSwitch", []string{"Open_vSwitch"}, lifecycleCh, eventCh)
 	go cm.Run()
 	defer func() {
 		cm.CommandChannel() <- Command{Type: CmdClose, ResponseCh: make(chan CommandResult, 1)}
