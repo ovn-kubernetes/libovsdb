@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"os"
 	"reflect"
 	"sync"
@@ -31,7 +30,7 @@ func buildTestServerAndClient(t *testing.T) (client.Client, func()) {
 	schema := dbModel.Schema
 	defDB := dbModel.Client()
 
-	tmpfile := fmt.Sprintf("/tmp/ovsdb-%d.sock", rand.Intn(10000))
+	tmpfile := fmt.Sprintf("/tmp/ovsdb-%d-%d.sock", os.Getpid(), time.Now().UnixNano())
 	defer os.Remove(tmpfile)
 	dbModel, errs := model.NewDatabaseModel(schema, defDB)
 	require.Empty(t, errs)

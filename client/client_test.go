@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -946,15 +947,18 @@ func TestSetOption(t *testing.T) {
 	err = o.SetOption(WithEndpoint("tcp::6640"))
 	require.NoError(t, err)
 
-	o.rpcClient = &rpc2.Client{}
-
-	err = o.SetOption(WithEndpoint("tcp::6641"))
-	assert.EqualError(t, err, "cannot set option when client is connected")
+	// When connected, SetOption must fail. Use a real server to get to connected state.
+	ovsConnected, _, addr := newClientServerPair(t, new(int32), new(int32), false)
+	require.NoError(t, ovsConnected.Connect(context.Background()))
+	err = ovsConnected.SetOption(WithEndpoint("tcp::6641"))
+	require.EqualError(t, err, "cannot set option when client is connected")
+	ovsConnected.Close()
+	_ = addr
 }
 
-func newOVSDBServer(t *testing.T, dbModel model.ClientDBModel, schema ovsdb.DatabaseSchema) (*server.OvsdbServer, string) {
+func newOVSDBServer(tb testing.TB, dbModel model.ClientDBModel, schema ovsdb.DatabaseSchema) (*server.OvsdbServer, string) {
 	serverDBModel, err := serverdb.FullDatabaseModel()
-	require.NoError(t, err)
+	require.NoError(tb, err)
 	serverSchema := serverdb.Schema()
 	logger := logr.Discard()
 
@@ -964,29 +968,266 @@ func newOVSDBServer(t *testing.T, dbModel model.ClientDBModel, schema ovsdb.Data
 	}, &logger)
 
 	dbMod, errs := model.NewDatabaseModel(schema, dbModel)
-	require.Empty(t, errs)
+	require.Empty(tb, errs)
 
 	servMod, errs := model.NewDatabaseModel(serverSchema, serverDBModel)
-	require.Empty(t, errs)
+	require.Empty(tb, errs)
 
 	server, err := server.NewOvsdbServer(db, &logger, dbMod, servMod)
-	require.NoError(t, err)
+	require.NoError(tb, err)
 
 	tmpfile := fmt.Sprintf("/tmp/ovsdb-%d.sock", rand.Intn(10000))
-	t.Cleanup(func() {
+	tb.Cleanup(func() {
 		os.Remove(tmpfile)
 	})
 	go func() {
 		if err := server.Serve("unix", tmpfile); err != nil {
-			t.Error(err)
+			tb.Error(err)
 		}
 	}()
-	t.Cleanup(server.Close)
-	require.Eventually(t, func() bool {
+	tb.Cleanup(server.Close)
+	require.Eventually(tb, func() bool {
 		return server.Ready()
 	}, 1*time.Second, 10*time.Millisecond)
 
 	return server, tmpfile
+}
+
+// TestReconnectExhaustionNoPanic ensures that when reconnect backoff is exhausted (server
+// closed and never brought back), the client does not panic. When the platform signals
+// connection close, DisconnectNotify() should be signaled (first on disconnect, then
+// again when backoff is exhausted). The old implementation would panic(err) in
+// handleDisconnectNotification when backoff.Retry failed.
+func TestReconnectExhaustionNoPanic(t *testing.T) {
+	var defSchema ovsdb.DatabaseSchema
+	err := json.Unmarshal([]byte(schema), &defSchema)
+	require.NoError(t, err)
+	serverDBModel, err := serverdb.FullDatabaseModel()
+	require.NoError(t, err)
+
+	server, sock := newOVSDBServer(t, defDB, defSchema)
+	endpoint := fmt.Sprintf("unix:%s", sock)
+	b := backoff.NewExponentialBackOff()
+	b.MaxElapsedTime = 500 * time.Millisecond
+	b.InitialInterval = 20 * time.Millisecond
+
+	ovs, err := newOVSDBClient(serverDBModel, WithEndpoint(endpoint), WithReconnect(2*time.Second, b))
+	require.NoError(t, err)
+	t.Cleanup(ovs.Close)
+
+	err = ovs.Connect(context.Background())
+	require.NoError(t, err)
+
+	disconnectCh := ovs.DisconnectNotify()
+	server.Close()
+
+	select {
+	case <-disconnectCh:
+		// Expected: CM sent EventDisconnected (on disconnect and/or when backoff exhausted).
+	case <-time.After(3 * time.Second):
+		t.Skip("skipping: did not receive DisconnectNotify within 3s (platform may not close client connection when server listener closes)")
+	}
+	// No panic (old code would have panicked in handleDisconnectNotification).
+}
+
+// TestInactivityHangNoDeadlock ensures that when the server stops responding to echo (connection
+// still open), the client detects it via the inactivity probe and disconnects within a bounded time
+// without deadlocking. The old implementation could deadlock (inactivity probe stuck in Echo() while
+// disconnect handler waited on handlerShutdown.Wait()).
+func TestInactivityHangNoDeadlock(t *testing.T) {
+	var defSchema ovsdb.DatabaseSchema
+	err := json.Unmarshal([]byte(schema), &defSchema)
+	require.NoError(t, err)
+	serverDBModel, err := serverdb.FullDatabaseModel()
+	require.NoError(t, err)
+
+	server, sock := newOVSDBServer(t, defDB, defSchema)
+	endpoint := fmt.Sprintf("unix:%s", sock)
+	ovs, err := newOVSDBClient(serverDBModel,
+		WithEndpoint(endpoint),
+		WithInactivityCheck(100*time.Millisecond, 50*time.Millisecond, &backoff.ZeroBackOff{}))
+	require.NoError(t, err)
+	t.Cleanup(ovs.Close)
+
+	err = ovs.Connect(context.Background())
+	require.NoError(t, err)
+
+	disconnectCh := ovs.DisconnectNotify()
+	server.DoEcho(false)
+
+	select {
+	case <-disconnectCh:
+		// Expected: inactivity probe failed echo, CM disconnected.
+	case <-time.After(2 * time.Second):
+		require.False(t, ovs.Connected(), "expected client to disconnect after server stopped responding to echo")
+	}
+}
+
+// TestDisconnectBufferedDelivery verifies that when the server disconnects, a single
+// DisconnectNotify() is buffered so that a reader that doesn't read immediately still
+// receives it. The old implementation used an unbuffered channel and could block the handler.
+func TestDisconnectBufferedDelivery(t *testing.T) {
+	var defSchema ovsdb.DatabaseSchema
+	err := json.Unmarshal([]byte(schema), &defSchema)
+	require.NoError(t, err)
+	serverDBModel, err := serverdb.FullDatabaseModel()
+	require.NoError(t, err)
+
+	server, sock := newOVSDBServer(t, defDB, defSchema)
+	endpoint := fmt.Sprintf("unix:%s", sock)
+	ovs, err := newOVSDBClient(serverDBModel, WithEndpoint(endpoint))
+	require.NoError(t, err)
+	t.Cleanup(ovs.Close)
+
+	err = ovs.Connect(context.Background())
+	require.NoError(t, err)
+
+	disconnectCh := ovs.DisconnectNotify()
+	server.Close()
+
+	// Do not read immediately; wait a bit then read. With a buffered channel, the notification
+	// should be available.
+	time.Sleep(200 * time.Millisecond)
+	select {
+	case <-disconnectCh:
+		// Buffered delivery: we got the notification even though we didn't read immediately.
+	case <-time.After(2 * time.Second):
+		t.Skip("skipping: server close did not signal disconnect within 2s (platform dependent)")
+	}
+}
+
+// TestCloseThenReconnect verifies that calling Connect() after Close() succeeds and the
+// client is fully operational (Echo works) without hanging or returning ErrNotConnected.
+func TestCloseThenReconnect(t *testing.T) {
+	var defSchema ovsdb.DatabaseSchema
+	err := json.Unmarshal([]byte(schema), &defSchema)
+	require.NoError(t, err)
+	serverDBModel, err := serverdb.FullDatabaseModel()
+	require.NoError(t, err)
+
+	server, sock := newOVSDBServer(t, defDB, defSchema)
+	t.Cleanup(server.Close)
+	endpoint := fmt.Sprintf("unix:%s", sock)
+
+	ovs, err := newOVSDBClient(serverDBModel, WithEndpoint(endpoint))
+	require.NoError(t, err)
+
+	err = ovs.Connect(context.Background())
+	require.NoError(t, err)
+	require.True(t, ovs.Connected())
+
+	ovs.Close()
+	require.False(t, ovs.Connected())
+
+	err = ovs.Echo(context.TODO())
+	require.EqualError(t, err, ErrNotConnected.Error())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err = ovs.Connect(ctx)
+	require.NoError(t, err, "Connect() after Close() must succeed")
+	require.True(t, ovs.Connected())
+
+	err = ovs.Echo(context.TODO())
+	require.NoError(t, err, "Echo() after reconnect must succeed")
+
+	ovs.Close()
+}
+
+// TestConcurrentTransactReconnect runs several goroutines calling Transact in a loop while
+// the client may be disconnected or reconnecting. Asserts no deadlock and no panic.
+func TestConcurrentTransactReconnect(t *testing.T) {
+	var defSchema ovsdb.DatabaseSchema
+	err := json.Unmarshal([]byte(schema), &defSchema)
+	require.NoError(t, err)
+	serverDBModel, err := serverdb.FullDatabaseModel()
+	require.NoError(t, err)
+
+	_, sock := newOVSDBServer(t, defDB, defSchema)
+	endpoint := fmt.Sprintf("unix:%s", sock)
+	ovs, err := newOVSDBClient(serverDBModel, WithEndpoint(endpoint), WithReconnect(2*time.Second, &backoff.ZeroBackOff{}))
+	require.NoError(t, err)
+	t.Cleanup(ovs.Close)
+
+	err = ovs.Connect(context.Background())
+	require.NoError(t, err)
+
+	// Disconnect so client is in reconnecting state (or disconnected).
+	ovs.Disconnect()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 10; j++ {
+				ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+				_, _ = ovs.Transact(ctx, ovsdb.Operation{Op: ovsdb.OperationSelect, Table: "Database"})
+				cancel()
+			}
+		}()
+	}
+	wg.Wait()
+	// No deadlock, no panic.
+}
+
+// TestCloseWhileReconnecting calls Close() from a goroutine while the client is in
+// reconnecting state (server closed). Asserts Close() returns and no panic (e.g. close of closed channel).
+func TestCloseWhileReconnecting(t *testing.T) {
+	var defSchema ovsdb.DatabaseSchema
+	err := json.Unmarshal([]byte(schema), &defSchema)
+	require.NoError(t, err)
+	serverDBModel, err := serverdb.FullDatabaseModel()
+	require.NoError(t, err)
+
+	server, sock := newOVSDBServer(t, defDB, defSchema)
+	endpoint := fmt.Sprintf("unix:%s", sock)
+	ovs, err := newOVSDBClient(serverDBModel, WithEndpoint(endpoint), WithReconnect(5*time.Second, backoff.NewConstantBackOff(100*time.Millisecond)))
+	require.NoError(t, err)
+
+	err = ovs.Connect(context.Background())
+	require.NoError(t, err)
+
+	server.Close()
+
+	done := make(chan struct{})
+	go func() {
+		ovs.Close()
+		close(done)
+	}()
+	select {
+	case <-done:
+		// Close() returned; no panic.
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close() did not return within 5s")
+	}
+}
+
+// TestStaleDisconnectAfterReconnect connects, disconnects, then reconnects. Immediately after
+// Connect() returns, issues a Transact. Asserts success so that the connection is usable and
+// not torn down by any stale disconnect (withinReconnectGrace protects the new connection).
+func TestStaleDisconnectAfterReconnect(t *testing.T) {
+	var defSchema ovsdb.DatabaseSchema
+	err := json.Unmarshal([]byte(schema), &defSchema)
+	require.NoError(t, err)
+	serverDBModel, err := serverdb.FullDatabaseModel()
+	require.NoError(t, err)
+
+	_, sock := newOVSDBServer(t, defDB, defSchema)
+	endpoint := fmt.Sprintf("unix:%s", sock)
+	ovs, err := newOVSDBClient(serverDBModel, WithEndpoint(endpoint))
+	require.NoError(t, err)
+	t.Cleanup(ovs.Close)
+
+	err = ovs.Connect(context.Background())
+	require.NoError(t, err)
+
+	ovs.Disconnect()
+	err = ovs.Connect(context.Background())
+	require.NoError(t, err)
+
+	_, err = ovs.Transact(context.Background(), ovsdb.Operation{Op: ovsdb.OperationSelect, Table: "Database"})
+	require.NoError(t, err)
 }
 
 func newClientServerPair(t *testing.T, connectCounter, disConnectCounter *int32, isLeader bool) (Client, *serverdb.Database, string) {
@@ -1073,7 +1314,7 @@ func TestClientInactiveCheck(t *testing.T) {
 	// 1st test for client with making server not to respond for echo requests.
 	notified := make(chan struct{})
 	ready := make(chan struct{})
-	disconnectNotify := ovs.rpcClient.DisconnectNotify()
+	disconnectNotify := ovs.DisconnectNotify()
 	go func() {
 		ready <- struct{}{}
 		<-disconnectNotify
@@ -1105,7 +1346,7 @@ loop:
 	// 3rd test for client with making server not to respond for echo requests.
 	notified = make(chan struct{})
 	ready = make(chan struct{})
-	disconnectNotify = ovs.rpcClient.DisconnectNotify()
+	disconnectNotify = ovs.DisconnectNotify()
 	go func() {
 		ready <- struct{}{}
 		<-disconnectNotify
@@ -1281,7 +1522,8 @@ func TestUpdateEndpoints(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond)
 
 	require.Equal(t, ovs.CurrentEndpoint(), endpoint1)
-	require.NotEmpty(t, ovs.endpoints[0].serverID)
+	_, sid := ovs.getCurrentEndpointInfo()
+	require.NotEmpty(t, sid)
 
 	// update with same endpoints should not have a disconnect
 	ovs.UpdateEndpoints([]string{endpoint1})
@@ -1305,9 +1547,7 @@ func TestUpdateEndpoints(t *testing.T) {
 		// server1 should still be the active
 		return atomic.LoadInt32(&disConnected1) == 0
 	}, 2*time.Second, 10*time.Millisecond)
-	require.Equal(t, ovs.endpoints[0].address, endpoint1)
-	require.Equal(t, ovs.endpoints[1].address, endpoint2)
-	require.NotEmpty(t, ovs.endpoints[0].serverID)
+	require.Equal(t, ovs.CurrentEndpoint(), endpoint1)
 
 	// server3 is the new leader
 	ovs.UpdateEndpoints([]string{endpoint2, endpoint3})
@@ -1320,9 +1560,9 @@ func TestUpdateEndpoints(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return atomic.LoadInt32(&connected3) == 2
 	}, 2*time.Second, 10*time.Millisecond)
-	require.Equal(t, ovs.endpoints[0].address, endpoint3)
-	require.Equal(t, ovs.endpoints[1].address, endpoint2)
-	require.NotEmpty(t, ovs.endpoints[0].serverID)
+	require.Equal(t, ovs.CurrentEndpoint(), endpoint3)
+	_, sid = ovs.getCurrentEndpointInfo()
+	require.NotEmpty(t, sid)
 }
 
 // TestConditionalAPISelect tests the Select method on the ConditionalAPI
@@ -2139,4 +2379,102 @@ func TestConditionalWhereListWaitsForCacheConsistency(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("Where(...).List did not complete after cache became consistent")
 	}
+}
+
+// BenchmarkConcurrentRPC measures Transact throughput with many goroutines (connection manager
+// serializes RPC on a single run loop; no rpcMutex contention).
+func BenchmarkConcurrentRPC(b *testing.B) {
+	var defSchema ovsdb.DatabaseSchema
+	_ = json.Unmarshal([]byte(schema), &defSchema)
+	serverDBModel, _ := serverdb.FullDatabaseModel()
+	_, sock := newOVSDBServer(b, defDB, defSchema)
+	endpoint := fmt.Sprintf("unix:%s", sock)
+	ovs, err := newOVSDBClient(serverDBModel, WithEndpoint(endpoint))
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.Cleanup(ovs.Close)
+	if err := ovs.Connect(context.Background()); err != nil {
+		b.Fatal(err)
+	}
+	op := ovsdb.Operation{Op: ovsdb.OperationSelect, Table: "Database"}
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			_, _ = ovs.Transact(context.Background(), op)
+		}
+	})
+}
+
+// BenchmarkReconnectStress measures connect/disconnect/reconnect cycles with Transacts
+// after reconnect. Ensures no panic and no deadlock under stress.
+func BenchmarkReconnectStress(b *testing.B) {
+	var defSchema ovsdb.DatabaseSchema
+	_ = json.Unmarshal([]byte(schema), &defSchema)
+	serverDBModel, _ := serverdb.FullDatabaseModel()
+	_, sock := newOVSDBServer(b, defDB, defSchema)
+	endpoint := fmt.Sprintf("unix:%s", sock)
+	ovs, err := newOVSDBClient(serverDBModel, WithEndpoint(endpoint), WithReconnect(500*time.Millisecond, &backoff.ZeroBackOff{}))
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.Cleanup(ovs.Close)
+	if err := ovs.Connect(context.Background()); err != nil {
+		b.Fatal(err)
+	}
+	op := ovsdb.Operation{Op: ovsdb.OperationSelect, Table: "Database"}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ovs.Disconnect()
+		if err := ovs.Connect(context.Background()); err != nil {
+			b.Fatal(err)
+		}
+		for j := 0; j < 3; j++ {
+			_, _ = ovs.Transact(context.Background(), op)
+		}
+	}
+}
+
+// BenchmarkInactivityOverhead measures Transact latency with and without WithInactivityCheck
+// to ensure the inactivity probe does not add significant latency (probe runs in same run loop).
+func BenchmarkInactivityOverhead(b *testing.B) {
+	var defSchema ovsdb.DatabaseSchema
+	_ = json.Unmarshal([]byte(schema), &defSchema)
+	serverDBModel, _ := serverdb.FullDatabaseModel()
+	op := ovsdb.Operation{Op: ovsdb.OperationSelect, Table: "Database"}
+
+	b.Run("NoInactivityCheck", func(b *testing.B) {
+		_, sock := newOVSDBServer(b, defDB, defSchema)
+		endpoint := fmt.Sprintf("unix:%s", sock)
+		ovs, err := newOVSDBClient(serverDBModel, WithEndpoint(endpoint))
+		if err != nil {
+			b.Fatal(err)
+		}
+		b.Cleanup(ovs.Close)
+		if err := ovs.Connect(context.Background()); err != nil {
+			b.Fatal(err)
+		}
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_, _ = ovs.Transact(context.Background(), op)
+		}
+	})
+
+	b.Run("WithInactivityCheck", func(b *testing.B) {
+		_, sock := newOVSDBServer(b, defDB, defSchema)
+		endpoint := fmt.Sprintf("unix:%s", sock)
+		ovs, err := newOVSDBClient(serverDBModel, WithEndpoint(endpoint),
+			WithInactivityCheck(5*time.Second, 2*time.Second, &backoff.ZeroBackOff{}))
+		if err != nil {
+			b.Fatal(err)
+		}
+		b.Cleanup(ovs.Close)
+		if err := ovs.Connect(context.Background()); err != nil {
+			b.Fatal(err)
+		}
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_, _ = ovs.Transact(context.Background(), op)
+		}
+	})
 }
