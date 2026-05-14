@@ -1,4 +1,4 @@
-OVS_VERSION ?= v3.5.0
+OVS_VERSION ?= v3.7.1
 
 TESTS ?=
 

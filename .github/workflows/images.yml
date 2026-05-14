@@ -28,12 +28,12 @@ jobs:
         image:
           - ovs_version: master
             tag: latest
-          - ovs_version: v3.5.0
-            tag: 3.5.0
-          - ovs_version: v3.4.0
-            tag: 3.4.0
-          - ovs_version: v3.3.0
-            tag: 3.3.0
+          - ovs_version: v3.7.1
+            tag: 3.7.1
+          - ovs_version: v3.6.3
+            tag: 3.6.3
+          - ovs_version: v3.5.4
+            tag: 3.5.4
         arch: [linux/amd64, linux/arm64]
     runs-on: ${{ matrix.arch == 'linux/arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     steps:
@@ -116,9 +116,9 @@ jobs:
       matrix:
         image:
           - tag: latest
-          - tag: 3.5.0
-          - tag: 3.4.0
-          - tag: 3.3.0
+          - tag: 3.7.1
+          - tag: 3.6.3
+          - tag: 3.5.4
     steps:
       - name: Download digests
         uses: actions/download-artifact@v8
