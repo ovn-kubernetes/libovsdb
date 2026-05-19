@@ -302,7 +302,7 @@ func (suite *OVSIntegrationSuite) TestConnectReconnect() {
 	suite.Require().NoError(err)
 
 	bridgeName := "br-discoreco"
-	brChan := make(chan *bridgeType)
+	brChan := make(chan *bridgeType, 1)
 	suite.clientWithoutInactvityCheck.Cache().AddEventHandler(&cache.EventHandlerFuncs{
 		AddFunc: func(_ string, model model.Model) {
 			br, ok := model.(*bridgeType)
@@ -310,7 +310,10 @@ func (suite *OVSIntegrationSuite) TestConnectReconnect() {
 				return
 			}
 			if br.Name == bridgeName {
-				brChan <- br
+				select {
+				case brChan <- br:
+				default:
+				}
 			}
 		},
 	})
@@ -450,7 +453,6 @@ func (suite *OVSIntegrationSuite) TestWithInactivityCheck() {
 }
 
 func (suite *OVSIntegrationSuite) TestWithReconnect() {
-	suite.T().Skip("On container restart client is connected but rpc2 connection is shutdown, so Echo fails with ErrNotConnected")
 	suite.True(suite.clientWithoutInactvityCheck.Connected())
 	err := suite.clientWithoutInactvityCheck.Echo(context.TODO())
 	suite.Require().NoError(err)
@@ -598,10 +600,17 @@ func (suite *OVSIntegrationSuite) TestMultipleOpsTransactIntegration() {
 	bridgeName := "a_bridge_to_nowhere"
 	uuid, err := suite.createBridge(bridgeName, nil, nil)
 	suite.Require().NoError(err)
+
+	// Wait for bridge to appear in cache with the expected initial ExternalIDs.
+	// The initial bridge is created with {go: awesome, docker: made-for-each-other}.
+	initialExternalIDs := map[string]string{
+		"go":     "awesome",
+		"docker": "made-for-each-other",
+	}
 	suite.Eventually(func() bool {
 		br := &bridgeType{UUID: uuid}
 		err := suite.clientWithoutInactvityCheck.Get(context.Background(), br)
-		return err == nil
+		return err == nil && reflect.DeepEqual(br.ExternalIDs, initialExternalIDs)
 	}, 2*time.Second, 500*time.Millisecond)
 
 	var operations []ovsdb.Operation
@@ -631,7 +640,9 @@ func (suite *OVSIntegrationSuite) TestMultipleOpsTransactIntegration() {
 		{
 			Field:   &ovsRow.ExternalIDs,
 			Mutator: ovsdb.MutateOperationInsert,
-			Value:   map[string]string{"podman": "made-for-each-other"},
+			// Use a value distinct from "made-for-each-other" so the OVS map
+			// symmetric-diff unambiguously includes the docker deletion entry.
+			Value: map[string]string{"podman": "made-by-podman"},
 		},
 	}
 	op2, err := suite.clientWithoutInactvityCheck.Where(br).Mutate(&ovsRow, op2Mutations...)
@@ -648,18 +659,21 @@ func (suite *OVSIntegrationSuite) TestMultipleOpsTransactIntegration() {
 	_, err = ovsdb.CheckOperationResults(reply, operations)
 	suite.Require().NoError(err)
 
-	suite.Eventually(func() bool {
-		err := suite.clientWithoutInactvityCheck.Get(context.Background(), br)
-		return err == nil
-	}, 2*time.Second, 500*time.Millisecond)
-
 	expectedExternalIDs := map[string]string{
 		"go":     "awesome",
-		"podman": "made-for-each-other",
+		"podman": "made-by-podman",
 		"one":    "1",
 		"two":    "2",
 		"three":  "3",
 	}
+	// Reset br on each iteration: model.CloneInto uses json.Unmarshal which
+	// merges into existing maps rather than replacing them. A fresh struct
+	// ensures deleted keys (e.g. "docker") don't survive across iterations.
+	suite.Eventually(func() bool {
+		br = &bridgeType{UUID: uuid}
+		err := suite.clientWithoutInactvityCheck.Get(context.Background(), br)
+		return err == nil && reflect.DeepEqual(br.ExternalIDs, expectedExternalIDs)
+	}, 2*time.Second, 500*time.Millisecond)
 	suite.Exactly(expectedExternalIDs, br.ExternalIDs)
 }
 
@@ -1142,7 +1156,10 @@ func (suite *OVSIntegrationSuite) TestUnsetOptional() {
 	}
 
 	// verify the bridge has FailMode set
-	err = suite.clientWithoutInactvityCheck.Get(ctx, &br)
+	suite.Eventually(func() bool {
+		err = suite.clientWithoutInactvityCheck.Get(ctx, &br)
+		return err == nil
+	}, 2*time.Second, 50*time.Millisecond)
 	suite.Require().NoError(err)
 	suite.NotNil(br.FailMode)
 
@@ -1156,8 +1173,10 @@ func (suite *OVSIntegrationSuite) TestUnsetOptional() {
 	suite.Require().NoError(err)
 
 	// verify the bridge has FailMode unset
-	err = suite.clientWithoutInactvityCheck.Get(ctx, &br)
-	suite.Require().NoError(err)
+	suite.Eventually(func() bool {
+		err = suite.clientWithoutInactvityCheck.Get(ctx, &br)
+		return err == nil && br.FailMode == nil
+	}, 2*time.Second, 50*time.Millisecond)
 	suite.Nil(br.FailMode)
 }
 
@@ -1174,7 +1193,10 @@ func (suite *OVSIntegrationSuite) TestUpdateOptional() {
 	}
 
 	// verify the bridge has FailMode set
-	err = suite.clientWithoutInactvityCheck.Get(ctx, &br)
+	suite.Eventually(func() bool {
+		err = suite.clientWithoutInactvityCheck.Get(ctx, &br)
+		return err == nil
+	}, 2*time.Second, 50*time.Millisecond)
 	suite.Require().NoError(err)
 	suite.Equal(&BridgeFailModeSecure, br.FailMode)
 
@@ -1188,8 +1210,10 @@ func (suite *OVSIntegrationSuite) TestUpdateOptional() {
 	suite.Require().NoError(err)
 
 	// verify the bridge has FailMode updated
-	err = suite.clientWithoutInactvityCheck.Get(ctx, &br)
-	suite.Require().NoError(err)
+	suite.Eventually(func() bool {
+		err = suite.clientWithoutInactvityCheck.Get(ctx, &br)
+		return err == nil && br.FailMode != nil && *br.FailMode == BridgeFailModeStandalone
+	}, 2*time.Second, 50*time.Millisecond)
 	suite.Equal(&BridgeFailModeStandalone, br.FailMode)
 }
 
@@ -1349,14 +1373,21 @@ func (suite *OVSIntegrationSuite) TestMultipleOpsSameRow() {
 	suite.Nil(errors)
 	suite.Len(results, len(ops))
 
+	expectedPorts := []string{port1UUID}
+	expectedExternalIDs := map[string]string{"key1": "value1", "keyA": "valueA"}
 	br = bridgeType{
 		UUID: bridgeUUID,
 	}
-	err = suite.clientWithoutInactvityCheck.Get(ctx, &br)
-	suite.Require().NoError(err)
-
-	suite.Equal([]string{port1UUID}, br.Ports)
-	suite.Equal(map[string]string{"key1": "value1", "keyA": "valueA"}, br.ExternalIDs)
+	suite.Eventually(func() bool {
+		br = bridgeType{UUID: bridgeUUID}
+		err = suite.clientWithoutInactvityCheck.Get(ctx, &br)
+		return err == nil &&
+			reflect.DeepEqual(br.Ports, expectedPorts) &&
+			reflect.DeepEqual(br.ExternalIDs, expectedExternalIDs) &&
+			br.DatapathID == nil
+	}, 5*time.Second, 50*time.Millisecond)
+	suite.Equal(expectedPorts, br.Ports)
+	suite.Equal(expectedExternalIDs, br.ExternalIDs)
 	suite.Nil(br.DatapathID)
 }
 
@@ -1666,6 +1697,23 @@ func (suite *OVSIntegrationSuite) TestReferentialIntegrity() {
 				suite.Require().NoError(err)
 			}
 
+			suite.Eventually(func() bool {
+				for _, m := range tt.expectModels {
+					actual := model.Clone(m)
+					if err := c.Get(ctx, actual); err != nil {
+						return false
+					}
+					if !reflect.DeepEqual(m, actual) {
+						return false
+					}
+				}
+				for _, m := range tt.dontExpectModels {
+					if err := c.Get(ctx, m); err == nil {
+						return false
+					}
+				}
+				return true
+			}, 2*time.Second, 50*time.Millisecond)
 			for _, m := range tt.expectModels {
 				actual := model.Clone(m)
 				err := c.Get(ctx, actual)
