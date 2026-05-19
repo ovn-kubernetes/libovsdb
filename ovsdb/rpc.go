@@ -58,6 +58,9 @@ func NewLockArgs(id any) []any {
 	return []any{id}
 }
 
+// NewSetDbChangeAwareArgs creates a new set of arguments for a set_db_change_aware RPC
+func NewSetDbChangeAwareArgs() []any { return []any{true} }
+
 // NotificationHandler is the interface that must be implemented to receive notifications
 type NotificationHandler interface {
 	// RFC 7047 section 4.1.6 Update Notification

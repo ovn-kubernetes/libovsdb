@@ -3,14 +3,19 @@ package ovs
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/cenkalti/rpc2"
+	"github.com/cenkalti/rpc2/jsonrpc"
 	"github.com/google/uuid"
 	"github.com/ory/dockertest/v3"
 	"github.com/ory/dockertest/v3/docker"
@@ -28,6 +33,7 @@ type OVSIntegrationSuite struct {
 	resource                    *dockertest.Resource
 	clientWithoutInactvityCheck client.Client
 	clientWithInactivityCheck   client.Client
+	clientWithReconnect         client.Client
 }
 
 func (suite *OVSIntegrationSuite) SetupSuite() {
@@ -75,6 +81,9 @@ func (suite *OVSIntegrationSuite) SetupTest() {
 	if suite.clientWithInactivityCheck != nil {
 		suite.clientWithInactivityCheck.Close()
 	}
+	if suite.clientWithReconnect != nil {
+		suite.clientWithReconnect.Close()
+	}
 	var err error
 	err = suite.pool.Retry(func() error {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -111,6 +120,22 @@ func (suite *OVSIntegrationSuite) SetupTest() {
 		}
 		suite.clientWithInactivityCheck = ovs2
 
+		ovs3, err := client.NewOVSDBClient(
+			defDB,
+			client.WithEndpoint(endpoint),
+			client.WithReconnect(2*time.Second, &backoff.ZeroBackOff{}),
+			client.WithLeaderOnly(true),
+		)
+		if err != nil {
+			return err
+		}
+		err = ovs3.Connect(ctx)
+		if err != nil {
+			suite.T().Log(err)
+			return err
+		}
+		suite.clientWithReconnect = ovs3
+
 		return nil
 	})
 	suite.Require().NoError(err)
@@ -119,6 +144,14 @@ func (suite *OVSIntegrationSuite) SetupTest() {
 
 	_, err = suite.clientWithoutInactvityCheck.Monitor(context.TODO(),
 		suite.clientWithoutInactvityCheck.NewMonitor(
+			client.WithTable(&ovsType{}),
+			client.WithTable(&bridgeType{}),
+		),
+	)
+	suite.Require().NoError(err)
+
+	_, err = suite.clientWithReconnect.Monitor(context.TODO(),
+		suite.clientWithReconnect.NewMonitor(
 			client.WithTable(&ovsType{}),
 			client.WithTable(&bridgeType{}),
 		),
@@ -137,7 +170,7 @@ func (suite *OVSIntegrationSuite) TearDownTest() {
 
 	// List all current bridges
 	allBridges := []*bridgeType{}
-	err := suite.clientWithoutInactvityCheck.List(ctx, &allBridges)
+	err := suite.clientWithReconnect.List(ctx, &allBridges)
 	if err != nil {
 		t.Logf("TearDownTest: Failed to list bridges for cleanup: %v", err)
 		return
@@ -156,7 +189,7 @@ func (suite *OVSIntegrationSuite) TearDownTest() {
 
 	// Get OVS row first to remove bridge references from it
 	ovsRows := []*ovsType{}
-	err = suite.clientWithoutInactvityCheck.WhereCache(func(*ovsType) bool { return true }).List(ctx, &ovsRows)
+	err = suite.clientWithReconnect.WhereCache(func(*ovsType) bool { return true }).List(ctx, &ovsRows)
 	if err != nil {
 		t.Logf("TearDownTest: Failed to get OVS row: %v", err)
 		return // Cannot proceed without OVS row
@@ -169,7 +202,7 @@ func (suite *OVSIntegrationSuite) TearDownTest() {
 
 	// If we found bridges to remove from the OVS table, create and execute the mutate op
 	if len(bridgesToRemoveFromOVS) > 0 {
-		mutateOp, err := suite.clientWithoutInactvityCheck.Where(ovsRow).Mutate(ovsRow, model.Mutation{
+		mutateOp, err := suite.clientWithReconnect.Where(ovsRow).Mutate(ovsRow, model.Mutation{
 			Field:   &ovsRow.Bridges,
 			Mutator: ovsdb.MutateOperationDelete,
 			Value:   bridgesToRemoveFromOVS,
@@ -180,7 +213,7 @@ func (suite *OVSIntegrationSuite) TearDownTest() {
 		}
 
 		// Execute cleanup transaction
-		reply, err := suite.clientWithoutInactvityCheck.Transact(ctx, mutateOp...)
+		reply, err := suite.clientWithReconnect.Transact(ctx, mutateOp...)
 		if err != nil {
 			t.Logf("TearDownTest: Cleanup transaction failed: %v", err)
 		} else {
@@ -202,6 +235,10 @@ func (suite *OVSIntegrationSuite) TearDownSuite() {
 	if suite.clientWithInactivityCheck != nil {
 		suite.clientWithInactivityCheck.Close()
 		suite.clientWithInactivityCheck = nil
+	}
+	if suite.clientWithReconnect != nil {
+		suite.clientWithReconnect.Close()
+		suite.clientWithReconnect = nil
 	}
 	err := suite.pool.Purge(suite.resource)
 	suite.Require().NoError(err)
@@ -907,6 +944,7 @@ func (suite *OVSIntegrationSuite) TestUpdate() {
 // If externalIDs is nil, default IDs are used.
 // If failMode is nil, BridgeFailModeSecure is used.
 func (suite *OVSIntegrationSuite) createBridge(bridgeName string, externalIDs map[string]string, failMode *BridgeFailMode) (string, error) {
+	c := suite.clientWithReconnect
 	// Set defaults if options are nil
 	if externalIDs == nil {
 		externalIDs = map[string]string{
@@ -928,12 +966,12 @@ func (suite *OVSIntegrationSuite) createBridge(bridgeName string, externalIDs ma
 		FailMode:    failMode,
 	}
 
-	insertOp, err := suite.clientWithoutInactvityCheck.Create(&br)
+	insertOp, err := c.Create(&br)
 	suite.Require().NoError(err)
 
 	// Inserting a Bridge row in Bridge table requires mutating the open_vswitch table.
 	ovsRow := ovsType{}
-	mutateOp, err := suite.clientWithoutInactvityCheck.WhereCache(func(*ovsType) bool { return true }).
+	mutateOp, err := c.WhereCache(func(*ovsType) bool { return true }).
 		Mutate(&ovsRow, model.Mutation{
 			Field:   &ovsRow.Bridges,
 			Mutator: ovsdb.MutateOperationInsert,
@@ -942,7 +980,7 @@ func (suite *OVSIntegrationSuite) createBridge(bridgeName string, externalIDs ma
 	suite.Require().NoError(err)
 
 	operations := append(insertOp, mutateOp...)
-	reply, err := suite.clientWithoutInactvityCheck.Transact(context.TODO(), operations...)
+	reply, err := c.Transact(context.TODO(), operations...)
 	suite.Require().NoError(err)
 
 	_, err = ovsdb.CheckOperationResults(reply, operations)
@@ -1142,8 +1180,10 @@ func (suite *OVSIntegrationSuite) TestUnsetOptional() {
 	}
 
 	// verify the bridge has FailMode set
-	err = suite.clientWithoutInactvityCheck.Get(ctx, &br)
-	suite.Require().NoError(err)
+	suite.Eventually(func() bool {
+		err := suite.clientWithoutInactvityCheck.Get(ctx, &br)
+		return err == nil
+	}, 5*time.Second, 200*time.Millisecond, "bridge should appear in cache")
 	suite.NotNil(br.FailMode)
 
 	// modify bridge to unset BridgeFailMode
@@ -1174,8 +1214,10 @@ func (suite *OVSIntegrationSuite) TestUpdateOptional() {
 	}
 
 	// verify the bridge has FailMode set
-	err = suite.clientWithoutInactvityCheck.Get(ctx, &br)
-	suite.Require().NoError(err)
+	suite.Eventually(func() bool {
+		err := suite.clientWithoutInactvityCheck.Get(ctx, &br)
+		return err == nil
+	}, 5*time.Second, 200*time.Millisecond, "bridge should appear in cache")
 	suite.Equal(&BridgeFailModeSecure, br.FailMode)
 
 	// modify bridge to update BridgeFailMode
@@ -2029,4 +2071,104 @@ func (suite *OVSIntegrationSuite) TestSelectIntegrity() {
 	suite.NotEmpty(multiSelectOvs[0].UUID, "OVS row from multi-select should have a UUID")
 
 	// Cleanup is handled by TearDownTest
+}
+
+// bumpSchemaVersion returns a new x.y.z version with patch (z) incremented.
+// OVS expects schema version in numeric x.y.z format only.
+func bumpSchemaVersion(version string) string {
+	if version == "" {
+		return "1.0.1"
+	}
+	parts := strings.SplitN(version, ".", 3)
+	if len(parts) < 3 {
+		return version + ".1"
+	}
+	z, _ := strconv.Atoi(parts[2])
+	return parts[0] + "." + parts[1] + "." + strconv.Itoa(z+1)
+}
+
+// TestZZZZZSetDbChangeAwareMonitorAfterConvert verifies that after the client has called
+// set_db_change_aware (via libovsdb with WithReconnect), when the server performs a
+// "convert" that causes a schema change, the client reconnects and its monitor
+// continues to receive new data.
+// Steps: create A -> verify A in c's cache -> convert via raw RPC -> create B -> wait up to 30s for B in c's cache.
+func (suite *OVSIntegrationSuite) TestZZZZZSetDbChangeAwareMonitorAfterConvert() {
+	// hack to func name ensure this test at last since it may affect tests that use clientWithoutInactvityCheck
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	c := suite.clientWithReconnect
+	endpoint := "tcp::56640"
+	u, err := url.Parse(endpoint)
+	suite.Require().NoError(err)
+	addr := u.Opaque
+	if addr == "" {
+		addr = u.Host
+	}
+	if addr == "" {
+		addr = "127.0.0.1:56640"
+	}
+
+	// 1. Cache schema (and use it later to build convert payload). SetupTest already connected and monitors Open_vSwitch + Bridge.
+	schema := c.Schema()
+	suite.Require().NotEmpty(schema.Name, "schema name should be set")
+	schemaForConvert := schema
+	// Bump version in valid x.y.z format so server accepts convert (OVS expects numeric x.y.z only)
+	schemaForConvert.Version = bumpSchemaVersion(schemaForConvert.Version)
+
+	// 2. Create bridge A via existing helper (uses clientWithoutInactvityCheck; creation does not involve monitor)
+	brAName := "br-convert-a"
+	_, err = suite.createBridge(brAName, nil, nil)
+	suite.Require().NoError(err)
+	suite.Eventually(func() bool {
+		var list []*bridgeType
+		err := c.List(ctx, &list)
+		if err != nil {
+			return false
+		}
+		for _, b := range list {
+			if b.Name == brAName {
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 200*time.Millisecond, "bridge A should appear in cache")
+
+	// 3. Second connection: send convert to trigger schema change on server.
+	// ovsdb-client uses standalone RPC method "convert" with params [databaseName, schemaObject], not transact.
+	conn2, err := net.DialTimeout("tcp", addr, 5*time.Second)
+	suite.Require().NoError(err)
+	defer conn2.Close()
+	rpc2Client := rpc2.NewClientWithCodec(jsonrpc.NewJSONCodec(conn2))
+	rpc2Client.SetBlocking(true)
+	go rpc2Client.Run()
+	convertParams := []any{"Open_vSwitch", schemaForConvert}
+	var convertReply map[string]any // success returns {}
+	err = rpc2Client.CallWithContext(ctx, "convert", convertParams, &convertReply)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(convertReply, "convert should succeed")
+
+	// 4. Create bridge B via existing helper (may have reconnected after monitor_canceled)
+	suite.Eventually(func() bool { return c.Connected() }, 15*time.Second, 500*time.Millisecond,
+		"client should be connected after convert (reconnect)")
+	brBName := "br-convert-b"
+	_, err = suite.createBridge(brBName, nil, nil)
+	suite.Require().NoError(err)
+
+	// 5. Wait up to 30s for B to appear in c's cache (monitor still receiving updates)
+	suite.Eventually(func() bool {
+		var list []*bridgeType
+		err := c.List(ctx, &list)
+		if err != nil {
+			return false
+		}
+		for _, b := range list {
+			if b.Name == brBName {
+				return true
+			}
+		}
+		return false
+	}, 30*time.Second, 500*time.Millisecond, "bridge B should appear in cache after convert (monitor still working)")
+
+	// TearDownTest cleans all bridges (including br-convert-a and br-convert-b)
 }
