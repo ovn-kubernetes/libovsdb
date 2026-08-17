@@ -936,6 +936,22 @@ func TestOperationWhenNotConnected(t *testing.T) {
 	}
 }
 
+func TestReconnectTimeoutValidation(t *testing.T) {
+	tests := []struct {
+		name   string
+		option Option
+	}{
+		{name: "reconnect", option: WithReconnect(0, &backoff.ZeroBackOff{})},
+		{name: "inactivity check", option: WithInactivityCheck(time.Second, 0, &backoff.ZeroBackOff{})},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := newOptions(tt.option)
+			require.EqualError(t, err, "reconnect timeout must be greater than zero")
+		})
+	}
+}
+
 func TestSetOption(t *testing.T) {
 	o, err := newOVSDBClient(defDB)
 	require.NoError(t, err)

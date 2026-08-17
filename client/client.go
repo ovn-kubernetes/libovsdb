@@ -94,18 +94,22 @@ type ovsdbClient struct {
 	rpcMutex  sync.RWMutex
 	// endpoints contains all possible endpoints; the first element is
 	// the active endpoint if connected=true
-	endpoints []*epInfo
+	endpoints              []*epInfo
+	endpointsRevision      uint64
+	activeEndpoint         string
+	activeEndpointRevision uint64
 
 	// The name of the "primary" database - that is to say, the DB
 	// that the user expects to interact with.
 	primaryDBName string
 	databases     map[string]*database
 
-	errorCh       chan error
-	stopCh        chan struct{}
-	disconnect    chan struct{}
-	shutdown      bool
-	shutdownMutex sync.Mutex
+	errorCh               chan error
+	stopCh                chan struct{}
+	disconnect            chan struct{}
+	disconnectCleanupDone chan struct{}
+	shutdown              bool
+	shutdownMutex         sync.Mutex
 
 	handlerShutdown *sync.WaitGroup
 
@@ -234,6 +238,18 @@ func (o *ovsdbClient) moveEndpointLast(i int) {
 	o.endpoints = append(othereps, lastEp)
 }
 
+func (o *ovsdbClient) rotateDisconnectedEndpoint(address string, revision uint64) {
+	if revision != o.endpointsRevision {
+		return
+	}
+	for i, endpoint := range o.endpoints {
+		if endpoint.address == address {
+			o.moveEndpointLast(i)
+			return
+		}
+	}
+}
+
 func (o *ovsdbClient) resetRPCClient() {
 	if o.rpcClient != nil {
 		o.rpcClient.Close()
@@ -241,12 +257,60 @@ func (o *ovsdbClient) resetRPCClient() {
 	}
 }
 
+func contextWithOptionalTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout <= 0 {
+		return context.WithCancel(ctx)
+	}
+	return context.WithTimeout(ctx, timeout)
+}
+
+func (o *ovsdbClient) endpointContext(ctx context.Context, remainingEndpoints int) (context.Context, context.CancelFunc) {
+	timeout := o.options.timeout
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining := time.Until(deadline)
+		if remaining > 0 {
+			fairShare := remaining / time.Duration(remainingEndpoints)
+			if timeout <= 0 || fairShare < timeout {
+				timeout = fairShare
+			}
+		}
+	}
+	return contextWithOptionalTimeout(ctx, timeout)
+}
+
+func (o *ovsdbClient) connectionTimeout() time.Duration {
+	timeout := o.options.timeout
+	endpointCount := time.Duration(len(o.endpoints))
+	const maxDuration = time.Duration(1<<63 - 1)
+	if timeout > 0 && endpointCount > 1 {
+		if timeout > maxDuration/endpointCount {
+			return maxDuration
+		}
+		return timeout * endpointCount
+	}
+	return timeout
+}
+
 func (o *ovsdbClient) connect(ctx context.Context, reconnect bool) error {
-	o.rpcMutex.Lock()
+	for {
+		o.rpcMutex.Lock()
+		if o.disconnectCleanupDone == nil {
+			break
+		}
+		done := o.disconnectCleanupDone
+		o.rpcMutex.Unlock()
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 	defer o.rpcMutex.Unlock()
 	if o.rpcClient != nil {
 		return ErrAlreadyConnected
 	}
+	ctx, cancel := contextWithOptionalTimeout(ctx, o.connectionTimeout())
+	defer cancel()
 
 	connected := false
 	connectErrors := []error{}
@@ -255,7 +319,10 @@ func (o *ovsdbClient) connect(ctx context.Context, reconnect bool) error {
 		if err != nil {
 			return err
 		}
-		if sid, err := o.tryEndpoint(ctx, u); err != nil {
+		endpointCtx, cancel := o.endpointContext(ctx, len(o.endpoints)-i)
+		sid, err := o.tryEndpoint(endpointCtx, u)
+		cancel()
+		if err != nil {
 			o.resetRPCClient()
 			connectErrors = append(connectErrors,
 				fmt.Errorf("failed to connect to %s: %w", endpoint.address, err))
@@ -324,6 +391,8 @@ func (o *ovsdbClient) connect(ctx context.Context, reconnect bool) error {
 		}(db)
 	}
 
+	o.activeEndpoint = o.endpoints[0].address
+	o.activeEndpointRevision = o.endpointsRevision
 	o.connected = true
 	return nil
 }
@@ -351,6 +420,10 @@ func (o *ovsdbClient) tryEndpoint(ctx context.Context, u *url.URL) (string, erro
 	}
 	if err != nil {
 		return "", fmt.Errorf("failed to open connection: %w", err)
+	}
+	if err := setTCPUserTimeout(c, o.options.timeout); err != nil {
+		_ = c.Close()
+		return "", fmt.Errorf("failed to configure connection: %w", err)
 	}
 
 	o.createRPC2Client(c)
@@ -548,15 +621,16 @@ func (o *ovsdbClient) UpdateEndpoints(endpoints []string) {
 	}
 	o.options.endpoints = endpoints
 	originEps := o.endpoints[:]
+	hadActiveEndpoint := o.connected && o.activeEndpoint != ""
 	var newEps []*epInfo
 	activeIdx := -1
 	for i, address := range o.options.endpoints {
+		if hadActiveEndpoint && address == o.activeEndpoint {
+			activeIdx = i
+		}
 		var serverID string
-		for j, origin := range originEps {
+		for _, origin := range originEps {
 			if address == origin.address {
-				if j == 0 {
-					activeIdx = i
-				}
 				serverID = origin.serverID
 				break
 			}
@@ -564,9 +638,13 @@ func (o *ovsdbClient) UpdateEndpoints(endpoints []string) {
 		newEps = append(newEps, &epInfo{address: address, serverID: serverID})
 	}
 	o.endpoints = newEps
+	o.endpointsRevision++
+	if activeIdx >= 0 {
+		o.activeEndpointRevision = o.endpointsRevision
+	}
 	if activeIdx > 0 {
 		o.moveEndpointFirst(activeIdx)
-	} else if activeIdx == -1 {
+	} else if activeIdx == -1 && hadActiveEndpoint {
 		o._disconnect()
 	}
 }
@@ -574,12 +652,19 @@ func (o *ovsdbClient) UpdateEndpoints(endpoints []string) {
 // SetOption sets a new value for an option.
 // It may only be called when the client is not connected
 func (o *ovsdbClient) SetOption(opt Option) error {
-	o.rpcMutex.RLock()
-	defer o.rpcMutex.RUnlock()
-	if o.rpcClient != nil {
-		return fmt.Errorf("cannot set option when client is connected")
+	for {
+		o.rpcMutex.Lock()
+		if o.disconnectCleanupDone == nil {
+			defer o.rpcMutex.Unlock()
+			if o.rpcClient != nil {
+				return fmt.Errorf("cannot set option when client is connected")
+			}
+			return opt(o.options)
+		}
+		done := o.disconnectCleanupDone
+		o.rpcMutex.Unlock()
+		<-done
 	}
-	return opt(o.options)
 }
 
 // Connected returns whether or not the client is currently connected to the server
@@ -592,10 +677,10 @@ func (o *ovsdbClient) Connected() bool {
 func (o *ovsdbClient) CurrentEndpoint() string {
 	o.rpcMutex.RLock()
 	defer o.rpcMutex.RUnlock()
-	if o.rpcClient == nil {
+	if !o.connected {
 		return ""
 	}
-	return o.endpoints[0].address
+	return o.activeEndpoint
 }
 
 // DisconnectNotify returns a channel which will notify the caller when the
@@ -1168,8 +1253,6 @@ func (o *ovsdbClient) watchForLeaderChange() error {
 				if sid == activeEndpoint.serverID {
 					o.logger.V(3).Info("endpoint lost leader, reconnecting",
 						"endpoint", activeEndpoint.address, "sid", sid)
-					// don't immediately reconnect to the active endpoint since it's no longer leader
-					o.moveEndpointLast(0)
 					o._disconnect()
 				} else {
 					o.logger.V(3).Info("endpoint lost leader but had unexpected server ID",
@@ -1249,6 +1332,16 @@ func (o *ovsdbClient) handleInactivityProbes() {
 
 func (o *ovsdbClient) handleDisconnectNotification() {
 	<-o.rpcClient.DisconnectNotify()
+	o.rpcMutex.Lock()
+	disconnectedEndpoint := o.activeEndpoint
+	disconnectedEndpointRevision := o.activeEndpointRevision
+	shouldReconnect := o.options.reconnect && !o.isShutdown()
+	cleanupDone := make(chan struct{})
+	o.disconnectCleanupDone = cleanupDone
+	o.connected = false
+	o.activeEndpoint = ""
+	o.rpcMutex.Unlock()
+
 	// close the stopCh, which will stop the cache event processor
 	close(o.stopCh)
 	if o.trafficSeen != nil {
@@ -1258,8 +1351,12 @@ func (o *ovsdbClient) handleDisconnectNotification() {
 	// wait for client related handlers to shutdown
 	o.handlerShutdown.Wait()
 	o.rpcMutex.Lock()
-	if o.options.reconnect && !o.isShutdown() {
-		o.rpcClient = nil
+	o.rpcClient = nil
+	close(cleanupDone)
+	o.disconnectCleanupDone = nil
+	if shouldReconnect && !o.isShutdown() {
+		o.rotateDisconnectedEndpoint(disconnectedEndpoint, disconnectedEndpointRevision)
+		reconnectEndpoint := o.endpoints[0].address
 		o.rpcMutex.Unlock()
 		suppressionCounter := 1
 		connect := func() error {
@@ -1270,9 +1367,7 @@ func (o *ovsdbClient) handleDisconnectNotification() {
 				db.deferUpdates = true
 				db.cacheMutex.Unlock()
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), o.options.timeout)
-			defer cancel()
-			err := o.connect(ctx, true)
+			err := o.connect(context.Background(), true)
 			if err != nil {
 				if suppressionCounter < 5 {
 					o.logger.V(2).Error(err, "failed to reconnect")
@@ -1284,7 +1379,7 @@ func (o *ovsdbClient) handleDisconnectNotification() {
 			suppressionCounter++
 			return err
 		}
-		o.logger.V(3).Info("connection lost, reconnecting", "endpoint", o.endpoints[0].address)
+		o.logger.V(3).Info("connection lost, reconnecting", "endpoint", reconnectEndpoint)
 		err := backoff.Retry(connect, o.options.backoff)
 		if err != nil {
 			// TODO: We should look at passing this back to the
