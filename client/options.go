@@ -101,12 +101,15 @@ func WithLeaderOnly(leaderOnly bool) Option {
 
 // WithReconnect tells the client to automatically reconnect when
 // disconnected. The timeout is used to construct the context on
-// each call to Connect, while backoff dictates the backoff
-// algorithm to use. Using WithReconnect implies that
+// each call to Connect and must be greater than zero, while backoff dictates
+// the backoff algorithm to use. Using WithReconnect implies that
 // requested transactions will block until the client has fully reconnected,
 // rather than immediately returning an error if there is no connection.
 func WithReconnect(timeout time.Duration, backoff backoff.BackOff) Option {
 	return func(o *options) error {
+		if timeout <= 0 {
+			return errors.New("reconnect timeout must be greater than zero")
+		}
 		o.reconnect = true
 		o.timeout = timeout
 		o.backoff = backoff
@@ -117,11 +120,14 @@ func WithReconnect(timeout time.Duration, backoff backoff.BackOff) Option {
 // WithInactivityCheck tells the client to send Echo request to ovsdb server periodically
 // upon inactivityTimeout. When Echo request fails, then it attempts to reconnect
 // with server. The inactivity check is performed as long as the connection is established.
-// The reconnectTimeout argument is used to construct the context on each call to Connect,
-// while reconnectBackoff dictates the backoff algorithm to use.
+// The reconnectTimeout argument is used to construct the context on each call to Connect
+// and must be greater than zero, while reconnectBackoff dictates the backoff algorithm to use.
 func WithInactivityCheck(inactivityTimeout, reconnectTimeout time.Duration,
 	reconnectBackoff backoff.BackOff) Option {
 	return func(o *options) error {
+		if reconnectTimeout <= 0 {
+			return errors.New("reconnect timeout must be greater than zero")
+		}
 		if reconnectTimeout >= inactivityTimeout {
 			return errors.New("inactivity timeout value should be greater than reconnect timeout value")
 		}
