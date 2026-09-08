@@ -3,8 +3,8 @@ package server
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sync"
 	"testing"
@@ -31,7 +31,7 @@ func buildTestServerAndClient(t *testing.T) (client.Client, func()) {
 	schema := dbModel.Schema
 	defDB := dbModel.Client()
 
-	tmpfile := fmt.Sprintf("/tmp/ovsdb-%d.sock", rand.Intn(10000))
+	tmpfile := filepath.Join(os.TempDir(), "ovsdb-"+uuid.New().String()+".sock")
 	defer os.Remove(tmpfile)
 	dbModel, errs := model.NewDatabaseModel(schema, defDB)
 	require.Empty(t, errs)

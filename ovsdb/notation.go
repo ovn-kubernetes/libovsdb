@@ -106,6 +106,12 @@ type OperationResult struct {
 	Rows    []Row  `json:"rows,omitempty"`
 }
 
+type SetDbChangeAwareResponse struct {
+	Result []OperationResult `json:"result"`
+	Error  string            `json:"error"`
+	ID     string            `json:"id"`
+}
+
 func ovsSliceToGoNotation(val any) (any, error) {
 	switch sl := val.(type) {
 	case []any:
