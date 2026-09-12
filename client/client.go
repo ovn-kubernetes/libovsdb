@@ -543,10 +543,19 @@ func (o *ovsdbClient) UpdateEndpoints(endpoints []string) {
 	o.logger.V(3).Info("update endpoints", "endpoints", endpoints)
 	o.rpcMutex.Lock()
 	defer o.rpcMutex.Unlock()
-	if len(endpoints) == 0 {
-		endpoints = []string{defaultUnixEndpoint}
+	// An element may itself be a comma-separated list of endpoints.
+	var addresses []string
+	for _, endpoint := range endpoints {
+		for _, address := range splitEndpoints(endpoint) {
+			if address != "" {
+				addresses = append(addresses, address)
+			}
+		}
 	}
-	o.options.endpoints = endpoints
+	if len(addresses) == 0 {
+		addresses = []string{defaultUnixEndpoint}
+	}
+	o.options.endpoints = addresses
 	originEps := o.endpoints[:]
 	var newEps []*epInfo
 	activeIdx := -1
