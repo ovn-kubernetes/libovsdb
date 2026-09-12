@@ -31,6 +31,8 @@ type OvsdbServer struct {
 	modelsMutex  sync.RWMutex
 	monitors     map[*rpc2.Client]*connectionMonitors
 	monitorMutex sync.RWMutex
+	conns        map[net.Conn]struct{}
+	connsMutex   sync.Mutex
 	logger       *logr.Logger
 	txnMutex     sync.Mutex
 	// Test-only fields for inducing delays
@@ -59,6 +61,7 @@ func NewOvsdbServer(db database.Database, logger *logr.Logger, models ...model.D
 		modelsMutex:  sync.RWMutex{},
 		monitors:     make(map[*rpc2.Client]*connectionMonitors),
 		monitorMutex: sync.RWMutex{},
+		conns:        make(map[net.Conn]struct{}),
 		logger:       logger,
 	}
 	o.modelsMutex.Lock()
@@ -134,10 +137,36 @@ func (o *OvsdbServer) Serve(protocol string, path string) error {
 			}
 			return err
 		}
+		if !o.trackConnection(conn) {
+			// Close was called meanwhile.
+			conn.Close()
+			return nil
+		}
 
 		// TODO: Need to cleanup when connection is closed
-		go o.srv.ServeCodec(jsonrpc.NewJSONCodec(conn))
+		go func() {
+			o.srv.ServeCodec(jsonrpc.NewJSONCodec(conn))
+			o.untrackConnection(conn)
+		}()
 	}
+}
+
+// trackConnection records a client connection for Close to close it. It
+// returns false if the server is already closed.
+func (o *OvsdbServer) trackConnection(conn net.Conn) bool {
+	o.connsMutex.Lock()
+	defer o.connsMutex.Unlock()
+	if !o.Ready() {
+		return false
+	}
+	o.conns[conn] = struct{}{}
+	return true
+}
+
+func (o *OvsdbServer) untrackConnection(conn net.Conn) {
+	o.connsMutex.Lock()
+	defer o.connsMutex.Unlock()
+	delete(o.conns, conn)
 }
 
 func isClosed(ch <-chan struct{}) bool {
@@ -161,6 +190,13 @@ func (o *OvsdbServer) Close() {
 			o.logger.Error(err, "failed to close listener")
 		}
 	}
+	// Close client connections too, as a stopping ovsdb-server does, so that
+	// clients notice the server is gone.
+	o.connsMutex.Lock()
+	for conn := range o.conns {
+		conn.Close()
+	}
+	o.connsMutex.Unlock()
 	if !isClosed(o.done) {
 		close(o.done)
 	}
