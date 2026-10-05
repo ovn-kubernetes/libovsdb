@@ -1261,6 +1261,9 @@ func (o *ovsdbClient) handleDisconnectNotification() {
 	o.trafficSeen = nil
 	if o.options.reconnect && !o.isShutdown() {
 		o.rpcClient = nil
+		// Read the active endpoint while rpcMutex is still held: connect()
+		// rewrites o.endpoints through moveEndpointFirst() under this lock.
+		lostEndpoint := o.endpoints[0].address
 		o.rpcMutex.Unlock()
 		suppressionCounter := 1
 		connect := func() error {
@@ -1285,7 +1288,7 @@ func (o *ovsdbClient) handleDisconnectNotification() {
 			suppressionCounter++
 			return err
 		}
-		o.logger.V(3).Info("connection lost, reconnecting", "endpoint", o.endpoints[0].address)
+		o.logger.V(3).Info("connection lost, reconnecting", "endpoint", lostEndpoint)
 		err := backoff.Retry(connect, o.options.backoff)
 		if err != nil {
 			// TODO: We should look at passing this back to the
