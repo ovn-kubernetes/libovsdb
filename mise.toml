@@ -1,4 +1,4 @@
 [tools]
-go = "1.25.12"
+go = "1.26.0"
 golangci-lint = "2.12.2"
 "go:golang.org/x/perf/cmd/benchstat" = "b57e4e3"
