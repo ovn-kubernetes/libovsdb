@@ -2011,6 +2011,135 @@ func BenchmarkWhereCacheByUUIDs(b *testing.B) {
 	}
 }
 
+func TestWhereCacheTypedNotConnected(t *testing.T) {
+	ovs, err := newOVSDBClient(defDB)
+	require.NoError(t, err)
+	require.Nil(t, ovs.Cache())
+
+	cond := WhereCacheTyped(ovs, func(*testBridge) bool { return true })
+
+	var result []*testBridge
+	assert.ErrorIs(t, cond.List(context.Background(), &result), ErrNotConnected)
+}
+
+func TestWhereCacheTypedNilPredicate(t *testing.T) {
+	tcache := apiTestCache(t, cache.Data{})
+	ovs, err := newOVSDBClient(defDB)
+	require.NoError(t, err)
+	ovs.primaryDB().cache = tcache
+	ovs.primaryDB().api = newAPI(tcache, &discardLogger, false)
+
+	cond := WhereCacheTyped[*testBridge](ovs, nil)
+	var result []*testBridge
+	err = cond.List(context.Background(), &result)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Expected non-nil function")
+}
+
+func BenchmarkWhereCacheTypedList(b *testing.B) {
+	const numRows = 10000
+
+	lscacheList := make([]*testBridge, 0, numRows)
+
+	for i := 0; i < numRows; i++ {
+		lscacheList = append(lscacheList,
+			&testBridge{
+				UUID:        uuid.New().String(),
+				Name:        fmt.Sprintf("ls%d", i),
+				ExternalIDs: map[string]string{"foo": "bar"},
+			})
+	}
+	lscache := map[string]model.Model{}
+	for i := range lscacheList {
+		lscache[lscacheList[i].UUID] = lscacheList[i]
+	}
+	testData := cache.Data{
+		"Bridge": lscache,
+	}
+	tcache := apiTestCache(b, testData)
+	ovs, err := newOVSDBClient(defDB)
+	require.NoError(b, err)
+	ovs.primaryDB().cache = tcache
+	ovs.primaryDB().api = newAPI(tcache, &discardLogger, false)
+
+	r := rand.New(rand.NewSource(int64(b.N)))
+	var index int
+
+	test := []struct {
+		name           string
+		predicate      any
+		predicateTyped func(*testBridge) bool
+	}{
+		{
+			name: "predicate returns none",
+			predicate: func(_ *testBridge) bool {
+				return false
+			},
+		},
+		{
+			name: "predicate returns all",
+			predicate: func(_ *testBridge) bool {
+				return true
+			},
+		},
+		{
+			name: "predicate on an arbitrary condition",
+			predicate: func(t *testBridge) bool {
+				return strings.HasPrefix(t.Name, "ls1")
+			},
+		},
+		{
+			name: "predicate matches name",
+			predicate: func(t *testBridge) bool {
+				return t.Name == lscacheList[index].Name
+			},
+		},
+		// Typed versions for comparison
+		{
+			name: "typed: predicate returns none",
+			predicateTyped: func(_ *testBridge) bool {
+				return false
+			},
+		},
+		{
+			name: "typed: predicate returns all",
+			predicateTyped: func(_ *testBridge) bool {
+				return true
+			},
+		},
+		{
+			name: "typed: predicate on an arbitrary condition",
+			predicateTyped: func(t *testBridge) bool {
+				return strings.HasPrefix(t.Name, "ls1")
+			},
+		},
+		{
+			name: "typed: predicate matches name",
+			predicateTyped: func(t *testBridge) bool {
+				return t.Name == lscacheList[index].Name
+			},
+		},
+	}
+
+	for _, tt := range test {
+		b.Run(tt.name, func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				index = r.Intn(numRows)
+				var result []*testBridge
+				var cond ConditionalAPI
+
+				if tt.predicateTyped != nil {
+					cond = WhereCacheTyped(ovs, tt.predicateTyped)
+				} else if tt.predicate != nil {
+					cond = ovs.WhereCache(tt.predicate)
+				}
+				err := cond.List(context.Background(), &result)
+				assert.NoError(b, err)
+			}
+		})
+	}
+}
+
 func BenchmarkAPIListMultiple(b *testing.B) {
 	const numRows = 500
 

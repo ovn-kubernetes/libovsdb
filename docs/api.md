@@ -5,6 +5,7 @@
   - [WhereAny](#whereany)
   - [WhereAll](#whereall)
   - [WhereCache](#wherecache)
+  - [WhereCacheTyped](#wherecachetyped)
 - [Client Indexes](#client-indexes)
 - [Examples](#examples)
   - [List](#list)
@@ -22,7 +23,7 @@
 ## Conditional API
 
 Operations that affect specific rows (`Update`, `Delete`, `Mutate`, `Select`) must
-be called on a `ConditionalAPI`. There are four ways to create one.
+be called on a `ConditionalAPI`. There are five ways to create one.
 
 ### Where
 
@@ -84,6 +85,25 @@ err = ovs.WhereCache(func(ls *LogicalSwitch) bool {
 ```
 
 The table is inferred from the type accepted by the predicate function.
+
+### WhereCacheTyped
+
+`WhereCacheTyped()` is a generic, type-safe variant of `WhereCache()`. The model
+type is bound at compile time, so each row costs a type assertion instead of a
+`reflect.Value.Call`: on scans where few rows match this is ~3-4x faster with
+~99% fewer allocations. It is a package-level function because Go methods cannot
+have type parameters, so it cannot live on the `API` interface.
+
+```go
+var lsList []LogicalSwitch
+err = client.WhereCacheTyped(ovs, func(ls *LogicalSwitch) bool {
+    return strings.HasPrefix(ls.Name, "ext_")
+}).List(context.Background(), &lsList)
+```
+
+When most rows match, the runtime is dominated by cloning the results, so the
+gain is smaller. Prefer client indexes (below) over either predicate form when a
+column can be indexed.
 
 ## Client Indexes
 

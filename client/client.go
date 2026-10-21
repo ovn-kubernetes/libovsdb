@@ -1589,3 +1589,11 @@ func (o *ovsdbClient) GetSelectResultsByIndex(ops []ovsdb.Operation, results []o
 func (o *ovsdbClient) GetSelectResults(ops []ovsdb.Operation, results []ovsdb.OperationResult, target interface{}) error {
 	return o.GetSelectResultsByIndex(ops, results, target, 0)
 }
+
+// conditionalAPIFrom wraps a Conditional with the primary DB's plumbing (cache,
+// logger, validateModel, read lock). Not on the Client interface: options is
+// unexported, so exposing it would make Client unimplementable externally.
+func (o *ovsdbClient) conditionalAPIFrom(cond Conditional) ConditionalAPI {
+	a, _ := o.primaryDB().api.(api)
+	return newConditionalAPI(a.cache, cond, a.logger, a.validateModel, a.withReadLock)
+}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/go-logr/logr"
 	"github.com/ovn-kubernetes/libovsdb/cache"
 	"github.com/ovn-kubernetes/libovsdb/mapper"
 	"github.com/ovn-kubernetes/libovsdb/model"
@@ -243,6 +244,90 @@ func newPredicateConditionalByUUIDs(table string, cache *cache.TableCache, predi
 		candidateUUIDs: candidateUUIDs,
 		limitToUUIDs:   true,
 	}, nil
+}
+
+// predicateConditionalTyped is a type-safe version using generics
+type predicateConditionalTyped[T model.Model] struct {
+	tableName string
+	predicate func(T) bool
+	cache     *cache.TableCache
+}
+
+// Matches returns the models that match the predicate without reflection
+func (c *predicateConditionalTyped[T]) Matches() (map[string]model.Model, error) {
+	tableCache := c.cache.Table(c.tableName)
+	if tableCache == nil {
+		return nil, ErrNotFound
+	}
+	found := map[string]model.Model{}
+	// run the predicate on a shallow copy of the models for speed and only
+	// clone the matches
+	for u, m := range tableCache.RowsShallow() {
+		if typedModel, ok := m.(T); ok {
+			if c.predicate(typedModel) {
+				found[u] = model.Clone(m)
+			}
+		}
+	}
+	return found, nil
+}
+
+func (c *predicateConditionalTyped[T]) Table() string {
+	return c.tableName
+}
+
+// Generate returns a list of conditions that match, by _uuid equality, all the objects that
+// match the predicate
+func (c *predicateConditionalTyped[T]) Generate() ([][]ovsdb.Condition, error) {
+	models, err := c.Matches()
+	if err != nil {
+		return nil, err
+	}
+	return generateConditionsFromModels(c.cache.DatabaseModel(), models)
+}
+
+// newPredicateConditionalTyped creates a type-safe predicate conditional
+func newPredicateConditionalTyped[T model.Model](table string, cache *cache.TableCache, predicate func(T) bool) Conditional {
+	return &predicateConditionalTyped[T]{
+		tableName: table,
+		predicate: predicate,
+		cache:     cache,
+	}
+}
+
+// WhereCacheTyped returns a ConditionalAPI whose predicate is called directly,
+// without reflect.Value.Call. Package-level because Go methods cannot have type
+// parameters, so it cannot live on the API interface next to WhereCache.
+// Usage: WhereCacheTyped(client, func(m *MyModel) bool { return m.Field > value })
+func WhereCacheTyped[T model.Model](client Client, predicate func(T) bool) ConditionalAPI {
+	clientCache := client.Cache()
+	discard := logr.Discard()
+	if clientCache == nil {
+		// Cache is nil until the client connects; surface ErrNotConnected at
+		// API method call time like other conditional creation errors
+		return newConditionalAPI(nil, newErrorConditional(ErrNotConnected), &discard, false)
+	}
+	if predicate == nil {
+		return newConditionalAPI(clientCache,
+			newErrorConditional(&ErrWrongType{reflect.TypeOf(predicate), "Expected non-nil function"}), &discard, false)
+	}
+
+	var zero T
+	var condition Conditional
+	if table := clientCache.DatabaseModel().FindTable(reflect.TypeOf(zero)); table != "" {
+		condition = newPredicateConditionalTyped(table, clientCache, predicate)
+	} else {
+		condition = newErrorConditional(fmt.Errorf("model %T not found in Database Model", zero))
+	}
+
+	// Client implementations other than *ovsdbClient (fakes, wrappers) get a
+	// plain cache-backed API
+	if oc, ok := client.(interface {
+		conditionalAPIFrom(Conditional) ConditionalAPI
+	}); ok {
+		return oc.conditionalAPIFrom(condition)
+	}
+	return newConditionalAPI(clientCache, condition, &discard, false)
 }
 
 // errorConditional is a conditional that encapsulates an error
