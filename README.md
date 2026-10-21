@@ -88,6 +88,11 @@ client-defined indexes, `Select`, and cache event handlers — see the [API guid
 `modelgen` generates Go model types from an OVSDB schema file, so you don't have to
 write them by hand. See the [modelgen guide](docs/modelgen.md).
 
+## Container Images
+
+See the [container image guide](docs/images.md) for building the tools and OVS
+images, supported architectures, and CI/release publishing policies.
+
 ## Package Documentation
 
 API reference for each sub-package is available on [pkg.go.dev](https://pkg.go.dev/):

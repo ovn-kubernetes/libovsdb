@@ -1,6 +1,7 @@
 package updates
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -267,11 +268,11 @@ type testReferenceProvider struct {
 	references database.References
 }
 
-func (rp *testReferenceProvider) GetReferences(_, table, uuid string) (database.References, error) {
+func (rp *testReferenceProvider) GetReferences(_ context.Context, _, table, uuid string) (database.References, error) {
 	return rp.references.GetReferences(table, uuid), nil
 }
 
-func (rp *testReferenceProvider) Get(_, _ string, uuid string) (model.Model, error) {
+func (rp *testReferenceProvider) Get(_ context.Context, _, _ string, uuid string) (model.Model, error) {
 	return rp.models[uuid], nil
 }
 
@@ -528,7 +529,7 @@ func TestProcessReferences(t *testing.T) {
 			onUpdatesCopy, err := getUpdates(td.existingModels, td.updatedModels)
 			require.NoError(t, err, "failed to build updates copy from existing and updated models")
 
-			gotModelUpdates, gotReferenceModelUpdates, gotReferenceUpdates, err := ProcessReferences(referencesTestDBModel, &rp, onUpdates)
+			gotModelUpdates, gotReferenceModelUpdates, gotReferenceUpdates, err := ProcessReferences(context.Background(), referencesTestDBModel, &rp, onUpdates)
 			if tt.wantErr {
 				require.Errorf(t, err, "expected an error but got none")
 				return

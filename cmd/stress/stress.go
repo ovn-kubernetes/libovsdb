@@ -17,6 +17,8 @@ import (
 	"github.com/ovn-kubernetes/libovsdb/client"
 	"github.com/ovn-kubernetes/libovsdb/model"
 	"github.com/ovn-kubernetes/libovsdb/ovsdb"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // ORMBridge is the simplified ORM model of the Bridge table
@@ -42,6 +44,8 @@ var (
 	nclients      = flag.Int("clients", 1, "the number of clients to use")
 	parallel      = flag.Bool("parallel", false, "run clients in parallel")
 	verbose       = flag.Bool("verbose", false, "Be verbose")
+	otlp          = flag.String("otlp", "", "OTLP gRPC collector endpoint (enables telemetry; plaintext, local development only)")
+	metricsAddr   = flag.String("metrics-address", ":2222", "Prometheus metrics listen address")
 	connection    = flag.String("ovsdb", "unix:/var/run/openvswitch/db.sock", "OVSDB connection string")
 	clientDBModel model.ClientDBModel
 )
@@ -90,6 +94,8 @@ func cleanup(ctx context.Context) {
 }
 
 func run(ctx context.Context, resultsChan chan result, wg *sync.WaitGroup) {
+	ctx, span := otel.Tracer("libovsdb-stress").Start(ctx, "run")
+	defer span.End()
 	defer wg.Done()
 
 	result := result{}
@@ -105,6 +111,12 @@ func run(ctx context.Context, resultsChan chan result, wg *sync.WaitGroup) {
 		log.Fatal(err)
 	}
 	defer ovs.Disconnect()
+
+	registration, err := ovs.Cache().RegisterMetrics(attribute.String("client", uuid.NewString()))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() { _ = registration.Unregister() }()
 
 	var bridges []bridgeType
 	bridgeCh := make(map[string]chan bool)
@@ -177,6 +189,8 @@ func transact(ctx context.Context, ovs client.Client, operations []ovsdb.Operati
 }
 
 func deleteBridge(ctx context.Context, ovs client.Client, rootUUID string, bridge *bridgeType) {
+	ctx, span := otel.Tracer("libovsdb-stress").Start(ctx, "delete_bridge")
+	defer span.End()
 	log.Printf("deleting bridge %s", bridge.Name)
 	deleteOp, err := ovs.Where(bridge).Delete()
 	if err != nil {
@@ -213,6 +227,8 @@ func newBridge() bridgeType {
 }
 
 func createBridge(ctx context.Context, ovs client.Client, rootUUID string, bridge bridgeType) {
+	ctx, span := otel.Tracer("libovsdb-stress").Start(ctx, "create_bridge")
+	defer span.End()
 	insertOp, err := ovs.Create(&bridge)
 	if err != nil {
 		log.Fatal(err)
@@ -233,6 +249,15 @@ func createBridge(ctx context.Context, ovs client.Client, rootUUID string, bridg
 func main() {
 	flag.Parse()
 	ctx := context.Background()
+	shutdown, err := setupTelemetry(ctx, *otlp, *metricsAddr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() {
+		if err := shutdown(); err != nil {
+			log.Printf("telemetry shutdown: %v", err)
+		}
+	}()
 
 	if *cpuprofile != "" {
 		f, err := os.Create(*cpuprofile)
@@ -248,7 +273,6 @@ func main() {
 		log.SetOutput(io.Discard)
 	}
 
-	var err error
 	clientDBModel, err = model.NewClientDBModel("Open_vSwitch", map[string]model.Model{"Open_vSwitch": &ovsType{}, "Bridge": &bridgeType{}})
 	if err != nil {
 		log.Fatal(err)

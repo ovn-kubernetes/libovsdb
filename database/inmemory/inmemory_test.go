@@ -1,6 +1,7 @@
 package inmemory
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -21,7 +22,7 @@ func TestWaitOpEquals(t *testing.T) {
 	require.NoError(t, err)
 	logger := logr.Discard()
 	db := NewDatabase(map[string]model.ClientDBModel{"Open_vSwitch": dbModel.Client()}, &logger)
-	err = db.CreateDatabase("Open_vSwitch", dbModel.Schema)
+	err = db.CreateDatabase(context.Background(), "Open_vSwitch", dbModel.Schema)
 	require.NoError(t, err)
 	m := mapper.NewMapper(dbModel.Schema)
 
@@ -47,7 +48,7 @@ func TestWaitOpEquals(t *testing.T) {
 	bridgeRow, err := m.NewRow(bridgeInfo)
 	require.NoError(t, err)
 
-	transaction := db.NewTransaction("Open_vSwitch")
+	transaction := db.NewTransaction(context.Background(), "Open_vSwitch")
 
 	operations := []ovsdb.Operation{
 		{
@@ -63,11 +64,11 @@ func TestWaitOpEquals(t *testing.T) {
 			Row:      bridgeRow,
 		},
 	}
-	res, updates := transaction.Transact(operations...)
+	res, updates := transaction.Transact(context.Background(), operations...)
 	_, err = checkOperationResults(res, operations...)
 	require.NoError(t, err)
 
-	err = db.Commit("Open_vSwitch", uuid.New(), updates)
+	err = db.Commit(context.Background(), "Open_vSwitch", uuid.New(), updates)
 	require.NoError(t, err)
 
 	timeout := 0
@@ -81,7 +82,7 @@ func TestWaitOpEquals(t *testing.T) {
 		Until:   "==",
 		Rows:    []ovsdb.Row{{"name": "foo"}},
 	}
-	res, _ = transaction.Transact(operation)
+	res, _ = transaction.Transact(context.Background(), operation)
 	_, err = checkOperationResults(res, operation)
 	require.NoError(t, err)
 
@@ -95,7 +96,7 @@ func TestWaitOpEquals(t *testing.T) {
 		Until:   "==",
 		Rows:    []ovsdb.Row{{"name": "foo"}, {"name": "blah"}},
 	}
-	res, _ = transaction.Transact(operation)
+	res, _ = transaction.Transact(context.Background(), operation)
 	_, err = checkOperationResults(res, operation)
 	require.Error(t, err)
 
@@ -115,7 +116,7 @@ func TestWaitOpEquals(t *testing.T) {
 		Until:   "==",
 		Rows:    []ovsdb.Row{{"name": "foo", "external_ids": extIDs}},
 	}
-	res, _ = transaction.Transact(operation)
+	res, _ = transaction.Transact(context.Background(), operation)
 	_, err = checkOperationResults(res, operation)
 	require.NoError(t, err)
 
@@ -129,7 +130,7 @@ func TestWaitOpEquals(t *testing.T) {
 		Until:   "==",
 		Rows:    []ovsdb.Row{{"name": "foo"}},
 	}
-	res, _ = transaction.Transact(operation)
+	res, _ = transaction.Transact(context.Background(), operation)
 	_, err = checkOperationResults(res, operation)
 	require.NoError(t, err)
 
@@ -144,7 +145,7 @@ func TestWaitOpEquals(t *testing.T) {
 		Until:   "==",
 		Rows:    []ovsdb.Row{{"name": "doesNotExist"}},
 	}
-	res, _ = transaction.Transact(operation)
+	res, _ = transaction.Transact(context.Background(), operation)
 	_, err = checkOperationResults(res, operation)
 	require.Error(t, err)
 }
@@ -154,7 +155,7 @@ func TestWaitOpNotEquals(t *testing.T) {
 	require.NoError(t, err)
 	logger := logr.Discard()
 	db := NewDatabase(map[string]model.ClientDBModel{"Open_vSwitch": dbModel.Client()}, &logger)
-	err = db.CreateDatabase("Open_vSwitch", dbModel.Schema)
+	err = db.CreateDatabase(context.Background(), "Open_vSwitch", dbModel.Schema)
 	require.NoError(t, err)
 	m := mapper.NewMapper(dbModel.Schema)
 
@@ -180,7 +181,7 @@ func TestWaitOpNotEquals(t *testing.T) {
 	bridgeRow, err := m.NewRow(bridgeInfo)
 	require.NoError(t, err)
 
-	transaction := db.NewTransaction("Open_vSwitch")
+	transaction := db.NewTransaction(context.Background(), "Open_vSwitch")
 
 	operations := []ovsdb.Operation{
 		{
@@ -196,11 +197,11 @@ func TestWaitOpNotEquals(t *testing.T) {
 			Row:      bridgeRow,
 		},
 	}
-	res, updates := transaction.Transact(operations...)
+	res, updates := transaction.Transact(context.Background(), operations...)
 	_, err = checkOperationResults(res, operations...)
 	require.NoError(t, err)
 
-	err = db.Commit("Open_vSwitch", uuid.New(), updates)
+	err = db.Commit(context.Background(), "Open_vSwitch", uuid.New(), updates)
 	require.NoError(t, err)
 
 	timeout := 0
@@ -214,7 +215,7 @@ func TestWaitOpNotEquals(t *testing.T) {
 		Until:   "!=",
 		Rows:    []ovsdb.Row{{"name": "blah"}},
 	}
-	res, _ = transaction.Transact(operation)
+	res, _ = transaction.Transact(context.Background(), operation)
 	_, err = checkOperationResults(res, operation)
 	require.NoError(t, err)
 
@@ -228,7 +229,7 @@ func TestWaitOpNotEquals(t *testing.T) {
 		Until:   "!=",
 		Rows:    []ovsdb.Row{{"name": "blah"}, {"name": "foo"}},
 	}
-	res, _ = transaction.Transact(operation)
+	res, _ = transaction.Transact(context.Background(), operation)
 	_, err = checkOperationResults(res, operation)
 	require.NoError(t, err)
 
@@ -250,7 +251,7 @@ func TestWaitOpNotEquals(t *testing.T) {
 		Until:   "!=",
 		Rows:    []ovsdb.Row{{"name": "foo", "external_ids": NoMatchExtIDs}},
 	}
-	res, _ = transaction.Transact(operation)
+	res, _ = transaction.Transact(context.Background(), operation)
 	_, err = checkOperationResults(res, operation)
 	require.NoError(t, err)
 
@@ -266,7 +267,7 @@ func TestWaitOpNotEquals(t *testing.T) {
 		Until:   "!=",
 		Rows:    []ovsdb.Row{{"name": "foo"}},
 	}
-	res, _ = transaction.Transact(operation)
+	res, _ = transaction.Transact(context.Background(), operation)
 	_, err = checkOperationResults(res, operation)
 	require.Error(t, err)
 
@@ -282,7 +283,7 @@ func TestMutateOp(t *testing.T) {
 	require.NoError(t, err)
 	logger := logr.Discard()
 	db := NewDatabase(map[string]model.ClientDBModel{"Open_vSwitch": dbModel.Client()}, &logger)
-	err = db.CreateDatabase("Open_vSwitch", dbModel.Schema)
+	err = db.CreateDatabase(context.Background(), "Open_vSwitch", dbModel.Schema)
 	require.NoError(t, err)
 	m := mapper.NewMapper(dbModel.Schema)
 
@@ -307,7 +308,7 @@ func TestMutateOp(t *testing.T) {
 	bridgeRow, err := m.NewRow(bridgeInfo)
 	require.NoError(t, err)
 
-	transaction := db.NewTransaction("Open_vSwitch")
+	transaction := db.NewTransaction(context.Background(), "Open_vSwitch")
 
 	operations := []ovsdb.Operation{
 		{
@@ -322,11 +323,11 @@ func TestMutateOp(t *testing.T) {
 			Row:   bridgeRow,
 		},
 	}
-	res, updates := transaction.Transact(operations...)
+	res, updates := transaction.Transact(context.Background(), operations...)
 	_, err = checkOperationResults(res, operations...)
 	require.NoError(t, err)
 
-	err = db.Commit("Open_vSwitch", uuid.New(), updates)
+	err = db.Commit(context.Background(), "Open_vSwitch", uuid.New(), updates)
 	require.NoError(t, err)
 
 	ovsUUID := res[0].UUID.GoUUID
@@ -336,12 +337,12 @@ func TestMutateOp(t *testing.T) {
 		Where:     []ovsdb.Condition{ovsdb.NewCondition("_uuid", ovsdb.ConditionEqual, ovsdb.UUID{GoUUID: ovsUUID})},
 		Mutations: []ovsdb.Mutation{*ovsdb.NewMutation("bridges", ovsdb.MutateOperationInsert, ovsdb.UUID{GoUUID: bridgeUUID})},
 	}
-	res, updates = transaction.Transact(operation)
+	res, updates = transaction.Transact(context.Background(), operation)
 	_, err = checkOperationResults(res, operation)
 	require.NoError(t, err)
 	assert.Equal(t, []*ovsdb.OperationResult{{Count: 1}}, res)
 
-	err = db.Commit("Open_vSwitch", uuid.New(), updates)
+	err = db.Commit(context.Background(), "Open_vSwitch", uuid.New(), updates)
 	require.NoError(t, err)
 
 	bridgeSet, err := ovsdb.NewOvsSet([]ovsdb.UUID{{GoUUID: bridgeUUID}})
@@ -379,7 +380,7 @@ func TestMutateOp(t *testing.T) {
 			*ovsdb.NewMutation("external_ids", ovsdb.MutateOperationDelete, keyValueDelete),
 		},
 	}
-	res, updates = transaction.Transact(operation)
+	res, updates = transaction.Transact(context.Background(), operation)
 	_, err = checkOperationResults(res, operation)
 	require.NoError(t, err)
 	assert.Equal(t, []*ovsdb.OperationResult{{Count: 1}}, res)
@@ -404,7 +405,7 @@ func TestOvsdbServerInsert(t *testing.T) {
 	require.NoError(t, err)
 	logger := logr.Discard()
 	db := NewDatabase(map[string]model.ClientDBModel{"Open_vSwitch": dbModel.Client()}, &logger)
-	err = db.CreateDatabase("Open_vSwitch", dbModel.Schema)
+	err = db.CreateDatabase(context.Background(), "Open_vSwitch", dbModel.Schema)
 	require.NoError(t, err)
 	m := mapper.NewMapper(dbModel.Schema)
 
@@ -425,7 +426,7 @@ func TestOvsdbServerInsert(t *testing.T) {
 	bridgeRow, err := m.NewRow(bridgeInfo)
 	require.NoError(t, err)
 
-	transaction := db.NewTransaction("Open_vSwitch")
+	transaction := db.NewTransaction(context.Background(), "Open_vSwitch")
 
 	operation := ovsdb.Operation{
 		Op:    ovsdb.OperationInsert,
@@ -433,15 +434,15 @@ func TestOvsdbServerInsert(t *testing.T) {
 		UUID:  bridgeUUID,
 		Row:   bridgeRow,
 	}
-	res, updates := transaction.Transact(operation)
+	res, updates := transaction.Transact(context.Background(), operation)
 	_, err = checkOperationResults(res, operation)
 	require.NoError(t, err)
 
-	err = db.Commit("Open_vSwitch", uuid.New(), updates)
+	err = db.Commit(context.Background(), "Open_vSwitch", uuid.New(), updates)
 	require.NoError(t, err)
 
 	bridge.UUID = bridgeUUID
-	br, err := db.Get("Open_vSwitch", "Bridge", bridgeUUID)
+	br, err := db.Get(context.Background(), "Open_vSwitch", "Bridge", bridgeUUID)
 	require.NoError(t, err)
 	assert.Equal(t, &bridge, br)
 	assert.Equal(t, ovsdb.TableUpdates2{
@@ -459,7 +460,7 @@ func TestOvsdbServerUpdate(t *testing.T) {
 	require.NoError(t, err)
 	logger := logr.Discard()
 	db := NewDatabase(map[string]model.ClientDBModel{"Open_vSwitch": dbModel.Client()}, &logger)
-	err = db.CreateDatabase("Open_vSwitch", dbModel.Schema)
+	err = db.CreateDatabase(context.Background(), "Open_vSwitch", dbModel.Schema)
 	require.NoError(t, err)
 	m := mapper.NewMapper(dbModel.Schema)
 
@@ -479,7 +480,7 @@ func TestOvsdbServerUpdate(t *testing.T) {
 	bridgeRow, err := m.NewRow(bridgeInfo)
 	require.NoError(t, err)
 
-	transaction := db.NewTransaction("Open_vSwitch")
+	transaction := db.NewTransaction(context.Background(), "Open_vSwitch")
 
 	operation := ovsdb.Operation{
 		Op:    ovsdb.OperationInsert,
@@ -487,11 +488,11 @@ func TestOvsdbServerUpdate(t *testing.T) {
 		UUID:  bridgeUUID,
 		Row:   bridgeRow,
 	}
-	res, updates := transaction.Transact(operation)
+	res, updates := transaction.Transact(context.Background(), operation)
 	_, err = checkOperationResults(res, operation)
 	require.NoError(t, err)
 
-	err = db.Commit("Open_vSwitch", uuid.New(), updates)
+	err = db.Commit(context.Background(), "Open_vSwitch", uuid.New(), updates)
 	require.NoError(t, err)
 
 	halloween, _ := ovsdb.NewOvsSet([]string{"halloween"})
@@ -540,7 +541,7 @@ func TestOvsdbServerUpdate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			transaction := db.NewTransaction("Open_vSwitch")
+			transaction := db.NewTransaction(context.Background(), "Open_vSwitch")
 			op := ovsdb.Operation{
 				Op:    ovsdb.OperationUpdate,
 				Table: "Bridge",
@@ -549,12 +550,12 @@ func TestOvsdbServerUpdate(t *testing.T) {
 				}},
 				Row: tt.row,
 			}
-			res, updates := transaction.Transact(op)
+			res, updates := transaction.Transact(context.Background(), op)
 			errs, err := checkOperationResults(res, op)
 			require.NoErrorf(t, err, "%+v", errs)
 
 			bridge.UUID = bridgeUUID
-			row, err := db.Get("Open_vSwitch", "Bridge", bridgeUUID)
+			row, err := db.Get(context.Background(), "Open_vSwitch", "Bridge", bridgeUUID)
 			require.NoError(t, err)
 			br := row.(*test.BridgeType)
 			assert.NotEqual(t, br, bridgeRow)
@@ -568,7 +569,7 @@ func TestMultipleOps(t *testing.T) {
 	require.NoError(t, err)
 	logger := logr.Discard()
 	db := NewDatabase(map[string]model.ClientDBModel{"Open_vSwitch": dbModel.Client()}, &logger)
-	err = db.CreateDatabase("Open_vSwitch", dbModel.Schema)
+	err = db.CreateDatabase(context.Background(), "Open_vSwitch", dbModel.Schema)
 	require.NoError(t, err)
 
 	var ops []ovsdb.Operation
@@ -598,8 +599,8 @@ func TestMultipleOps(t *testing.T) {
 	}
 	ops = append(ops, op)
 
-	transaction := db.NewTransaction("Open_vSwitch")
-	results, _ := transaction.Transact(ops...)
+	transaction := db.NewTransaction(context.Background(), "Open_vSwitch")
+	results, _ := transaction.Transact(context.Background(), ops...)
 	assert.Len(t, results, len(ops))
 	assert.NotNil(t, results[0])
 	assert.Empty(t, results[0].Error)
@@ -636,7 +637,7 @@ func TestMultipleOps(t *testing.T) {
 	}
 	ops = append(ops, op2)
 
-	results, updates := transaction.Transact(ops...)
+	results, updates := transaction.Transact(context.Background(), ops...)
 	require.Len(t, results, len(ops))
 	for _, result := range results {
 		assert.Empty(t, result.Error)
@@ -677,7 +678,7 @@ func TestOvsdbServerDbDoesNotExist(t *testing.T) {
 	require.NoError(t, err)
 	logger := logr.Discard()
 	db := NewDatabase(map[string]model.ClientDBModel{"Open_vSwitch": defDB}, &logger)
-	err = db.CreateDatabase("Open_vSwitch", schema)
+	err = db.CreateDatabase(context.Background(), "Open_vSwitch", schema)
 	require.NoError(t, err)
 
 	ops := []ovsdb.Operation{
@@ -705,8 +706,8 @@ func TestOvsdbServerDbDoesNotExist(t *testing.T) {
 		},
 	}
 
-	transaction := db.NewTransaction("nonexsitent_db")
-	res, _ := transaction.Transact(ops...)
+	transaction := db.NewTransaction(context.Background(), "nonexsitent_db")
+	res, _ := transaction.Transact(context.Background(), ops...)
 	assert.Len(t, res, len(ops))
 	assert.Equal(t, "database does not exist", res[0].Error)
 	assert.Nil(t, res[1])
@@ -717,7 +718,7 @@ func TestCheckIndexes(t *testing.T) {
 	require.NoError(t, err)
 	logger := logr.Discard()
 	db := NewDatabase(map[string]model.ClientDBModel{"Open_vSwitch": dbModel.Client()}, &logger)
-	err = db.CreateDatabase("Open_vSwitch", dbModel.Schema)
+	err = db.CreateDatabase(context.Background(), "Open_vSwitch", dbModel.Schema)
 	require.NoError(t, err)
 
 	bridgeUUID := uuid.NewString()
@@ -753,13 +754,13 @@ func TestCheckIndexes(t *testing.T) {
 		},
 	}
 
-	transaction := db.NewTransaction("Open_vSwitch")
-	results, updates := transaction.Transact(ops...)
+	transaction := db.NewTransaction(context.Background(), "Open_vSwitch")
+	results, updates := transaction.Transact(context.Background(), ops...)
 	require.Len(t, results, len(ops))
 	for _, result := range results {
 		assert.Empty(t, result.Error)
 	}
-	err = db.Commit("Open_vSwitch", uuid.New(), updates)
+	err = db.Commit(context.Background(), "Open_vSwitch", uuid.New(), updates)
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -887,9 +888,9 @@ func TestCheckIndexes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.desc, func(t *testing.T) {
-			transaction := db.NewTransaction("Open_vSwitch")
+			transaction := db.NewTransaction(context.Background(), "Open_vSwitch")
 			ops := tt.ops()
-			results, _ := transaction.Transact(ops...)
+			results, _ := transaction.Transact(context.Background(), ops...)
 			var err string
 			for _, result := range results {
 				if result.Error != "" {
@@ -934,7 +935,7 @@ func TestCheckIndexesWithReferentialIntegrity(t *testing.T) {
 	require.NoError(t, err)
 	logger := logr.Discard()
 	db := NewDatabase(map[string]model.ClientDBModel{"Open_vSwitch": dbModel.Client()}, &logger)
-	err = db.CreateDatabase("Open_vSwitch", dbModel.Schema)
+	err = db.CreateDatabase(context.Background(), "Open_vSwitch", dbModel.Schema)
 	require.NoError(t, err)
 
 	ovsUUID := uuid.NewString()
@@ -959,13 +960,13 @@ func TestCheckIndexesWithReferentialIntegrity(t *testing.T) {
 		},
 	}
 
-	transaction := db.NewTransaction("Open_vSwitch")
-	results, updates := transaction.Transact(ops...)
+	transaction := db.NewTransaction(context.Background(), "Open_vSwitch")
+	results, updates := transaction.Transact(context.Background(), ops...)
 	require.Len(t, results, len(ops))
 	for _, result := range results {
 		assert.Empty(t, result.Error)
 	}
-	err = db.Commit("Open_vSwitch", uuid.New(), updates)
+	err = db.Commit(context.Background(), "Open_vSwitch", uuid.New(), updates)
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -1024,9 +1025,9 @@ func TestCheckIndexesWithReferentialIntegrity(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.desc, func(t *testing.T) {
-			transaction := db.NewTransaction("Open_vSwitch")
+			transaction := db.NewTransaction(context.Background(), "Open_vSwitch")
 			ops := tt.ops()
-			results, update := transaction.Transact(ops...)
+			results, update := transaction.Transact(context.Background(), ops...)
 			var err string
 			for _, result := range results {
 				if result.Error != "" {

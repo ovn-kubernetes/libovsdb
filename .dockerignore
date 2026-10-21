@@ -1,0 +1,4 @@
+.git
+bin
+*.cov
+*.out

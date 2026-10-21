@@ -65,6 +65,16 @@ jobs:
         if: steps.old-benchmark.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
         run: cp -f bench.out bench-main.out
 
+  images:
+    name: Tool Images
+    needs: [build, test]
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/tool-images.yml
+    with:
+      publish: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'ovn-kubernetes/libovsdb' }}
+
   test:
     name: Integration Test
     needs: build

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -66,9 +67,9 @@ func TestOvsdbServerMonitor(t *testing.T) {
 			Row:   ovsdb.Row{"name": "quux"},
 		},
 	}
-	transaction := ovsDB.NewTransaction("Open_vSwitch")
-	_, updates := transaction.Transact(operations...)
-	err = o.db.Commit("Open_vSwitch", uuid.New(), updates)
+	transaction := ovsDB.NewTransaction(context.Background(), "Open_vSwitch")
+	_, updates := transaction.Transact(context.Background(), operations...)
+	err = o.db.Commit(context.Background(), "Open_vSwitch", uuid.New(), updates)
 	require.NoError(t, err)
 
 	db, err := json.Marshal("Open_vSwitch")

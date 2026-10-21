@@ -1,6 +1,7 @@
 package inmemory
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/ovn-kubernetes/libovsdb/database/transaction"
 	"github.com/ovn-kubernetes/libovsdb/model"
 	"github.com/ovn-kubernetes/libovsdb/ovsdb"
+	"go.opentelemetry.io/otel"
 )
 
 type inMemoryDatabase struct {
@@ -31,7 +33,9 @@ func NewDatabase(models map[string]model.ClientDBModel, logger *logr.Logger) dba
 	}
 }
 
-func (db *inMemoryDatabase) NewTransaction(dbName string) dbase.Transaction {
+func (db *inMemoryDatabase) NewTransaction(ctx context.Context, dbName string) dbase.Transaction {
+	_, span := tracer.Start(ctx, "NewTransaction")
+	defer span.End()
 	db.mutex.Lock()
 	defer db.mutex.Unlock()
 	var model model.DatabaseModel
@@ -42,7 +46,9 @@ func (db *inMemoryDatabase) NewTransaction(dbName string) dbase.Transaction {
 	return &transaction
 }
 
-func (db *inMemoryDatabase) CreateDatabase(name string, schema ovsdb.DatabaseSchema) error {
+func (db *inMemoryDatabase) CreateDatabase(ctx context.Context, name string, schema ovsdb.DatabaseSchema) error {
+	_, span := tracer.Start(ctx, "CreateDatabase")
+	defer span.End()
 	db.mutex.Lock()
 	defer db.mutex.Unlock()
 	var mo model.ClientDBModel
@@ -63,22 +69,26 @@ func (db *inMemoryDatabase) CreateDatabase(name string, schema ovsdb.DatabaseSch
 	return nil
 }
 
-func (db *inMemoryDatabase) Exists(name string) bool {
+func (db *inMemoryDatabase) Exists(ctx context.Context, name string) bool {
+	_, span := tracer.Start(ctx, "Exists")
+	defer span.End()
 	db.mutex.RLock()
 	defer db.mutex.RUnlock()
 	_, ok := db.databases[name]
 	return ok
 }
 
-func (db *inMemoryDatabase) Commit(database string, _ uuid.UUID, update dbase.Update) error {
-	if !db.Exists(database) {
+func (db *inMemoryDatabase) Commit(ctx context.Context, database string, _ uuid.UUID, update dbase.Update) error {
+	ctx, span := tracer.Start(ctx, "Commit")
+	defer span.End()
+	if !db.Exists(ctx, database) {
 		return fmt.Errorf("db does not exist")
 	}
 	db.mutex.RLock()
 	targetDb := db.databases[database]
 	db.mutex.RUnlock()
 
-	err := targetDb.ApplyCacheUpdate(update)
+	err := targetDb.ApplyCacheUpdate(ctx, update)
 	if err != nil {
 		return err
 	}
@@ -89,8 +99,10 @@ func (db *inMemoryDatabase) Commit(database string, _ uuid.UUID, update dbase.Up
 	})
 }
 
-func (db *inMemoryDatabase) CheckIndexes(database string, table string, m model.Model) error {
-	if !db.Exists(database) {
+func (db *inMemoryDatabase) CheckIndexes(ctx context.Context, database string, table string, m model.Model) error {
+	ctx, span := tracer.Start(ctx, "CheckIndexes")
+	defer span.End()
+	if !db.Exists(ctx, database) {
 		return nil
 	}
 	db.mutex.RLock()
@@ -100,8 +112,10 @@ func (db *inMemoryDatabase) CheckIndexes(database string, table string, m model.
 	return targetTable.IndexExists(m)
 }
 
-func (db *inMemoryDatabase) List(database, table string, conditions ...ovsdb.Condition) (map[string]model.Model, error) {
-	if !db.Exists(database) {
+func (db *inMemoryDatabase) List(ctx context.Context, database, table string, conditions ...ovsdb.Condition) (map[string]model.Model, error) {
+	ctx, span := tracer.Start(ctx, "List")
+	defer span.End()
+	if !db.Exists(ctx, database) {
 		return nil, fmt.Errorf("db does not exist")
 	}
 	db.mutex.RLock()
@@ -116,8 +130,10 @@ func (db *inMemoryDatabase) List(database, table string, conditions ...ovsdb.Con
 	return targetTable.RowsByCondition(conditions)
 }
 
-func (db *inMemoryDatabase) Get(database, table string, uuid string) (model.Model, error) {
-	if !db.Exists(database) {
+func (db *inMemoryDatabase) Get(ctx context.Context, database, table string, uuid string) (model.Model, error) {
+	ctx, span := tracer.Start(ctx, "Get")
+	defer span.End()
+	if !db.Exists(ctx, database) {
 		return nil, fmt.Errorf("db does not exist")
 	}
 	db.mutex.RLock()
@@ -131,11 +147,15 @@ func (db *inMemoryDatabase) Get(database, table string, uuid string) (model.Mode
 	return targetTable.Row(uuid), nil
 }
 
-func (db *inMemoryDatabase) GetReferences(database, table, row string) (dbase.References, error) {
-	if !db.Exists(database) {
+func (db *inMemoryDatabase) GetReferences(ctx context.Context, database, table, row string) (dbase.References, error) {
+	ctx, span := tracer.Start(ctx, "GetReferences")
+	defer span.End()
+	if !db.Exists(ctx, database) {
 		return nil, fmt.Errorf("db does not exist")
 	}
 	db.mutex.RLock()
 	defer db.mutex.RUnlock()
 	return db.references[database].GetReferences(table, row), nil
 }
+
+var tracer = otel.Tracer("github.com/ovn-kubernetes/libovsdb/database/inmemory")
