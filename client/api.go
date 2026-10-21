@@ -130,6 +130,8 @@ type api struct {
 
 // List populates a slice of Models given as parameter based on the configured Condition
 func (a api) List(ctx context.Context, result any) error {
+	ctx, span := tracer.Start(ctx, "List")
+	defer span.End()
 	unlock := a.lockForRead(ctx)
 	if unlock != nil {
 		defer unlock()
@@ -310,6 +312,8 @@ func (a api) conditionFromExplicitConditions(matchAll bool, m model.Model, cond 
 // The way the cache is searched depends on the fields already populated in 'result'
 // Any table index (including _uuid) will be used for comparison
 func (a api) Get(ctx context.Context, m model.Model) error {
+	ctx, span := tracer.Start(ctx, "Get")
+	defer span.End()
 	unlock := a.lockForRead(ctx)
 	if unlock != nil {
 		defer unlock()
@@ -349,6 +353,8 @@ func (a api) lockForRead(ctx context.Context) func() {
 // Create is a generic function capable of creating any row in the DB
 // A valid Model (pointer to object) must be provided.
 func (a api) Create(models ...model.Model) ([]ovsdb.Operation, error) {
+	_, span := tracer.Start(context.Background(), "Create")
+	defer span.End()
 	if len(models) == 0 {
 		return nil, nil
 	}
@@ -418,6 +424,8 @@ func (a api) Create(models ...model.Model) ([]ovsdb.Operation, error) {
 
 // Mutate returns the operations needed to transform the one Model into another one
 func (a api) Mutate(model model.Model, mutationObjs ...model.Mutation) ([]ovsdb.Operation, error) {
+	_, span := tracer.Start(context.Background(), "Mutate")
+	defer span.End()
 	if len(mutationObjs) < 1 {
 		return nil, fmt.Errorf("at least one Mutation must be provided")
 	}
@@ -481,6 +489,8 @@ func (a api) Mutate(model model.Model, mutationObjs ...model.Mutation) ([]ovsdb.
 // Additional fields can be passed (variadic opts) to indicate fields to be updated
 // All immutable fields will be ignored
 func (a api) Update(model model.Model, fields ...any) ([]ovsdb.Operation, error) {
+	_, span := tracer.Start(context.Background(), "Update")
+	defer span.End()
 	tableName, err := a.getTableFromModel(model)
 	if err != nil {
 		return nil, err
@@ -555,6 +565,8 @@ func (a api) Update(model model.Model, fields ...any) ([]ovsdb.Operation, error)
 
 // Delete returns the Operation needed to delete the selected models from the database
 func (a api) Delete() ([]ovsdb.Operation, error) {
+	_, span := tracer.Start(context.Background(), "Delete")
+	defer span.End()
 	var operations []ovsdb.Operation
 	conditions, err := a.cond.Generate()
 	if err != nil {
@@ -575,6 +587,8 @@ func (a api) Delete() ([]ovsdb.Operation, error) {
 }
 
 func (a api) Wait(untilConFun ovsdb.WaitCondition, timeout *int, model model.Model, fields ...any) ([]ovsdb.Operation, error) {
+	_, span := tracer.Start(context.Background(), "Wait")
+	defer span.End()
 	var operations []ovsdb.Operation
 
 	/*
@@ -736,6 +750,8 @@ func newConditionalAPI(cache *cache.TableCache, cond Conditional, logger *logr.L
 // If non-conditional it means select all and m should be a zero value.
 // Use GetSelectResults on the results of the transaction to gather the found Models
 func (a api) Select(m model.Model, fields ...any) ([]ovsdb.Operation, error) {
+	_, span := tracer.Start(context.Background(), "Select")
+	defer span.End()
 	tableName, err := a.getTableFromModel(m)
 	if err != nil {
 		return nil, err

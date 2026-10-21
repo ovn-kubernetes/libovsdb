@@ -1,5 +1,7 @@
 package ovsdb
 
+import "context"
+
 const (
 	// MonitorRPC is the monitor RPC method
 	MonitorRPC = "monitor"
@@ -61,10 +63,10 @@ func NewLockArgs(id any) []any {
 // NotificationHandler is the interface that must be implemented to receive notifications
 type NotificationHandler interface {
 	// RFC 7047 section 4.1.6 Update Notification
-	Update(context any, tableUpdates TableUpdates)
+	Update(ctx context.Context, cookie any, tableUpdates TableUpdates) error
 
 	// ovsdb-server.7 update2 notifications
-	Update2(context any, tableUpdates TableUpdates2)
+	Update2(ctx context.Context, cookie any, tableUpdates TableUpdates2) error
 
 	// RFC 7047 section 4.1.9 Locked Notification
 	Locked([]any)

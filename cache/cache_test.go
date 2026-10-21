@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math/rand"
@@ -1831,7 +1832,7 @@ func TestTableCache_populate(t *testing.T) {
 			},
 		},
 	}
-	err = tc.Populate(updates)
+	err = tc.Populate(context.Background(), updates)
 	require.NoError(t, err)
 
 	got := tc.Table("Open_vSwitch").Row("test")
@@ -1844,7 +1845,7 @@ func TestTableCache_populate(t *testing.T) {
 		Old: &testRow,
 		New: &updatedRow,
 	}
-	err = tc.Populate(updates)
+	err = tc.Populate(context.Background(), updates)
 	require.NoError(t, err)
 
 	got = tc.cache["Open_vSwitch"].cache["test"]
@@ -1856,7 +1857,7 @@ func TestTableCache_populate(t *testing.T) {
 		New: nil,
 	}
 
-	err = tc.Populate(updates)
+	err = tc.Populate(context.Background(), updates)
 	require.NoError(t, err)
 
 	_, ok := tc.cache["Open_vSwitch"].cache["test"]
@@ -1885,7 +1886,7 @@ func TestTableCachePopulate(t *testing.T) {
 			},
 		},
 	}
-	err = tc.Populate(updates)
+	err = tc.Populate(context.Background(), updates)
 	require.NoError(t, err)
 
 	got := tc.Table("Open_vSwitch").Row("test")
@@ -1898,7 +1899,7 @@ func TestTableCachePopulate(t *testing.T) {
 		Old: &testRow,
 		New: &updatedRow,
 	}
-	err = tc.Populate(updates)
+	err = tc.Populate(context.Background(), updates)
 	require.NoError(t, err)
 
 	got = tc.cache["Open_vSwitch"].cache["test"]
@@ -1910,7 +1911,7 @@ func TestTableCachePopulate(t *testing.T) {
 		New: nil,
 	}
 
-	err = tc.Populate(updates)
+	err = tc.Populate(context.Background(), updates)
 	require.NoError(t, err)
 
 	_, ok := tc.cache["Open_vSwitch"].cache["test"]
@@ -1939,7 +1940,7 @@ func TestTableCachePopulate2(t *testing.T) {
 	}
 
 	t.Log("Initial")
-	err = tc.Populate2(updates)
+	err = tc.Populate2(context.Background(), updates)
 	require.NoError(t, err)
 	got := tc.Table("Open_vSwitch").Row("test")
 	assert.Equal(t, testRowModel, got)
@@ -1954,7 +1955,7 @@ func TestTableCachePopulate2(t *testing.T) {
 			},
 		},
 	}
-	err = tc.Populate2(updates)
+	err = tc.Populate2(context.Background(), updates)
 	require.NoError(t, err)
 	got = tc.Table("Open_vSwitch").Row("test2")
 	assert.Equal(t, testRowModel2, got)
@@ -1969,7 +1970,7 @@ func TestTableCachePopulate2(t *testing.T) {
 			},
 		},
 	}
-	err = tc.Populate2(updates)
+	err = tc.Populate2(context.Background(), updates)
 	require.NoError(t, err)
 	got = tc.cache["Open_vSwitch"].cache["test"]
 	assert.Equal(t, updatedRowModel, got)
@@ -1983,7 +1984,7 @@ func TestTableCachePopulate2(t *testing.T) {
 			},
 		},
 	}
-	err = tc.Populate2(updates)
+	err = tc.Populate2(context.Background(), updates)
 	require.NoError(t, err)
 	_, ok := tc.cache["Open_vSwitch"].cache["test"]
 	assert.False(t, ok)
@@ -2012,7 +2013,7 @@ func TestTableCachePopulate2BrokenIndexes(t *testing.T) {
 			},
 		},
 	}
-	err = tc.Populate2(updates)
+	err = tc.Populate2(context.Background(), updates)
 	require.NoError(t, err)
 	got := tc.Table("Open_vSwitch").Row("test1")
 	assert.Equal(t, testRowModel, got)
@@ -2028,7 +2029,7 @@ func TestTableCachePopulate2BrokenIndexes(t *testing.T) {
 		},
 	}
 
-	err = tc.Populate2(updates)
+	err = tc.Populate2(context.Background(), updates)
 	require.NoError(t, err)
 	got = tc.Table("Open_vSwitch").Row("test2")
 	assert.Equal(t, testRowModel2, got)
@@ -2042,7 +2043,7 @@ func TestTableCachePopulate2BrokenIndexes(t *testing.T) {
 			},
 		},
 	}
-	err = tc.Populate2(updates)
+	err = tc.Populate2(context.Background(), updates)
 	require.NoError(t, err)
 	_, ok := tc.cache["Open_vSwitch"].cache["test1"]
 	assert.False(t, ok)
@@ -2367,7 +2368,7 @@ func BenchmarkPopulate2UpdateArray(b *testing.B) {
 	for n := 0; n < b.N; n++ {
 		for i := 0; i < numRows; i++ {
 			updatedRow := ovsdb.Row(map[string]any{"array": ovsdb.OvsSet{GoSet: updateSet}})
-			err := tc.Populate2(ovsdb.TableUpdates2{
+			err := tc.Populate2(context.Background(), ovsdb.TableUpdates2{
 				"Open_vSwitch": {
 					"foo": &ovsdb.RowUpdate2{
 						Modify: &updatedRow,
@@ -3086,7 +3087,7 @@ func BenchmarkPopulate2SingleModify(b *testing.B) {
 
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
-		err = caches[n].Populate2(tu)
+		err = caches[n].Populate2(context.Background(), tu)
 		require.NoError(b, err)
 	}
 }
@@ -3170,7 +3171,7 @@ func TestTableCache_ApplyModelUpdates(t *testing.T) {
 			require.NoError(t, err)
 			err = updates.AddRowUpdate(dbModel, "Bridge", "uuid", tt.current, tt.update)
 			require.NoError(t, err)
-			err = tc.ApplyCacheUpdate(updates)
+			err = tc.ApplyCacheUpdate(context.Background(), updates)
 			require.NoError(t, err)
 			model := rc.rowByUUID("uuid")
 			if tt.expected != nil {

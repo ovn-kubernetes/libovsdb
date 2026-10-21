@@ -1,0 +1,47 @@
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:1.67.0
+    ports:
+      - "16686:16686"
+      - "14268"
+      - "14250"
+  zipkin:
+    image: openzipkin/zipkin:latest
+    ports:
+      - "9411:9411"
+  prometheus:
+    container_name: prometheus
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus.yaml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+  otel:
+    image: otel/opentelemetry-collector-contrib:0.123.0
+    command: ["--config=/etc/otel.yaml"]
+    volumes:
+      - ./otel.yaml:/etc/otel.yaml
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8888:8888"   # Prometheus metrics exposed by the collector
+      - "8889:8889"   # Prometheus exporter metrics
+      - "13133" # health_check extension
+      - "4317:4317"   # OTLP gRPC receiver
+    depends_on:
+      - prometheus
+      - jaeger
+      - zipkin
+  ovsdb:
+    image: ghcr.io/ovn-kubernetes/ovs:latest
+    tty: true
+
+  stress:
+    depends_on: [ovsdb, otel]
+    build:
+      context: ../../
+      dockerfile: Containerfile
+      target: stress
+    ports:
+      - "2222:2222"
+    command: /bin/sh -c "sleep 5 && stress -otlp otel:4317 -inserts 10000 -ovsdb tcp:ovsdb:6640"

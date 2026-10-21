@@ -1,6 +1,7 @@
 package transaction
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/ovn-kubernetes/libovsdb/model"
 	"github.com/ovn-kubernetes/libovsdb/ovsdb"
 	"github.com/ovn-kubernetes/libovsdb/updates"
+	"go.opentelemetry.io/otel"
 )
 
 type Transaction struct {
@@ -40,17 +42,19 @@ func NewTransaction(model model.DatabaseModel, dbName string, database database.
 	}
 }
 
-func (t *Transaction) Transact(operations ...ovsdb.Operation) ([]*ovsdb.OperationResult, database.Update) {
+func (t *Transaction) Transact(ctx context.Context, operations ...ovsdb.Operation) ([]*ovsdb.OperationResult, database.Update) {
+	ctx, span := tracer.Start(ctx, "Transact")
+	defer span.End()
 	results := make([]*ovsdb.OperationResult, len(operations), len(operations)+1)
 	update := updates.ModelUpdates{}
 
-	if !t.Database.Exists(t.DbName) {
+	if !t.Database.Exists(ctx, t.DbName) {
 		r := ovsdb.ResultFromError(fmt.Errorf("database does not exist"))
 		results[0] = &r
 		return results, updates.NewDatabaseUpdate(update, nil)
 	}
 
-	err := t.initializeCache()
+	err := t.initializeCache(ctx)
 	if err != nil {
 		r := ovsdb.ResultFromError(err)
 		results[0] = &r
@@ -78,26 +82,26 @@ func (t *Transaction) Transact(operations ...ovsdb.Operation) ([]*ovsdb.Operatio
 		var u *updates.ModelUpdates
 		switch op.Op {
 		case ovsdb.OperationInsert:
-			r, u = t.Insert(&op)
+			r, u = t.Insert(ctx, &op)
 		case ovsdb.OperationSelect:
-			r = t.Select(op.Table, op.Where, op.Columns)
+			r = t.Select(ctx, op.Table, op.Where, op.Columns)
 		case ovsdb.OperationUpdate:
-			r, u = t.Update(&op)
+			r, u = t.Update(ctx, &op)
 		case ovsdb.OperationMutate:
-			r, u = t.Mutate(&op)
+			r, u = t.Mutate(ctx, &op)
 		case ovsdb.OperationDelete:
-			r, u = t.Delete(&op)
+			r, u = t.Delete(ctx, &op)
 		case ovsdb.OperationWait:
-			r = t.Wait(op.Table, op.Timeout, op.Where, op.Columns, op.Until, op.Rows)
+			r = t.Wait(ctx, op.Table, op.Timeout, op.Where, op.Columns, op.Until, op.Rows)
 		case ovsdb.OperationCommit:
 			durable := op.Durable
-			r = t.Commit(*durable)
+			r = t.Commit(ctx, *durable)
 		case ovsdb.OperationAbort:
-			r = t.Abort()
+			r = t.Abort(ctx)
 		case ovsdb.OperationComment:
-			r = t.Comment(*op.Comment)
+			r = t.Comment(ctx, *op.Comment)
 		case ovsdb.OperationAssert:
-			r = t.Assert(*op.Lock)
+			r = t.Assert(ctx, *op.Lock)
 		default:
 			r = ovsdb.ResultFromError(&ovsdb.NotSupported{})
 		}
@@ -107,7 +111,7 @@ func (t *Transaction) Transact(operations ...ovsdb.Operation) ([]*ovsdb.Operatio
 			if err != nil {
 				r = ovsdb.ResultFromError(err)
 			}
-			if err := t.Cache.ApplyCacheUpdate(*u); err != nil {
+			if err := t.Cache.ApplyCacheUpdate(ctx, *u); err != nil {
 				r = ovsdb.ResultFromError(err)
 			}
 			u = nil
@@ -133,7 +137,7 @@ func (t *Transaction) Transact(operations ...ovsdb.Operation) ([]*ovsdb.Operatio
 	}
 
 	// check & update references
-	update, refUpdates, refs, err := updates.ProcessReferences(t.Model, t.Database, update)
+	update, refUpdates, refs, err := updates.ProcessReferences(ctx, t.Model, t.Database, update)
 	if err != nil {
 		r = ovsdb.ResultFromError(err)
 		results = append(results, &r)
@@ -142,7 +146,7 @@ func (t *Transaction) Transact(operations ...ovsdb.Operation) ([]*ovsdb.Operatio
 
 	// apply updates resulting from referential integrity to the transaction
 	// caches so they are accounted for when checking index constraints
-	err = t.applyReferenceUpdates(refUpdates)
+	err = t.applyReferenceUpdates(ctx, refUpdates)
 	if err != nil {
 		r = ovsdb.ResultFromError(err)
 		results = append(results, &r)
@@ -150,7 +154,7 @@ func (t *Transaction) Transact(operations ...ovsdb.Operation) ([]*ovsdb.Operatio
 	}
 
 	// check index constraints
-	if err := t.checkIndexes(); err != nil {
+	if err := t.checkIndexes(ctx); err != nil {
 		if indexExists, ok := err.(*cache.ErrIndexExists); ok {
 			err = ovsdb.NewConstraintViolation(newIndexExistsDetails(*indexExists))
 			r := ovsdb.ResultFromError(err)
@@ -166,7 +170,9 @@ func (t *Transaction) Transact(operations ...ovsdb.Operation) ([]*ovsdb.Operatio
 	return results, updates.NewDatabaseUpdate(update, refs)
 }
 
-func (t *Transaction) applyReferenceUpdates(update updates.ModelUpdates) error {
+func (t *Transaction) applyReferenceUpdates(ctx context.Context, update updates.ModelUpdates) error {
+	ctx, span := tracer.Start(ctx, "applyReferenceUpdates")
+	defer span.End()
 	tables := update.GetUpdatedTables()
 	for _, table := range tables {
 		err := update.ForEachModelUpdate(table, func(uuid string, old, newModel model.Model) error {
@@ -177,7 +183,7 @@ func (t *Transaction) applyReferenceUpdates(update updates.ModelUpdates) error {
 			// warm the cache with updated and deleted rows due to reference
 			// updates
 			if old != nil && !t.Cache.Table(table).HasRow(uuid) {
-				row, err := t.Database.Get(t.DbName, table, uuid)
+				row, err := t.Database.Get(ctx, t.DbName, table, uuid)
 				if err != nil {
 					return err
 				}
@@ -193,10 +199,12 @@ func (t *Transaction) applyReferenceUpdates(update updates.ModelUpdates) error {
 		}
 	}
 	// apply reference updates to the cache
-	return t.Cache.ApplyCacheUpdate(update)
+	return t.Cache.ApplyCacheUpdate(ctx, update)
 }
 
-func (t *Transaction) initializeCache() error {
+func (t *Transaction) initializeCache(ctx context.Context) error {
+	_, span := tracer.Start(ctx, "initializeCache")
+	defer span.End()
 	if t.Cache != nil {
 		return nil
 	}
@@ -205,8 +213,10 @@ func (t *Transaction) initializeCache() error {
 	return err
 }
 
-func (t *Transaction) rowsFromTransactionCacheAndDatabase(table string, where []ovsdb.Condition) (map[string]model.Model, error) {
-	err := t.initializeCache()
+func (t *Transaction) rowsFromTransactionCacheAndDatabase(ctx context.Context, table string, where []ovsdb.Condition) (map[string]model.Model, error) {
+	ctx, span := tracer.Start(ctx, "rowsFromTransactionCacheAndDatabase")
+	defer span.End()
+	err := t.initializeCache(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -215,7 +225,7 @@ func (t *Transaction) rowsFromTransactionCacheAndDatabase(table string, where []
 	if err != nil {
 		return nil, fmt.Errorf("failed getting rows for table %s from transaction cache: %v", table, err)
 	}
-	rows, err := t.Database.List(t.DbName, table, where...)
+	rows, err := t.Database.List(ctx, t.DbName, table, where...)
 	if err != nil {
 		return nil, fmt.Errorf("failed getting rows for table %s from database: %v", table, err)
 	}
@@ -248,7 +258,9 @@ func (t *Transaction) rowsFromTransactionCacheAndDatabase(table string, where []
 // checkIndexes checks that there are no index conflicts:
 // - no duplicate indexes among any two rows operated with in the transaction
 // - no duplicate indexes of any transaction row with any database row
-func (t *Transaction) checkIndexes() error {
+func (t *Transaction) checkIndexes(ctx context.Context) error {
+	ctx, span := tracer.Start(ctx, "checkIndexes")
+	defer span.End()
 	// check for index conflicts.
 	tables := t.Cache.Tables()
 	for _, table := range tables {
@@ -258,7 +270,7 @@ func (t *Transaction) checkIndexes() error {
 			if err != nil {
 				return err
 			}
-			err = t.Database.CheckIndexes(t.DbName, table, row)
+			err = t.Database.CheckIndexes(ctx, t.DbName, table, row)
 			errIndexExists, isErrIndexExists := err.(*cache.ErrIndexExists)
 			if err == nil {
 				continue
@@ -284,7 +296,9 @@ func (t *Transaction) checkIndexes() error {
 	return nil
 }
 
-func (t *Transaction) Insert(op *ovsdb.Operation) (ovsdb.OperationResult, *updates.ModelUpdates) {
+func (t *Transaction) Insert(ctx context.Context, op *ovsdb.Operation) (ovsdb.OperationResult, *updates.ModelUpdates) {
+	_, span := tracer.Start(ctx, "Insert")
+	defer span.End()
 	if err := ovsdb.ValidateUUID(op.UUID); err != nil {
 		return ovsdb.ResultFromError(err), nil
 	}
@@ -302,11 +316,13 @@ func (t *Transaction) Insert(op *ovsdb.Operation) (ovsdb.OperationResult, *updat
 	return result, &update
 }
 
-func (t *Transaction) Select(table string, where []ovsdb.Condition, _ []string) ovsdb.OperationResult {
+func (t *Transaction) Select(ctx context.Context, table string, where []ovsdb.Condition, _ []string) ovsdb.OperationResult {
+	ctx, span := tracer.Start(ctx, "Select")
+	defer span.End()
 	var results []ovsdb.Row
 	dbModel := t.Model
 
-	rows, err := t.rowsFromTransactionCacheAndDatabase(table, where)
+	rows, err := t.rowsFromTransactionCacheAndDatabase(ctx, table, where)
 	if err != nil {
 		return ovsdb.ResultFromError(err)
 	}
@@ -328,8 +344,10 @@ func (t *Transaction) Select(table string, where []ovsdb.Condition, _ []string) 
 	}
 }
 
-func (t *Transaction) Update(op *ovsdb.Operation) (ovsdb.OperationResult, *updates.ModelUpdates) {
-	rows, err := t.rowsFromTransactionCacheAndDatabase(op.Table, op.Where)
+func (t *Transaction) Update(ctx context.Context, op *ovsdb.Operation) (ovsdb.OperationResult, *updates.ModelUpdates) {
+	ctx, span := tracer.Start(ctx, "Update")
+	defer span.End()
+	rows, err := t.rowsFromTransactionCacheAndDatabase(ctx, op.Table, op.Where)
 	if err != nil {
 		return ovsdb.ResultFromError(err), nil
 	}
@@ -346,8 +364,10 @@ func (t *Transaction) Update(op *ovsdb.Operation) (ovsdb.OperationResult, *updat
 	return ovsdb.OperationResult{Count: len(rows)}, &update
 }
 
-func (t *Transaction) Mutate(op *ovsdb.Operation) (ovsdb.OperationResult, *updates.ModelUpdates) {
-	rows, err := t.rowsFromTransactionCacheAndDatabase(op.Table, op.Where)
+func (t *Transaction) Mutate(ctx context.Context, op *ovsdb.Operation) (ovsdb.OperationResult, *updates.ModelUpdates) {
+	ctx, span := tracer.Start(ctx, "Mutate")
+	defer span.End()
+	rows, err := t.rowsFromTransactionCacheAndDatabase(ctx, op.Table, op.Where)
 	if err != nil {
 		return ovsdb.ResultFromError(err), nil
 	}
@@ -363,8 +383,10 @@ func (t *Transaction) Mutate(op *ovsdb.Operation) (ovsdb.OperationResult, *updat
 	return ovsdb.OperationResult{Count: len(rows)}, &update
 }
 
-func (t *Transaction) Delete(op *ovsdb.Operation) (ovsdb.OperationResult, *updates.ModelUpdates) {
-	rows, err := t.rowsFromTransactionCacheAndDatabase(op.Table, op.Where)
+func (t *Transaction) Delete(ctx context.Context, op *ovsdb.Operation) (ovsdb.OperationResult, *updates.ModelUpdates) {
+	ctx, span := tracer.Start(ctx, "Delete")
+	defer span.End()
+	rows, err := t.rowsFromTransactionCacheAndDatabase(ctx, op.Table, op.Where)
 	if err != nil {
 		return ovsdb.ResultFromError(err), nil
 	}
@@ -383,7 +405,9 @@ func (t *Transaction) Delete(op *ovsdb.Operation) (ovsdb.OperationResult, *updat
 	return ovsdb.OperationResult{Count: len(rows)}, &update
 }
 
-func (t *Transaction) Wait(table string, timeout *int, where []ovsdb.Condition, columns []string, until string, rows []ovsdb.Row) ovsdb.OperationResult {
+func (t *Transaction) Wait(ctx context.Context, table string, timeout *int, where []ovsdb.Condition, columns []string, until string, rows []ovsdb.Row) ovsdb.OperationResult {
+	ctx, span := tracer.Start(ctx, "Wait")
+	defer span.End()
 	start := time.Now()
 
 	if until != "!=" && until != "==" {
@@ -403,7 +427,7 @@ func (t *Transaction) Wait(table string, timeout *int, where []ovsdb.Condition, 
 Loop:
 	for {
 		var filteredRows []ovsdb.Row
-		foundRowModels, err := t.rowsFromTransactionCacheAndDatabase(table, where)
+		foundRowModels, err := t.rowsFromTransactionCacheAndDatabase(ctx, table, where)
 		if err != nil {
 			return ovsdb.ResultFromError(err)
 		}
@@ -479,18 +503,28 @@ Loop:
 	return ovsdb.ResultFromError(&ovsdb.TimedOut{})
 }
 
-func (t *Transaction) Commit(_ bool) ovsdb.OperationResult {
+func (t *Transaction) Commit(ctx context.Context, _ bool) ovsdb.OperationResult {
+	_, span := tracer.Start(ctx, "Commit")
+	defer span.End()
 	return ovsdb.ResultFromError(&ovsdb.NotSupported{})
 }
 
-func (t *Transaction) Abort() ovsdb.OperationResult {
+func (t *Transaction) Abort(ctx context.Context) ovsdb.OperationResult {
+	_, span := tracer.Start(ctx, "Abort")
+	defer span.End()
 	return ovsdb.ResultFromError(&ovsdb.NotSupported{})
 }
 
-func (t *Transaction) Comment(_ string) ovsdb.OperationResult {
+func (t *Transaction) Comment(ctx context.Context, _ string) ovsdb.OperationResult {
+	_, span := tracer.Start(ctx, "Comment")
+	defer span.End()
 	return ovsdb.ResultFromError(&ovsdb.NotSupported{})
 }
 
-func (t *Transaction) Assert(_ string) ovsdb.OperationResult {
+func (t *Transaction) Assert(ctx context.Context, _ string) ovsdb.OperationResult {
+	_, span := tracer.Start(ctx, "Assert")
+	defer span.End()
 	return ovsdb.ResultFromError(&ovsdb.NotSupported{})
 }
+
+var tracer = otel.Tracer("github.com/ovn-kubernetes/libovsdb/database/transaction")
