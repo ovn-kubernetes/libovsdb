@@ -8,7 +8,7 @@ ovs_db_version=$(ovsdb-tool schema-version /usr/local/share/openvswitch/vswitch.
 ovsdb-server --remote=punix:/usr/local/var/run/openvswitch/db.sock --remote=ptcp:6640 --pidfile=ovsdb-server.pid &
 
 # wait for ovsdb server to start
-sleep 0.1
+sleep 2
 
 # begin configuring
 ovs-vsctl --no-wait -- init

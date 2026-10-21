@@ -1,6 +1,10 @@
-FROM gcc:10.3.0 as build
+ARG FEDORA_IMAGE=quay.io/fedora/fedora:44@sha256:a32cc6149ce88510a5e23ce249d42681d61758d5851c398d29a76e5c94d1ed72
+FROM ${FEDORA_IMAGE} AS build
 
-ARG OVS_VERSION=v2.15.0
+RUN dnf install -y gcc make autoconf automake libtool python3 tar gzip \
+    && dnf clean all
+
+ARG OVS_VERSION=v3.7.1
 
 ADD https://github.com/openvswitch/ovs/archive/${OVS_VERSION}.tar.gz /src/
 
@@ -13,7 +17,7 @@ RUN ./boot.sh
 RUN ./configure
 RUN make && make install
 
-FROM debian:bullseye-slim
+FROM ${FEDORA_IMAGE}
 
 COPY --from=build /usr/local/bin/ovs* /usr/local/bin/
 COPY --from=build /usr/local/bin/vtep* /usr/local/bin/
@@ -22,7 +26,7 @@ COPY --from=build /usr/local/etc/openvswitch /usr/local/etc/openvswitch
 COPY --from=build /usr/local/share/openvswitch /usr/local/share/openvswitch
 COPY --from=build /usr/local/lib/lib* /usr/local/lib/
 
-RUN apt-get update && apt-get -qy install libatomic1
+RUN dnf install -y libatomic && dnf clean all
 
 RUN ovsdb-tool create /usr/local/etc/openvswitch/conf.db /usr/local/share/openvswitch/vswitch.ovsschema
 
