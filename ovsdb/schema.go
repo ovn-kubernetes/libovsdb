@@ -246,7 +246,7 @@ func (b *BaseType) MinInteger() (int, error) {
 	if b.minInteger != nil {
 		return *b.minInteger, nil
 	}
-	return math.MinInt64, nil
+	return math.MinInt, nil
 }
 
 // MaxInteger returns the maximum integer value
@@ -258,7 +258,7 @@ func (b *BaseType) MaxInteger() (int, error) {
 	if b.maxInteger != nil {
 		return *b.maxInteger, nil
 	}
-	return math.MaxInt64, nil
+	return math.MaxInt, nil
 }
 
 // MinLength returns the minimum string length
@@ -284,7 +284,7 @@ func (b *BaseType) MaxLength() (int, error) {
 	if b.maxLength != nil {
 		return *b.maxLength, nil
 	}
-	return math.MaxInt64, nil
+	return math.MaxInt, nil
 }
 
 // RefTable returns the table to which a UUID type refers
