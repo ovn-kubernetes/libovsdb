@@ -1,0 +1,18 @@
+[
+  {
+    "ovs_version": "master",
+    "tag": "latest"
+  },
+  {
+    "ovs_version": "v3.7.1",
+    "tag": "3.7.1"
+  },
+  {
+    "ovs_version": "v3.6.3",
+    "tag": "3.6.3"
+  },
+  {
+    "ovs_version": "v3.5.4",
+    "tag": "3.5.4"
+  }
+]

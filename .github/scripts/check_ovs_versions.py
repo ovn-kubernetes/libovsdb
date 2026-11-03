@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import requests
-import yaml
+import json
 import sys
 import re
 import argparse
@@ -8,7 +8,7 @@ from packaging.version import Version, InvalidVersion
 from collections import defaultdict
 
 OVS_TAGS_URL = "https://api.github.com/repos/openvswitch/ovs/tags?per_page=100"
-IMAGES_YML_PATH = ".github/workflows/images.yml"
+VERSIONS_PATH = "ovs/versions.json"
 MAKEFILE_PATH = "Makefile"
 
 
@@ -67,53 +67,27 @@ def get_latest_version(tags):
     return max(versions)
 
 
-def read_images_yml():
-    with open(IMAGES_YML_PATH) as f:
-        yml = yaml.safe_load(f)
-    return yml
+def read_versions():
+    with open(VERSIONS_PATH) as f:
+        return json.load(f)
 
 
-def write_images_yml(yml):
-    with open(IMAGES_YML_PATH, 'w') as f:
-        yaml.dump(yml, f, sort_keys=False)
+def write_versions(images):
+    with open(VERSIONS_PATH, 'w') as f:
+        json.dump(images, f, indent=2)
+        f.write('\n')
 
 
-def update_images_yml_versions(yml, latest_versions):
-    updated = False
-    # Update build matrix
-    images = yml['jobs']['build']['strategy']['matrix']['image']
-    new_images = []
-    for image in images:
-        if image['ovs_version'] == 'master':
-            new_images.append(image)
+def update_versions(images, latest_versions):
+    # Keep the rolling master image and any metadata for unchanged releases.
+    new_images = [image for image in images if image['ovs_version'] == 'master']
     for v in latest_versions:
         tag = f"v{v}"
-        tag_str = str(v)
         found = next(
             (img for img in images if img['ovs_version'] == tag), None)
-        if found:
-            new_images.append(found)
-        else:
-            new_images.append({'ovs_version': tag, 'tag': tag_str})
-    old_set = set((img['ovs_version'], img.get('tag', ''))
-                  for img in images if img['ovs_version'] != 'master')
-    new_set = set((img['ovs_version'], img.get('tag', ''))
-                  for img in new_images if img['ovs_version'] != 'master')
-    if old_set != new_set:
-        yml['jobs']['build']['strategy']['matrix']['image'] = new_images
-        updated = True
-    # Update manifest matrix
-    manifest_images = yml['jobs']['manifest']['strategy']['matrix']['image']
-    new_manifest_images = []
-    for image in new_images:
-        if image['tag']:
-            new_manifest_images.append({'tag': image['tag']})
-    old_manifest_set = set(img['tag'] for img in manifest_images)
-    new_manifest_set = set(img['tag'] for img in new_manifest_images)
-    if old_manifest_set != new_manifest_set:
-        yml['jobs']['manifest']['strategy']['matrix']['image'] = new_manifest_images
-        updated = True
-    return updated
+        new_images.append(found if found is not None else
+                          {'ovs_version': tag, 'tag': str(v)})
+    return new_images
 
 
 def read_makefile():
@@ -141,41 +115,42 @@ def update_makefile_ovs_version(lines, latest_version):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Check and update OVS versions in images.yml and Makefile")
+        description="Check and update OVS versions in ovs/versions.json and Makefile")
     parser.add_argument('--dry-run', action='store_true',
-                        help='Show the would-be new images.yml and Makefile to stdout if a change would be made')
+                        help='Show the would-be new ovs/versions.json and Makefile to stdout if a change would be made')
     args = parser.parse_args()
 
     tags = fetch_ovs_tags()
     latest_ovs = get_latest_patches(tags)
     latest_version = get_latest_version(tags)
 
-    yml = read_images_yml()
-    yml_updated = update_images_yml_versions(yml, latest_ovs)
+    images = read_versions()
+    new_images = update_versions(images, latest_ovs)
+    versions_updated = images != new_images
 
     makefile_lines = read_makefile()
     new_makefile_lines, makefile_updated = update_makefile_ovs_version(
         makefile_lines, latest_version)
 
-    if yml_updated or makefile_updated:
+    if versions_updated or makefile_updated:
         if args.dry_run:
-            if yml_updated:
-                print("# Would update .github/workflows/images.yml to:")
-                print(yaml.dump(yml, sort_keys=False))
+            if versions_updated:
+                print(f"# Would update {VERSIONS_PATH} to:")
+                print(json.dumps(new_images, indent=2))
             if makefile_updated:
                 print("# Would update Makefile to:")
                 print(new_makefile_lines[0].rstrip())
             sys.exit(2)
         else:
-            if yml_updated:
-                write_images_yml(yml)
-                print("images.yml updated with the latest 3 OVS releases.")
+            if versions_updated:
+                write_versions(new_images)
+                print(f"{VERSIONS_PATH} updated with the latest 3 OVS releases.")
             if makefile_updated:
                 write_makefile(new_makefile_lines)
                 print("Makefile OVS_VERSION updated to latest OVS release.")
             sys.exit(2)
     else:
-        print("images.yml and Makefile are up to date with the latest OVS releases.")
+        print(f"{VERSIONS_PATH} and Makefile are up to date with the latest OVS releases.")
         sys.exit(0)
 
 
