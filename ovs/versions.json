@@ -4,15 +4,15 @@
     "tag": "latest"
   },
   {
+    "ovs_version": "v4.0.0",
+    "tag": "4.0.0"
+  },
+  {
     "ovs_version": "v3.7.1",
     "tag": "3.7.1"
   },
   {
     "ovs_version": "v3.6.3",
     "tag": "3.6.3"
-  },
-  {
-    "ovs_version": "v3.5.4",
-    "tag": "3.5.4"
   }
 ]
