@@ -902,7 +902,7 @@ func TestBaseTypeMinInteger(t *testing.T) {
 		{
 			"nil",
 			&BaseType{Type: TypeInteger},
-			int(math.Pow(-2, 63)),
+			math.MinInt,
 			false,
 		},
 		{
@@ -942,7 +942,7 @@ func TestBaseTypeMaxInteger(t *testing.T) {
 		{
 			"nil",
 			&BaseType{Type: TypeInteger},
-			math.MaxInt64,
+			math.MaxInt,
 			false,
 		},
 		{
@@ -1022,7 +1022,7 @@ func TestBaseTypeMaxLength(t *testing.T) {
 		{
 			"nil",
 			&BaseType{Type: TypeString},
-			math.MaxInt64,
+			math.MaxInt,
 			false,
 		},
 		{
