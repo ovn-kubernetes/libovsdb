@@ -20,26 +20,35 @@ jobs:
         with:
           python-version: "3.x"
 
-      - run: pip install pyyaml packaging requests
+      - run: pip install packaging requests
 
-      - name: Check and update OVS versions in images.yml
+      - name: Check and update OVS versions
         id: check_ovs
         run: |
+          exit_code=0
           python3 .github/scripts/check_ovs_versions.py || exit_code=$?
-          echo "exit_code=${exit_code:-$?}" >> $GITHUB_OUTPUT
+          if [[ "$exit_code" != 0 && "$exit_code" != 2 ]]; then
+            exit "$exit_code"
+          fi
+          echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
 
-      - name: Create Pull Request to update images.yml
+      - name: Create Pull Request to update OVS versions
         if: steps.check_ovs.outputs.exit_code == '2'
         uses: peter-evans/create-pull-request@v8
         with:
+          add-paths: |
+            ovs/versions.json
+            Makefile
           commit-message: |
-            chore: update OVS versions in images.yml to latest 3 releases
+            chore: update OVS versions to latest 3 releases
 
             Signed-off-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
           author: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
           committer: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
           branch: update-ovs-versions
-          title: "Update OVS versions in images.yml to latest 3 releases"
+          title: "Update OVS versions to latest 3 releases"
           body: |
-            This PR updates the OVS versions in `.github/workflows/images.yml` to the latest patch release of the last 3 major.minor versions, as determined from https://github.com/openvswitch/ovs/tags.
+            This PR updates `ovs/versions.json` to the latest patch release of the last 3 major.minor OVS versions and `Makefile` to the latest OVS release, as determined from https://github.com/openvswitch/ovs/tags.
+
+            Both image build and manifest matrices read from `ovs/versions.json`; no workflow files are modified.
           labels: "automation,dependencies"

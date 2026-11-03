@@ -24,20 +24,27 @@ env:
   IMAGE_NAME: ovn-kubernetes/ovs
 
 jobs:
+  versions:
+    name: Load OVS versions
+    if: github.repository == 'ovn-kubernetes/libovsdb'
+    runs-on: ubuntu-latest
+    outputs:
+      images: ${{ steps.versions.outputs.images }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Read image matrix
+        id: versions
+        run: |
+          images=$(jq -c . ovs/versions.json)
+          echo "images=$images" >> "$GITHUB_OUTPUT"
+
   build:
     name: Build
+    needs: versions
     if: github.repository == 'ovn-kubernetes/libovsdb'
     strategy:
       matrix:
-        image:
-          - ovs_version: master
-            tag: latest
-          - ovs_version: v3.7.1
-            tag: 3.7.1
-          - ovs_version: v3.6.3
-            tag: 3.6.3
-          - ovs_version: v3.5.4
-            tag: 3.5.4
+        image: ${{ fromJSON(needs.versions.outputs.images) }}
         arch: [linux/amd64, linux/arm64]
     runs-on: ${{ matrix.arch == 'linux/arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     steps:
@@ -115,16 +122,12 @@ jobs:
 
   manifest:
     name: Create and Push Multi-Arch Manifest
-    needs: build
+    needs: [versions, build]
     runs-on: ubuntu-latest
     if: github.repository == 'ovn-kubernetes/libovsdb' && github.event_name != 'pull_request'
     strategy:
       matrix:
-        image:
-          - tag: latest
-          - tag: 3.7.1
-          - tag: 3.6.3
-          - tag: 3.5.4
+        image: ${{ fromJSON(needs.versions.outputs.images) }}
     steps:
       - name: Download digests
         uses: actions/download-artifact@v8
