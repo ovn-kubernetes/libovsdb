@@ -21,6 +21,8 @@ func TestSchema(t *testing.T) {
 	zero := 0
 	one := 1
 	two := 2
+	oneInteger := int64(1)
+	twoInteger := int64(2)
 	oneReal := 1.1
 	twoReal := 2.2
 	boolTrue := true
@@ -254,8 +256,8 @@ func TestSchema(t *testing.T) {
 									Key: &BaseType{
 										Type:       TypeInteger,
 										Enum:       []any{one, two},
-										minInteger: &one,
-										maxInteger: &two,
+										minInteger: &oneInteger,
+										maxInteger: &twoInteger,
 									},
 									max: &Unlimited,
 									min: &zero,
@@ -531,8 +533,9 @@ func TestTable(t *testing.T) {
 
 func TestBaseTypeMarshalUnmarshalJSON(t *testing.T) {
 	datapath := "Datapath"
-	zero := 0
-	valMax := 4294967295
+	zeroInteger := int64(0)
+	valMax := int64(4294967295)
+	maxIntegerJSON := []byte(fmt.Sprintf(`{"type":"integer","minInteger":0,"maxInteger": %d}`, valMax))
 	strong := "strong"
 	tests := []struct {
 		name         string
@@ -592,9 +595,9 @@ func TestBaseTypeMarshalUnmarshalJSON(t *testing.T) {
 		},
 		{
 			"int with min and max",
-			[]byte(`{"type":"integer","minInteger":0,"maxInteger": 4294967295}`),
-			BaseType{Type: TypeInteger, minInteger: &zero, maxInteger: &valMax},
-			[]byte(`{"type":"integer","minInteger":0,"maxInteger": 4294967295}`),
+			maxIntegerJSON,
+			BaseType{Type: TypeInteger, minInteger: &zeroInteger, maxInteger: &valMax},
+			maxIntegerJSON,
 			false,
 		},
 	}
@@ -800,7 +803,7 @@ func TestColumnSchemaMarshalUnmarshalJSON(t *testing.T) {
 func TestBaseTypeSimpleAtomic(t *testing.T) {
 	b := BaseType{Type: TypeString}
 	assert.True(t, b.simpleAtomic())
-	valMax := 1024
+	valMax := int64(1024)
 	b1 := BaseType{Type: TypeInteger, maxInteger: &valMax}
 	assert.False(t, b1.simpleAtomic())
 }
@@ -886,11 +889,11 @@ func TestBaseTypeMaxReal(t *testing.T) {
 }
 
 func TestBaseTypeMinInteger(t *testing.T) {
-	value := 1024
+	value := int64(1024)
 	tests := []struct {
 		name    string
 		bt      *BaseType
-		want    int
+		want    int64
 		wantErr bool
 	}{
 		{
@@ -902,7 +905,7 @@ func TestBaseTypeMinInteger(t *testing.T) {
 		{
 			"nil",
 			&BaseType{Type: TypeInteger},
-			math.MinInt,
+			math.MinInt64,
 			false,
 		},
 		{
@@ -926,11 +929,11 @@ func TestBaseTypeMinInteger(t *testing.T) {
 }
 
 func TestBaseTypeMaxInteger(t *testing.T) {
-	value := 1024
+	value := int64(1024)
 	tests := []struct {
 		name    string
 		bt      *BaseType
-		want    int
+		want    int64
 		wantErr bool
 	}{
 		{
@@ -942,7 +945,7 @@ func TestBaseTypeMaxInteger(t *testing.T) {
 		{
 			"nil",
 			&BaseType{Type: TypeInteger},
-			math.MaxInt,
+			math.MaxInt64,
 			false,
 		},
 		{

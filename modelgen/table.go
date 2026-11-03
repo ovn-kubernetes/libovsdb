@@ -449,13 +449,13 @@ func getIntegerValidations(atomicSchema *ovsdb.BaseType) []string {
 	var validations []string
 
 	if minVal, err := atomicSchema.MinInteger(); err == nil {
-		if minVal != math.MinInt {
+		if minVal != math.MinInt64 {
 			validations = append(validations, fmt.Sprintf("min=%d", minVal))
 		}
 	}
 
 	if maxVal, err := atomicSchema.MaxInteger(); err == nil {
-		if maxVal != math.MaxInt {
+		if maxVal != math.MaxInt64 {
 			validations = append(validations, fmt.Sprintf("max=%d", maxVal))
 		}
 	}

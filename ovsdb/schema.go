@@ -199,8 +199,8 @@ type BaseType struct {
 	Enum       []any
 	minReal    *float64
 	maxReal    *float64
-	minInteger *int
-	maxInteger *int
+	minInteger *int64
+	maxInteger *int64
 	minLength  *int
 	maxLength  *int
 	refTable   *string
@@ -238,27 +238,27 @@ func (b *BaseType) MaxReal() (float64, error) {
 }
 
 // MinInteger returns the minimum integer value
-// RFC7047 specifies the minimum to be -2^63
-func (b *BaseType) MinInteger() (int, error) {
+// RFC7047 specifies the minimum to be -2^63.
+func (b *BaseType) MinInteger() (int64, error) {
 	if b.Type != TypeInteger {
 		return 0, fmt.Errorf("%s is not an integer", b.Type)
 	}
 	if b.minInteger != nil {
 		return *b.minInteger, nil
 	}
-	return math.MinInt, nil
+	return math.MinInt64, nil
 }
 
 // MaxInteger returns the maximum integer value
-// RFC7047 specifies the maximum to be 2^63-1
-func (b *BaseType) MaxInteger() (int, error) {
+// RFC7047 specifies the maximum to be 2^63-1.
+func (b *BaseType) MaxInteger() (int64, error) {
 	if b.Type != TypeInteger {
 		return 0, fmt.Errorf("%s is not an integer", b.Type)
 	}
 	if b.maxInteger != nil {
 		return *b.maxInteger, nil
 	}
-	return math.MaxInt, nil
+	return math.MaxInt64, nil
 }
 
 // MinLength returns the minimum string length
@@ -328,8 +328,8 @@ func (b *BaseType) UnmarshalJSON(data []byte) error {
 		Enum       any      `json:"enum,omitempty"`
 		MinReal    *float64 `json:"minReal,omitempty"`
 		MaxReal    *float64 `json:"maxReal,omitempty"`
-		MinInteger *int     `json:"minInteger,omitempty"`
-		MaxInteger *int     `json:"maxInteger,omitempty"`
+		MinInteger *int64   `json:"minInteger,omitempty"`
+		MaxInteger *int64   `json:"maxInteger,omitempty"`
 		MinLength  *int     `json:"minLength,omitempty"`
 		MaxLength  *int     `json:"maxLength,omitempty"`
 		RefTable   *string  `json:"refTable,omitempty"`
@@ -393,8 +393,8 @@ func (b BaseType) MarshalJSON() ([]byte, error) {
 		Enum       *OvsSet  `json:"enum,omitempty"`
 		MinReal    *float64 `json:"minReal,omitempty"`
 		MaxReal    *float64 `json:"maxReal,omitempty"`
-		MinInteger *int     `json:"minInteger,omitempty"`
-		MaxInteger *int     `json:"maxInteger,omitempty"`
+		MinInteger *int64   `json:"minInteger,omitempty"`
+		MaxInteger *int64   `json:"maxInteger,omitempty"`
 		MinLength  *int     `json:"minLength,omitempty"`
 		MaxLength  *int     `json:"maxLength,omitempty"`
 		RefTable   *string  `json:"refTable,omitempty"`
