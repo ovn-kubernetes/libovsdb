@@ -15,6 +15,10 @@ on:
     # run weekly to ensure our copy of ovs is up-to-date
     - cron: "42 0 * * 0"
 
+permissions:
+  contents: read
+  packages: write
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ovn-kubernetes/ovs
@@ -69,6 +73,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: ovs
+          file: ovs/Containerfile
           build-args: OVS_VERSION=${{ matrix.image.ovs_version }}
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -83,6 +88,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: ovs
+          file: ovs/Containerfile
           build-args: OVS_VERSION=${{ matrix.image.ovs_version }}
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           labels: ${{ steps.meta.outputs.labels }}

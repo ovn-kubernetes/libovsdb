@@ -1,0 +1,70 @@
+name: libovsdb-tool-images
+
+on:
+  workflow_call:
+    inputs:
+      publish:
+        description: Publish images to GHCR (upstream main or release tags only)
+        type: boolean
+        default: false
+
+concurrency:
+  group: tool-images-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref == 'refs/heads/main' }}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.image.name }} image
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - name: stress
+            target: stress
+          - name: modelgen
+            target: modelgen
+          - name: print-schema
+            target: print_schema
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        if: inputs.publish && github.repository == 'ovn-kubernetes/libovsdb' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}/${{ matrix.image.name }}
+          flavor: latest=false
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=ref,event=tag
+            type=ref,event=pr
+
+      - name: Build images
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Containerfile
+          target: ${{ matrix.image.target }}
+          platforms: linux/amd64,linux/arm64
+          push: ${{ inputs.publish && github.repository == 'ovn-kubernetes/libovsdb' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=tools-${{ matrix.image.name }}
+          cache-to: type=gha,mode=max,scope=tools-${{ matrix.image.name }}

@@ -124,6 +124,16 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           QEMU: ${{ matrix.qemu }}
 
+  images:
+    name: Tool Images
+    needs: [build, test]
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/tool-images.yml
+    with:
+      publish: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'ovn-kubernetes/libovsdb' }}
+
   test:
     name: Integration Test
     needs: build

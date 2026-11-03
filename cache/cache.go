@@ -2,6 +2,7 @@ package cache
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/gob"
 	"encoding/hex"
@@ -16,6 +17,7 @@ import (
 	"github.com/ovn-kubernetes/libovsdb/model"
 	"github.com/ovn-kubernetes/libovsdb/ovsdb"
 	"github.com/ovn-kubernetes/libovsdb/updates"
+	"go.opentelemetry.io/otel"
 )
 
 const (
@@ -849,10 +851,11 @@ type TableCache struct {
 	cache          map[string]*RowCache
 	eventProcessor *eventProcessor
 	dbModel        model.DatabaseModel
-	ovsdb.NotificationHandler
-	mutex  sync.RWMutex
-	logger *logr.Logger
+	mutex          sync.RWMutex
+	logger         *logr.Logger
 }
+
+var _ ovsdb.NotificationHandler = (*TableCache)(nil)
 
 // Data is the type for data that can be prepopulated in the cache
 type Data map[string]map[string]model.Model
@@ -929,11 +932,13 @@ func (t *TableCache) Tables() []string {
 // Update implements the update method of the NotificationHandler interface
 // this populates a channel with updates so they can be processed after the initial
 // state has been Populated
-func (t *TableCache) Update(_ any, tableUpdates ovsdb.TableUpdates) error {
+func (t *TableCache) Update(ctx context.Context, _ any, tableUpdates ovsdb.TableUpdates) error {
+	ctx, span := tracer.Start(ctx, "cache_Update")
+	defer span.End()
 	if len(tableUpdates) == 0 {
 		return nil
 	}
-	if err := t.Populate(tableUpdates); err != nil {
+	if err := t.Populate(ctx, tableUpdates); err != nil {
 		t.logger.Error(err, "during libovsdb cache populate")
 		return err
 	}
@@ -943,11 +948,13 @@ func (t *TableCache) Update(_ any, tableUpdates ovsdb.TableUpdates) error {
 // Update2 implements the update method of the NotificationHandler interface
 // this populates a channel with updates so they can be processed after the initial
 // state has been Populated
-func (t *TableCache) Update2(_ any, tableUpdates ovsdb.TableUpdates2) error {
+func (t *TableCache) Update2(ctx context.Context, _ any, tableUpdates ovsdb.TableUpdates2) error {
+	ctx, span := tracer.Start(ctx, "cache_Update2")
+	defer span.End()
 	if len(tableUpdates) == 0 {
 		return nil
 	}
-	if err := t.Populate2(tableUpdates); err != nil {
+	if err := t.Populate2(ctx, tableUpdates); err != nil {
 		t.logger.Error(err, "during libovsdb cache populate2")
 		return err
 	}
@@ -971,7 +978,9 @@ func (t *TableCache) Disconnected() {
 }
 
 // Populate adds data to the cache and places an event on the channel
-func (t *TableCache) Populate(tableUpdates ovsdb.TableUpdates) error {
+func (t *TableCache) Populate(ctx context.Context, tableUpdates ovsdb.TableUpdates) error {
+	ctx, span := tracer.Start(ctx, "cache_Populate")
+	defer span.End()
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
 
@@ -989,7 +998,7 @@ func (t *TableCache) Populate(tableUpdates ovsdb.TableUpdates) error {
 			if err != nil {
 				return err
 			}
-			err = t.ApplyCacheUpdate(update)
+			err = t.ApplyCacheUpdate(ctx, update)
 			if err != nil {
 				return err
 			}
@@ -999,7 +1008,9 @@ func (t *TableCache) Populate(tableUpdates ovsdb.TableUpdates) error {
 }
 
 // Populate2 adds data to the cache and places an event on the channel
-func (t *TableCache) Populate2(tableUpdates ovsdb.TableUpdates2) error {
+func (t *TableCache) Populate2(ctx context.Context, tableUpdates ovsdb.TableUpdates2) error {
+	ctx, span := tracer.Start(ctx, "cache_Populate2")
+	defer span.End()
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
 	for table := range t.dbModel.Types() {
@@ -1019,7 +1030,7 @@ func (t *TableCache) Populate2(tableUpdates ovsdb.TableUpdates2) error {
 			if err != nil {
 				return err
 			}
-			err = t.ApplyCacheUpdate(update)
+			err = t.ApplyCacheUpdate(ctx, update)
 			if err != nil {
 				return err
 			}
@@ -1195,7 +1206,10 @@ type cacheUpdate interface {
 	ForEachModelUpdate(table string, do func(uuid string, old, newModel model.Model) error) error
 }
 
-func (t *TableCache) ApplyCacheUpdate(update cacheUpdate) error {
+// ApplyCacheUpdate applies model updates to the cache and queues events.
+func (t *TableCache) ApplyCacheUpdate(ctx context.Context, update cacheUpdate) error {
+	_, span := tracer.Start(ctx, "cache_ApplyCacheUpdate")
+	defer span.End()
 	tables := update.GetUpdatedTables()
 	for _, table := range tables {
 		tCache := t.cache[table]
@@ -1298,3 +1312,5 @@ func valueFromMap(aMap any, key any) (any, error) {
 
 	return v.Interface(), nil
 }
+
+var tracer = otel.Tracer("github.com/ovn-kubernetes/libovsdb/cache")

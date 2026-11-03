@@ -1,19 +1,21 @@
 package updates
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/ovn-kubernetes/libovsdb/database"
 	"github.com/ovn-kubernetes/libovsdb/model"
 	"github.com/ovn-kubernetes/libovsdb/ovsdb"
+	"go.opentelemetry.io/otel"
 )
 
 // ReferenceProvider should be implemented by a database that tracks references
 type ReferenceProvider interface {
 	// GetReferences provides the references to the provided row
-	GetReferences(database, table, uuid string) (database.References, error)
+	GetReferences(ctx context.Context, database, table, uuid string) (database.References, error)
 	// Get provides the corresponding model
-	Get(database, table string, uuid string) (model.Model, error)
+	Get(ctx context.Context, database, table string, uuid string) (model.Model, error)
 }
 
 // DatabaseUpdate bundles updates together with the updated
@@ -43,12 +45,16 @@ func NewDatabaseUpdate(updates ModelUpdates, references database.References) Dat
 // collection described in RFC7047. These additional updates resulting from the
 // reference garbage collection are also returned separately. Any constraint or
 // referential integrity violation is returned as an error.
-func ProcessReferences(dbModel model.DatabaseModel, provider ReferenceProvider, updates ModelUpdates) (ModelUpdates, ModelUpdates, database.References, error) {
+func ProcessReferences(ctx context.Context, dbModel model.DatabaseModel, provider ReferenceProvider, updates ModelUpdates) (ModelUpdates, ModelUpdates, database.References, error) {
+	ctx, span := tracer.Start(ctx, "ProcessReferences")
+	defer span.End()
 	referenceTracker := newReferenceTracker(dbModel, provider)
+	referenceTracker.ctx = ctx
 	return referenceTracker.processReferences(updates)
 }
 
 type referenceTracker struct {
+	ctx      context.Context
 	dbModel  model.DatabaseModel
 	provider ReferenceProvider
 
@@ -66,6 +72,7 @@ type referenceTracker struct {
 
 func newReferenceTracker(dbModel model.DatabaseModel, provider ReferenceProvider) *referenceTracker {
 	return &referenceTracker{
+		ctx:      context.Background(),
 		dbModel:  dbModel,
 		provider: provider,
 	}
@@ -443,7 +450,7 @@ func (rt *referenceTracker) initReferences(table, uuid string) error {
 		// already initialized
 		return nil
 	}
-	existingRefs, err := rt.provider.GetReferences(rt.dbModel.Client().Name(), table, uuid)
+	existingRefs, err := rt.provider.GetReferences(rt.ctx, rt.dbModel.Client().Name(), table, uuid)
 	if err != nil {
 		return err
 	}
@@ -545,7 +552,7 @@ func (rt *referenceTracker) getModel(table, uuid string) (model.Model, error) {
 		return model, nil
 	}
 	// look for the model in the database
-	model, err := rt.provider.Get(rt.dbModel.Client().Name(), table, uuid)
+	model, err := rt.provider.Get(rt.ctx, rt.dbModel.Client().Name(), table, uuid)
 	if err != nil {
 		return nil, err
 	}
@@ -564,7 +571,7 @@ func (rt *referenceTracker) getRow(table, uuid string) (*ovsdb.Row, error) {
 		return row, nil
 	}
 	// look for the model in the database and build the row
-	model, err := rt.provider.Get(rt.dbModel.Client().Name(), table, uuid)
+	model, err := rt.provider.Get(rt.ctx, rt.dbModel.Client().Name(), table, uuid)
 	if err != nil {
 		return nil, err
 	}
@@ -795,3 +802,5 @@ func isStrong(dbModel *model.DatabaseModel, spec database.ReferenceSpec) bool {
 	_, _, refType, _ := refInfo(dbModel, spec.FromTable, spec.FromColumn, spec.FromValue)
 	return refType == ovsdb.Strong
 }
+
+var tracer = otel.Tracer("github.com/ovn-kubernetes/libovsdb/updates")
