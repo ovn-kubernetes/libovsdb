@@ -1084,17 +1084,39 @@ func newRowCache(name string, dbModel model.DatabaseModel, dataType reflect.Type
 		mutex:      sync.RWMutex{},
 	}
 
+	// A newer schema may index columns absent from our model. Only indexes
+	// whose complete set of columns is modeled can be maintained locally.
+	var modeledColumns map[string]string
+	if row, err := dbModel.NewModel(name); err == nil {
+		if info, err := dbModel.NewModelInfo(row); err == nil {
+			modeledColumns = info.Metadata.Fields
+		}
+	}
+
 	// respect the order of indexes, add first schema indexes, then client
 	// indexes
 	indexes := map[index]indexSpec{}
+SCHEMA_INDEX:
 	for _, columns := range schemaIndexes {
+		for _, column := range columns {
+			if _, modeled := modeledColumns[column]; !modeled {
+				continue SCHEMA_INDEX
+			}
+		}
 		columnKeys := newColumnKeysFromColumns(columns...)
 		index := newIndexFromColumnKeys(columnKeys...)
 		spec := indexSpec{index: index, columns: columnKeys, indexType: schemaIndexType}
 		r.indexSpecs = append(r.indexSpecs, spec)
 		indexes[index] = spec
 	}
+CLIENT_INDEX:
 	for _, clientIndex := range clientIndexes {
+		// An index must retain all its columns to preserve its meaning.
+		for _, column := range clientIndex.Columns {
+			if dbModel.Schema.Table(name).Column(column.Column) == nil {
+				continue CLIENT_INDEX
+			}
+		}
 		columnKeys := clientIndex.Columns
 		index := newIndexFromColumnKeys(columnKeys...)
 		// if this is already a DB index, ignore

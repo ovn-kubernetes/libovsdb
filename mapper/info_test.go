@@ -3,6 +3,7 @@ package mapper
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"testing"
 
 	"github.com/ovn-kubernetes/libovsdb/ovsdb"
@@ -32,6 +33,33 @@ var sampleTable = []byte(`{
           }
         }
     }
+}`)
+
+var sampleTableWithOptionalField = []byte(`{
+	"columns": {
+	  "aString": {
+		"type": "string"
+	  },
+	  "anotherString": {
+		"type": "string"
+	  },
+	  "aInteger": {
+		"type": "integer"
+	  },
+	  "aSet": {
+		"type": {
+		  "key": "string",
+		  "max": "unlimited",
+		  "min": 0
+		}
+	  },
+	  "aMap": {
+		"type": {
+		  "key": "string",
+		  "value": "string"
+		}
+	  }
+  }
 }`)
 
 func TestNewMapperInfo(t *testing.T) {
@@ -76,10 +104,11 @@ func TestNewMapperInfo(t *testing.T) {
 
 func TestMapperInfoSet(t *testing.T) {
 	type obj struct {
-		Ostring string            `ovsdb:"aString"`
-		Oint    int               `ovsdb:"aInteger"`
-		Oset    []string          `ovsdb:"aSet"`
-		Omap    map[string]string `ovsdb:"aMap"`
+		Ostring        string            `ovsdb:"aString"`
+		OanotherString string            `ovsdb:"anotherString,omitunsupported"`
+		Oint           int               `ovsdb:"aInteger"`
+		Oset           []string          `ovsdb:"aSet"`
+		Omap           map[string]string `ovsdb:"aMap"`
 	}
 
 	type test struct {
@@ -136,6 +165,14 @@ func TestMapperInfoSet(t *testing.T) {
 			column: "aMap",
 			err:    true,
 		},
+		{
+			name:   "optional - supported by schema",
+			table:  sampleTableWithOptionalField,
+			obj:    &obj{},
+			field:  "foo",
+			column: "anotherString",
+			err:    false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(fmt.Sprintf("SetField_%s", tt.name), func(t *testing.T) {
@@ -158,6 +195,30 @@ func TestMapperInfoSet(t *testing.T) {
 
 		})
 	}
+}
+
+func TestMapperInfoSetOmitted(t *testing.T) {
+	type obj struct {
+		Ostring        string            `ovsdb:"aString"`
+		OanotherString string            `ovsdb:"anotherString,omitunsupported"`
+		Oint           int               `ovsdb:"aInteger"`
+		Oset           []string          `ovsdb:"aSet"`
+		Omap           map[string]string `ovsdb:"aMap"`
+	}
+	var table ovsdb.TableSchema
+	err := json.Unmarshal(sampleTable, &table)
+	require.NoError(t, err)
+
+	info, err := NewInfo("Test", &table, &obj{})
+	require.NoError(t, err)
+
+	// SetField returns an error if not supported by the schema
+	err = info.SetField("anotherString", "foo")
+	require.ErrorIs(t, err, ErrOmitted)
+
+	// FieldByColumn will return an error also
+	_, err = info.FieldByColumn("anotherString")
+	require.ErrorIs(t, err, ErrOmitted)
 }
 
 func TestMapperInfoColByPtr(t *testing.T) {
@@ -367,6 +428,55 @@ func TestOrmGetIndex(t *testing.T) {
 				assert.ElementsMatchf(t, tt.expected, indexes, "Indexes must match")
 			}
 
+		})
+	}
+}
+
+func TestParseStructTag(t *testing.T) {
+	type obj struct {
+		Valid     string `ovsdb:"valid"`
+		NotMapped string
+		Optional  string `ovsdb:"optional,omitunsupported"`
+	}
+	tests := []struct {
+		name      string
+		fieldName string
+		want      string
+		want1     bool
+	}{
+		{
+			"parse valid tag",
+			"Valid",
+			"valid",
+			false,
+		},
+		{
+			"parse empty tag",
+			"NotMapped",
+			"",
+			false,
+		},
+		{
+			"parse optional tag",
+			"Optional",
+			"optional",
+			true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := reflect.TypeOf(obj{})
+			field, ok := v.FieldByName(tt.fieldName)
+			require.True(t, ok)
+			got, got1 := parseStructTag(field)
+			assert.Equal(t, tt.want, got)
+			assert.Equal(t, tt.want1, got1)
+			if got != tt.want {
+				t.Errorf("parseStructTag() got = %v, want %v", got, tt.want)
+			}
+			if got1 != tt.want1 {
+				t.Errorf("parseStructTag() got1 = %v, want %v", got1, tt.want1)
+			}
 		})
 	}
 }
