@@ -1,5 +1,6 @@
 # API Guide
 
+- [Connection lifecycle](#connection-lifecycle)
 - [Conditional API](#conditional-api)
   - [Where](#where)
   - [WhereAny](#whereany)
@@ -18,6 +19,79 @@
   - [Selecting Specific Columns](#selecting-specific-columns)
   - [Multiple Select Queries in One Transaction](#multiple-select-queries-in-one-transaction)
 - [Cache Event Handlers](#cache-event-handlers)
+
+## Connection lifecycle
+
+`Connect(ctx)` succeeds and `Connected()` becomes true only after the transport,
+model validation, and restoration of all existing monitors have succeeded. The
+first connection does not automatically create application monitors: call
+`Monitor` or `MonitorAll` as usual.
+
+`Disconnect()` ends the current connection. With `WithReconnect`, the client
+reconnects automatically and restores its monitors; otherwise, call `Connect`
+again explicitly. Monitor restoration failures participate in the reconnect
+backoff policy instead of leaving a partially restored client marked ready. If
+that policy is exhausted, transactions fail with `client.ErrNotConnected` instead
+of waiting for a retry that will never happen. A successful explicit `Connect`
+makes the client usable again.
+
+`DisconnectNotify()` retains an unread notification while disconnected or
+restoring monitors. The old notification is cleared immediately before the new
+connection is marked ready; it is not a history of past connections.
+
+Reconnect timeouts must be positive. Each endpoint receives a share of the
+remaining connection deadline (including TLS handshake and schema RPCs), so a
+silent first endpoint cannot consume the entire budget for later endpoints. Live
+connection failures rotate the failed endpoint to the end. `UpdateEndpoints`
+preserves a live connection when possible, but while disconnected it respects
+the caller's supplied order. These guarantees do not configure kernel-level TCP
+user timeouts or promise bounded failover for calls without a deadline.
+Incompatible schemas are rejected before endpoint selection, allowing the same
+`Connect` call to try another endpoint. The caller's cancellation and remaining
+deadline cover monitor restoration as well as the handshake; once ready, the
+session is independent of that context. Inactivity echo probes use the configured
+inactivity timeout for their response deadline.
+
+**`Close()` is terminal.** It cancels outstanding network work and waits for the
+client's internal workers to exit. Subsequent `Connect` calls return
+`client.ErrClosed`; create a new client if another lifecycle is needed. Other
+network operations on a closed client return `client.ErrNotConnected`.
+
+Independent outbound RPCs can overlap. Inbound handlers remain synchronous
+(`rpc2.SetBlocking(true)`), preserving receive order, and codec writes are
+serialized. If operations require application-level ordering, wait for one call
+to finish before issuing the next. A successful `Transact` waits for monitor
+updates received before its reply to be applied to the cache, but does not wait
+for cache event callbacks. If that connection's generation is invalidated before
+the barrier completes, `Transact` returns a connection error rather than claiming
+cache consistency.
+
+With reconnect enabled, transactions rejected before RPC submission can wait for
+recovery and retry automatically. Once submitted, a transaction is never replayed
+automatically: a lost reply may hide a successful commit. Cancellation or a
+connection error (including `client.ErrNotConnected`) does **not** prove that the
+server did not execute the operation. Reconcile the outcome before retrying a
+non-idempotent transaction.
+
+During reconnect, the previous cache and its applied transaction cursor are
+retained for incremental `monitor_cond_since` recovery. Client cache reads wait
+for consistency subject to their context; accessing `Cache()` directly bypasses
+that wait and may expose the previous snapshot. Notifications from obsolete
+connections are discarded. If the inbound queue overflows, the connection is
+closed and recovery requests a full snapshot rather than silently losing updates.
+
+For a database with multiple monitors, recovery conservatively requests full
+snapshots and purges once before restoring their union. Disjoint monitor scopes
+are covered by regression tests; per-monitor incremental replay and selective
+purging are not implemented. **Overlapping row scopes are unsupported**, including
+two monitors selecting the same row with different columns. Registering such a
+configuration can produce a cache-inconsistency error. See
+[issue #250](https://github.com/ovn-kubernetes/libovsdb/issues/250) and
+[PR #283](https://github.com/ovn-kubernetes/libovsdb/pull/283) for the broader design.
+
+Cache event callbacks must return so shutdown can finish. Do not call `Close()`
+synchronously from a cache event callback, since it waits for that callback's
+worker to exit.
 
 ## Conditional API
 

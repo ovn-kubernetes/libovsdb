@@ -29,7 +29,8 @@ const (
 
 const serverDB = "_Server"
 
-// ErrNotConnected is an error returned when the client is not connected
+// ErrNotConnected is returned when the required connection is unavailable.
+// For an in-flight transaction, it does not imply that the server did not commit.
 var ErrNotConnected = errors.New("not connected")
 
 // ErrAlreadyConnected is an error returned when the client is already connected
@@ -46,19 +47,76 @@ var ErrUnsupportedRPC = errors.New("unsupported rpc")
 // perform transactions, and build your own replica of the database with
 // Monitor or MonitorAll. It also provides a Cache that is populated from OVSDB
 // update notifications.
+//
+// A Client can be reused across Disconnect and Connect calls, including endpoint
+// changes through UpdateEndpoints. Close permanently ends the client's lifetime;
+// use NewOVSDBClient to create a new client after Close.
 type Client interface {
+	// Connect establishes a connection using the current endpoints and returns
+	// success only after schema validation and restoration of existing monitors.
+	// It is idempotent while connected. After Disconnect it reuses the client's
+	// cache and monitor registrations; cache contents may be rebuilt by recovery.
+	// The attempt's context covers monitor restoration; an established session
+	// outlives that context. Incompatible endpoints are skipped during selection.
+	// After Close it returns ErrClosed and does not restart the client.
 	Connect(context.Context) error
+
+	// Disconnect ends the current connection without disposing of the client.
+	// The cache, monitor registrations, and cache event handlers are retained.
+	// When WithReconnect or WithInactivityCheck is enabled, reconnection starts
+	// automatically; otherwise, call Connect explicitly. Disconnect is not a pause
+	// when automatic reconnect is enabled. Use Close to permanently stop the client.
 	Disconnect()
+
+	// Close permanently shuts down the client and waits for its internal workers
+	// and cache event callbacks to finish. It is safe to call more than once.
+	// Subsequent Connect calls return ErrClosed; UpdateEndpoints cannot reopen it.
+	// A retained Cache is no longer updated by this client. To reuse the client
+	// and its cache with different endpoints, use Disconnect, UpdateEndpoints,
+	// and Connect instead of Close. Do not call Close synchronously from a cache
+	// event callback: Close waits for that callback to return.
 	Close()
+
 	Schema() ovsdb.DatabaseSchema
+
+	// Cache returns the client-owned TableCache, or nil before cache initialization.
+	// The TableCache and its event handlers are retained across Disconnect and
+	// Connect, but recovery may replace its per-table caches and row contents.
+	// Reacquire per-table caches after reconnect. Direct cache access does not wait
+	// for connection readiness and can expose stale data while disconnected or
+	// restoring monitors. After Close, the retained cache is no longer updated
+	// by this client; creating a new client does not reactivate the old cache.
 	Cache() *cache.TableCache
+
+	// UpdateEndpoints replaces the endpoint list without recreating the client
+	// or its cache. A live connection is retained if its endpoint is still listed;
+	// removing it disconnects and follows the configured reconnect policy.
+	// This method does not wait for connection readiness; call Connect to establish
+	// a connection or wait for restoration. An empty list selects the default Unix
+	// endpoint. Calls after Close are ignored and cannot reopen the client.
 	UpdateEndpoints([]string)
+
 	SetOption(Option) error
+
+	// Connected reports readiness, including restoration of existing monitors.
+	// It is always false after Close.
 	Connected() bool
 	DisconnectNotify() chan struct{}
 	Echo(context.Context) error
+	// Transact waits for preceding monitor updates to be applied in its connection
+	// generation. With reconnect enabled, only requests rejected before submission
+	// are automatically retried. An error after submission, including cancellation
+	// or ErrNotConnected, does not prove that the server did not commit.
 	Transact(context.Context, ...ovsdb.Operation) ([]ovsdb.OperationResult, error)
+	// Monitor registers a monitor and populates the cache from its initial reply.
+	// Existing monitors are restored automatically on reconnection; do not register
+	// them again solely because the client disconnected. Overlapping monitor row
+	// scopes are unsupported.
 	Monitor(context.Context, *Monitor) (MonitorCookie, error)
+
+	// MonitorAll registers a monitor for all tables and columns in the client model.
+	// Like Monitor, its registration survives Disconnect and is restored on Connect.
+	// Calling MonitorAll again is not an idempotent way to restore existing monitors.
 	MonitorAll(context.Context) (MonitorCookie, error)
 	MonitorCancel(ctx context.Context, cookie MonitorCookie) error
 	NewMonitor(...MonitorOption) *Monitor
@@ -421,8 +479,8 @@ func (o *ovsdbClient) applyInboundRPC(in *InboundRPCPayload) {
 	}
 }
 
-// Connect opens a connection to an OVSDB Server using the
-// endpoint provided when the Client was created.
+// Connect establishes readiness using the current endpoints and restores existing
+// monitors. It is idempotent while connected and returns ErrClosed after Close.
 func (o *ovsdbClient) Connect(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "Connect")
 	defer span.End()
@@ -453,9 +511,9 @@ func (o *ovsdbClient) Schema() ovsdb.DatabaseSchema {
 	return db.model.Schema
 }
 
-// Cache returns the TableCache that is populated from
-// ovsdb update notifications. It will be nil until a connection
-// has been established, and empty unless you call Monitor
+// Cache returns the client-owned TableCache without waiting for readiness, or nil
+// before initialization. It survives reconnect, though its tables and rows may be
+// replaced. After Close, the retained cache is no longer updated by this client.
 func (o *ovsdbClient) Cache() *cache.TableCache {
 	db := o.primaryDB()
 	db.cacheMutex.RLock()
@@ -463,7 +521,9 @@ func (o *ovsdbClient) Cache() *cache.TableCache {
 	return db.cache
 }
 
-// UpdateEndpoints sets client endpoints and notifies the connection manager.
+// UpdateEndpoints replaces the endpoint list without recreating the client or
+// cache. It does not wait for connection readiness and is ignored after Close.
+// See Client.UpdateEndpoints for connection replacement behavior.
 func (o *ovsdbClient) UpdateEndpoints(endpoints []string) {
 	if len(endpoints) == 0 {
 		endpoints = []string{defaultUnixEndpoint}
@@ -1111,14 +1171,18 @@ func (o *ovsdbClient) runErrorHandler() {
 	}
 }
 
-// Disconnect closes the current connection. WithReconnect clients automatically
-// reconnect and restore monitors; otherwise callers can invoke Connect again.
+// Disconnect ends the current connection but retains the cache, monitors, and
+// event handlers for reuse. Clients configured for automatic reconnect immediately
+// try to reconnect; otherwise callers can invoke Connect again. Unlike Close,
+// Disconnect does not dispose of the client.
 func (o *ovsdbClient) Disconnect() {
 	o.cm.Do(context.Background(), Command{Type: CmdDisconnect})
 }
 
 // Close permanently shuts down this client. It cancels network work before
-// joining event/cache workers. Connect after Close returns ErrClosed.
+// joining event/cache workers. Connect after Close returns ErrClosed, and endpoint
+// updates cannot reopen it. Use Disconnect to reuse the client and its cache.
+// Do not call Close synchronously from a cache event callback.
 func (o *ovsdbClient) Close() {
 	o.closeOnce.Do(func() {
 		close(o.doneCh)
