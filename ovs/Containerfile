@@ -1,4 +1,5 @@
-ARG FEDORA_IMAGE=quay.io/fedora/fedora:44@sha256:cb3bd21415bd82a2fae1a9379f3f972fa8e78d460c9f86101274d13230dd6fd6
+# Fedora manifest digests on Quay are not retained reliably; follow the release tag.
+ARG FEDORA_IMAGE=quay.io/fedora/fedora:44
 FROM ${FEDORA_IMAGE} AS build
 
 RUN dnf install -y gcc make autoconf automake libtool python3 tar gzip \
