@@ -23,6 +23,7 @@ type options struct {
 	reconnect             bool
 	leaderOnly            bool
 	validateModel         bool
+	compatibility         bool
 	timeout               time.Duration
 	backoff               backoff.BackOff
 	logger                *logr.Logger
@@ -47,6 +48,14 @@ func newOptions(opts ...Option) (*options, error) {
 		o.endpoints = []string{defaultUnixEndpoint}
 	}
 	return o, nil
+}
+
+// WithCompatibility allows model tables and columns absent from the server schema.
+// Missing columns are omitted from implicit operations; explicitly selecting an
+// unsupported field returns an error. Present columns must retain their Go types.
+// Configure this option when constructing the client, before Connect.
+func WithCompatibility(compatible bool) Option {
+	return func(o *options) error { o.compatibility = compatible; return nil }
 }
 
 // WithTLSConfig sets the tls.Config for use by the client

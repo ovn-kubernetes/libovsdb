@@ -69,10 +69,16 @@ type TableMonitor struct {
 }
 
 func newTableMonitor(o *ovsdbClient, m model.Model, conditions []model.Condition, fields []any) (*TableMonitor, error) {
+	o.primaryDB().modelMutex.RLock()
 	dbModel := o.primaryDB().model
+	o.primaryDB().modelMutex.RUnlock()
 	tableName := dbModel.FindTable(reflect.TypeOf(m))
 	if tableName == "" {
 		return nil, fmt.Errorf("object of type %s is not part of the ClientDBModel", reflect.TypeOf(m))
+	}
+
+	if dbModel.Valid() && dbModel.Schema.Table(tableName) == nil {
+		return nil, fmt.Errorf("table %s is not supported by the runtime schema", tableName)
 	}
 
 	var columns []string
@@ -97,8 +103,7 @@ func newTableMonitor(o *ovsdbClient, m model.Model, conditions []model.Condition
 		}
 		columns = append(columns, column)
 	}
-	db := o.databases[o.primaryDBName]
-	mmapper := db.model.Mapper
+	mmapper := dbModel.Mapper
 	for _, modelCond := range conditions {
 		ovsdbCond, err := mmapper.NewCondition(data, modelCond.Field, modelCond.Function, modelCond.Value)
 		if err != nil {

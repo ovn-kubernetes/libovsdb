@@ -83,6 +83,53 @@ _, err = ovs.Transact(context.Background(), ops...)
 For the full API — conditional queries (`Where`, `WhereAny`, `WhereAll`, `WhereCache`),
 client-defined indexes, `Select`, and cache event handlers — see the [API guide](docs/api.md).
 
+## Schema compatibility
+
+Compatibility depends on which side has extra tables or columns:
+
+- **Older model, newer server:** additional server tables and columns are tolerated
+  by default. Implicit monitors request only modeled columns, and incoming row
+  updates ignore unmodeled fields while still applying changes to known fields.
+  This also supports deliberately partial models; no compatibility option is needed.
+  Schema indexes involving unmodeled columns are not maintained in the local cache;
+  the server still enforces them.
+- **Newer model, older server:** validation is strict by default. To allow tables
+  or columns in the model to be absent from the server, opt in when creating the
+  client:
+
+```go
+ovs, err := client.NewOVSDBClient(dbModel,
+    client.WithEndpoint("tcp:172.18.0.4:6641"),
+    client.WithCompatibility(true),
+)
+```
+
+Compatibility is inferred from the model's table names and `ovsdb` tags and the
+server's runtime schema. No generated files need editing, and the embedded
+modelgen schema is not required. This tolerates **absence**, not incompatible
+column types or a different database name. Neither direction guarantees compatibility
+with changed constraints, removed features, or changed application semantics.
+
+- Missing tables are excluded from the cache and `MonitorAll`.
+- Missing columns are omitted from implicit row writes and monitors; reading
+  freshly populated models leaves those fields at their Go zero values.
+- Explicitly requesting an unsupported field for an operation returns an error.
+  Raw `Transact` operations are not rewritten.
+- Client indexes containing missing columns are omitted as a whole, not shortened.
+- The original model is retained so metadata can be rebuilt on reconnect. Explicit
+  monitor selections must remain valid for the server to which you reconnect.
+
+After connecting, use `ovs.IsTableSupported(m)` and
+`ovs.IsColumnSupported(m, &m.Field)` to guard optional features. These report the
+currently loaded schema, not whether a table is being monitored. Before the first
+successful connection they return false.
+
+For narrower opt-in, the original mechanism remains available: pass a map of
+optional table names as the third argument to `model.NewClientDBModel`, and tag
+individual optional fields with `ovsdb:"column,omitunsupported"`. A supported
+optional column behaves normally. For model-only use, call
+`dbModel.SetCompatibility(true)` before `model.NewDatabaseModel`.
+
 ## Code Generation
 
 `modelgen` generates Go model types from an OVSDB schema file, so you don't have to
