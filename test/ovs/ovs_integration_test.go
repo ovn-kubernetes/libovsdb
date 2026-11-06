@@ -60,9 +60,13 @@ func (suite *OVSIntegrationSuite) SetupSuite() {
 	suite.resource, err = suite.pool.RunWithOptions(options, hostConfig)
 	suite.Require().NoError(err)
 
-	// set expiry to 90 seconds so containers are cleaned up on test panic
-	err = suite.resource.Expire(90)
-	suite.Require().NoError(err)
+	// Resource.Expire starts StopContainer immediately with a grace period,
+	// leaving the container in a stopping state during the restart test. Use
+	// an actual delayed cleanup instead, cancelled after normal suite teardown.
+	expiry := time.AfterFunc(90*time.Second, func() {
+		_ = suite.pool.Purge(suite.resource)
+	})
+	suite.T().Cleanup(func() { expiry.Stop() })
 
 	// let the container start before we attempt connection
 	time.Sleep(5 * time.Second)

@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"os"
 	"reflect"
 	"sync"
@@ -31,8 +30,8 @@ func buildTestServerAndClient(t *testing.T) (client.Client, func()) {
 	schema := dbModel.Schema
 	defDB := dbModel.Client()
 
-	tmpfile := fmt.Sprintf("/tmp/ovsdb-%d.sock", rand.Intn(10000))
-	defer os.Remove(tmpfile)
+	tmpfile := fmt.Sprintf("/tmp/ovsdb-%d-%d.sock", os.Getpid(), time.Now().UnixNano())
+	t.Cleanup(func() { os.Remove(tmpfile) })
 	dbModel, errs := model.NewDatabaseModel(schema, defDB)
 	require.Empty(t, errs)
 	server, err := NewOvsdbServer(ovsDB, &logger, dbModel)
@@ -43,18 +42,19 @@ func buildTestServerAndClient(t *testing.T) (client.Client, func()) {
 			t.Error(err)
 		}
 	}(t, server)
-	defer server.Close()
+	t.Cleanup(server.Close)
 	require.Eventually(t, func() bool {
 		return server.Ready()
 	}, 1*time.Second, 10*time.Millisecond)
 
 	ovs, err := client.NewOVSDBClient(defDB, client.WithEndpoint(fmt.Sprintf("unix:%s", tmpfile)))
 	require.NoError(t, err)
+	t.Cleanup(ovs.Close)
 	err = ovs.Connect(context.Background())
 	require.NoError(t, err)
 
 	return ovs, func() {
-		ovs.Disconnect()
+		ovs.Close()
 		server.Close()
 	}
 }

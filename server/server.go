@@ -28,7 +28,9 @@ type OvsdbServer struct {
 	db           database.Database
 	ready        bool
 	doEcho       bool
-	readyMutex   sync.RWMutex
+	readyMutex   sync.RWMutex // protects ready, listener and conns
+	conns        map[net.Conn]struct{}
+	closeOnce    sync.Once
 	models       map[string]model.DatabaseModel
 	modelsMutex  sync.RWMutex
 	monitors     map[*rpc2.Client]*connectionMonitors
@@ -55,6 +57,7 @@ func NewOvsdbServer(db database.Database, logger *logr.Logger, models ...model.D
 	}
 	o := &OvsdbServer{
 		done:         make(chan struct{}, 1),
+		conns:        make(map[net.Conn]struct{}),
 		doEcho:       true,
 		db:           db,
 		models:       make(map[string]model.DatabaseModel),
@@ -120,16 +123,26 @@ func (o *OvsdbServer) SetEchoDelay(delay time.Duration) {
 
 // Serve starts the OVSDB server on the given path and protocol
 func (o *OvsdbServer) Serve(protocol string, path string) error {
-	var err error
-	o.listener, err = net.Listen(protocol, path)
+	listener, err := net.Listen(protocol, path)
 	if err != nil {
 		return err
 	}
 	o.readyMutex.Lock()
+	if isClosed(o.done) {
+		o.readyMutex.Unlock()
+		listener.Close()
+		return nil
+	}
+	if o.ready {
+		o.readyMutex.Unlock()
+		listener.Close()
+		return fmt.Errorf("server is already serving")
+	}
+	o.listener = listener
 	o.ready = true
 	o.readyMutex.Unlock()
 	for {
-		conn, err := o.listener.Accept()
+		conn, err := listener.Accept()
 		if err != nil {
 			if !o.Ready() {
 				return nil
@@ -137,8 +150,20 @@ func (o *OvsdbServer) Serve(protocol string, path string) error {
 			return err
 		}
 
-		// TODO: Need to cleanup when connection is closed
-		go o.srv.ServeCodec(jsonrpc.NewJSONCodec(conn))
+		// Register before serving, under the same lock used by Close. A socket
+		// accepted concurrently with shutdown must not escape the shutdown snapshot.
+		o.readyMutex.Lock()
+		if !o.ready {
+			o.readyMutex.Unlock()
+			conn.Close()
+			return nil
+		}
+		o.conns[conn] = struct{}{}
+		o.readyMutex.Unlock()
+		go func() {
+			defer func() { conn.Close(); o.readyMutex.Lock(); delete(o.conns, conn); o.readyMutex.Unlock() }()
+			o.srv.ServeCodec(newSerialCodec(jsonrpc.NewJSONCodec(conn)))
+		}()
 	}
 }
 
@@ -152,20 +177,26 @@ func isClosed(ch <-chan struct{}) bool {
 	return false
 }
 
-// Close closes the OvsdbServer
+// Close permanently closes the listener and every accepted client connection.
+// It is safe to call concurrently, including before Serve starts.
 func (o *OvsdbServer) Close() {
-	o.readyMutex.Lock()
-	o.ready = false
-	o.readyMutex.Unlock()
-	// Only close the listener if Serve() has been called
-	if o.listener != nil {
-		if err := o.listener.Close(); err != nil {
-			o.logger.Error(err, "failed to close listener")
+	o.closeOnce.Do(func() {
+		o.readyMutex.Lock()
+		o.ready = false
+		listener := o.listener
+		conns := make([]net.Conn, 0, len(o.conns))
+		for conn := range o.conns {
+			conns = append(conns, conn)
 		}
-	}
-	if !isClosed(o.done) {
 		close(o.done)
-	}
+		o.readyMutex.Unlock()
+		if listener != nil {
+			listener.Close()
+		}
+		for _, conn := range conns {
+			conn.Close()
+		}
+	})
 }
 
 // Ready returns true if a server is ready to handle connections
