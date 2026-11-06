@@ -26,11 +26,14 @@ docker buildx build -f Containerfile --target stress \
     --platform linux/amd64,linux/arm64 .
 ```
 
-Base images are pinned to multi-architecture manifest digests for reproducible
-builds. Update those digests when updating base images. Override `BUILDER_IMAGE`
-and `RUNTIME_IMAGE` with build arguments if needed.
-Keep the Go builder version compatible with `go.mod` and the runtime version
-aligned with ovn-kubernetes.
+The Go builder image is pinned to a multi-architecture manifest digest for
+reproducible builds. Update that digest when updating the builder. The Fedora
+runtime intentionally follows the `:44` release tag because Fedora manifest
+digests are not retained reliably on Quay; previously pinned digests have
+stopped resolving with `manifest unknown`. This also matches ovn-kubernetes's
+Fedora base-image convention. Override `BUILDER_IMAGE` and `RUNTIME_IMAGE` with
+build arguments if needed. Keep the Go builder version compatible with `go.mod`
+and the runtime version aligned with ovn-kubernetes.
 
 ## CI and publishing
 
@@ -50,8 +53,9 @@ pulls are desired. No registry settings are changed by these workflows.
 
 ## OVS image
 
-`ovs/Containerfile` uses Fedora 44 for both the build and runtime stages. The
-existing OVS image workflow continues to publish
+`ovs/Containerfile` uses the unpinned Fedora 44 release tag for both the build
+and runtime stages for the same Quay digest-retention reason. The existing OVS
+image workflow continues to publish
 `ghcr.io/ovn-kubernetes/ovs` using OVS version tags and its existing `latest`
 policy; libovsdb release tags apply only to the three tool images.
 

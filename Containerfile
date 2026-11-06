@@ -1,6 +1,7 @@
 # Match ovn-kubernetes' Go builder and Fedora runtime image conventions.
 ARG BUILDER_IMAGE=quay.io/projectquay/golang:1.26@sha256:d5acf07940fb5e6e2d07542abd853cece623d95ffd364769ec825aab5471d3b8
-ARG RUNTIME_IMAGE=quay.io/fedora/fedora:44@sha256:cb3bd21415bd82a2fae1a9379f3f972fa8e78d460c9f86101274d13230dd6fd6
+# Fedora manifest digests on Quay are not retained reliably; follow the release tag.
+ARG RUNTIME_IMAGE=quay.io/fedora/fedora:44
 
 FROM --platform=$BUILDPLATFORM ${BUILDER_IMAGE} AS build
 WORKDIR /src
