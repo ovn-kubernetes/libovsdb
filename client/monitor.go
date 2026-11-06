@@ -69,7 +69,10 @@ type TableMonitor struct {
 }
 
 func newTableMonitor(o *ovsdbClient, m model.Model, conditions []model.Condition, fields []any) (*TableMonitor, error) {
-	dbModel := o.primaryDB().model
+	db := o.primaryDB()
+	db.modelMutex.RLock()
+	dbModel := db.model
+	db.modelMutex.RUnlock()
 	tableName := dbModel.FindTable(reflect.TypeOf(m))
 	if tableName == "" {
 		return nil, fmt.Errorf("object of type %s is not part of the ClientDBModel", reflect.TypeOf(m))
@@ -97,8 +100,7 @@ func newTableMonitor(o *ovsdbClient, m model.Model, conditions []model.Condition
 		}
 		columns = append(columns, column)
 	}
-	db := o.databases[o.primaryDBName]
-	mmapper := db.model.Mapper
+	mmapper := dbModel.Mapper
 	for _, modelCond := range conditions {
 		ovsdbCond, err := mmapper.NewCondition(data, modelCond.Field, modelCond.Function, modelCond.Value)
 		if err != nil {
