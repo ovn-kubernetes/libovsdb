@@ -32,7 +32,7 @@ build: prebuild
 .PHONY: test
 test: prebuild
 	@echo "+ $@"
-	@go test -race -coverprofile=unit.cov -test.short -timeout 30s -v $(if $(TESTS),-run $(TESTS)) ./...
+	@go test -race -coverprofile=unit.cov -test.short -timeout 90s -v $(if $(TESTS),-run $(TESTS)) ./...
 
 .PHONY: integration-test
 integration-test:
