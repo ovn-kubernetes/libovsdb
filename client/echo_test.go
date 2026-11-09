@@ -36,14 +36,19 @@ func TestEchoRace(t *testing.T) {
 	require.NoError(t, err)
 	defer client.Close()
 
+	echoGoroutines, echoIter, reconnectGoroutines, reconnectIter := 50, 1000, 10, 100
+	if testing.Short() {
+		echoGoroutines, echoIter, reconnectGoroutines, reconnectIter = 10, 100, 3, 20
+	}
+
 	var wg sync.WaitGroup
 
 	// Launch goroutines that continuously call Echo
-	for i := 0; i < 50; i++ {
+	for i := 0; i < echoGoroutines; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for j := 0; j < 1000; j++ {
+			for j := 0; j < echoIter; j++ {
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 				_ = client.Echo(ctx)
 				cancel()
@@ -52,11 +57,11 @@ func TestEchoRace(t *testing.T) {
 	}
 
 	// Concurrently disconnect/reconnect to trigger errors
-	for i := 0; i < 10; i++ {
+	for i := 0; i < reconnectGoroutines; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for j := 0; j < 100; j++ {
+			for j := 0; j < reconnectIter; j++ {
 				client.Disconnect()
 				time.Sleep(time.Millisecond)
 				_ = client.Connect(context.Background())

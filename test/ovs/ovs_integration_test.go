@@ -60,9 +60,13 @@ func (suite *OVSIntegrationSuite) SetupSuite() {
 	suite.resource, err = suite.pool.RunWithOptions(options, hostConfig)
 	suite.Require().NoError(err)
 
-	// set expiry to 90 seconds so containers are cleaned up on test panic
-	err = suite.resource.Expire(90)
-	suite.Require().NoError(err)
+	// Resource.Expire starts StopContainer immediately with a grace period,
+	// leaving the container in a stopping state during the restart test. Use
+	// an actual delayed cleanup instead, cancelled after normal suite teardown.
+	expiry := time.AfterFunc(90*time.Second, func() {
+		_ = suite.pool.Purge(suite.resource)
+	})
+	suite.T().Cleanup(func() { expiry.Stop() })
 
 	// let the container start before we attempt connection
 	time.Sleep(5 * time.Second)
@@ -296,291 +300,188 @@ var defDB, _ = model.NewClientDBModel("Open_vSwitch", map[string]model.Model{
 	"Interface":    &interfaceType{},
 })
 
-func (suite *OVSIntegrationSuite) TestConnectReconnect() {
-	suite.True(suite.clientWithoutInactvityCheck.Connected())
-	err := suite.clientWithoutInactvityCheck.Echo(context.TODO())
-	suite.Require().NoError(err)
-
-	bridgeName := "br-discoreco"
-	brChan := make(chan *bridgeType)
-	suite.clientWithoutInactvityCheck.Cache().AddEventHandler(&cache.EventHandlerFuncs{
-		AddFunc: func(_ string, model model.Model) {
-			br, ok := model.(*bridgeType)
-			if !ok {
+// watchBridgeAdds never blocks the cache worker, including during snapshot replay.
+func (suite *OVSIntegrationSuite) watchBridgeAdds(c client.Client, prefix string) <-chan *bridgeType {
+	added := make(chan *bridgeType, 16)
+	c.Cache().AddEventHandler(&cache.EventHandlerFuncs{
+		AddFunc: func(_ string, m model.Model) {
+			br, ok := m.(*bridgeType)
+			if !ok || !strings.HasPrefix(br.Name, prefix) {
 				return
 			}
-			if br.Name == bridgeName {
-				brChan <- br
+			select {
+			case added <- br:
+			default:
 			}
 		},
 	})
+	return added
+}
 
-	bridgeUUID, err := suite.createBridge(bridgeName, nil, nil)
-	suite.Require().NoError(err)
-	<-brChan
+func (suite *OVSIntegrationSuite) requireBridgeAdd(added <-chan *bridgeType, name string) *bridgeType {
+	suite.T().Helper()
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case br := <-added:
+			if br.Name == name {
+				return br
+			}
+		case <-timer.C:
+			suite.T().Fatalf("timed out waiting for bridge %s", name)
+			return nil
+		}
+	}
+}
 
-	// make another connect call, this should return without error as we're already connected
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	err = suite.clientWithoutInactvityCheck.Connect(ctx)
-	suite.Require().NoError(err)
-
-	disconnectNotification := suite.clientWithoutInactvityCheck.DisconnectNotify()
-	notified := make(chan struct{})
-	ready := make(chan struct{})
-
-	go func() {
-		ready <- struct{}{}
-		<-disconnectNotification
-		notified <- struct{}{}
-	}()
-
-	<-ready
-	suite.clientWithoutInactvityCheck.Disconnect()
-
+func (suite *OVSIntegrationSuite) requireDisconnect(notification <-chan struct{}) {
+	suite.T().Helper()
 	select {
-	case <-notified:
-		// got notification
+	case <-notification:
 	case <-time.After(5 * time.Second):
 		suite.T().Fatal("expected a disconnect notification but didn't receive one")
 	}
+}
 
-	suite.False(suite.clientWithoutInactvityCheck.Connected())
-
-	err = suite.clientWithoutInactvityCheck.Echo(context.TODO())
-	suite.Require().EqualError(err, client.ErrNotConnected.Error())
-
-	ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
+func (suite *OVSIntegrationSuite) TestConnectReconnect() {
+	c := suite.clientWithoutInactvityCheck
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
+	suite.Require().True(c.Connected())
+	suite.Require().NoError(c.Echo(ctx))
 
-	err = suite.clientWithoutInactvityCheck.Connect(ctx)
+	added := suite.watchBridgeAdds(c, "br-discoreco")
+	bridgeUUID, err := suite.createBridge("br-discoreco", nil, nil)
 	suite.Require().NoError(err)
+	suite.requireBridgeAdd(added, "br-discoreco")
 
-	br := &bridgeType{
-		UUID: bridgeUUID,
-	}
+	// Connecting an already connected client is idempotent.
+	suite.Require().NoError(c.Connect(ctx))
+	notification := c.DisconnectNotify()
+	c.Disconnect()
+	suite.requireDisconnect(notification)
+	suite.Require().False(c.Connected())
+	suite.Require().ErrorIs(c.Echo(ctx), client.ErrNotConnected)
 
-	// assert cache has been purged
-	err = suite.clientWithoutInactvityCheck.Get(ctx, br)
-	suite.Require().ErrorIs(err, client.ErrNotFound)
+	// Connect restores existing monitors before returning. Do not register an
+	// overlapping monitor or expect the restored cache to be empty.
+	suite.Require().NoError(c.Connect(ctx))
+	suite.Require().True(c.Connected())
+	br := &bridgeType{UUID: bridgeUUID}
+	suite.Require().NoError(c.Get(ctx, br))
+	suite.Equal("br-discoreco", br.Name)
+	suite.Require().NoError(c.Echo(ctx))
 
-	err = suite.clientWithoutInactvityCheck.Echo(context.TODO())
+	// The original monitor and its event handler must still receive new rows.
+	uuid, err := suite.createBridge("br-discoreco-after", nil, nil)
 	suite.Require().NoError(err)
-
-	_, err = suite.clientWithoutInactvityCheck.Monitor(context.TODO(),
-		suite.clientWithoutInactvityCheck.NewMonitor(
-			client.WithTable(&ovsType{}),
-			client.WithTable(&bridgeType{}),
-		),
-	)
-	suite.Require().NoError(err)
-
-	// assert cache has been re-populated
-	suite.Require().NoError(suite.clientWithoutInactvityCheck.Get(ctx, br))
-
+	suite.Equal(uuid, suite.requireBridgeAdd(added, "br-discoreco-after").UUID)
+	suite.Require().NoError(c.Get(ctx, &bridgeType{UUID: uuid}))
 }
 
 func (suite *OVSIntegrationSuite) TestWithInactivityCheck() {
-	suite.True(suite.clientWithInactivityCheck.Connected())
-	err := suite.clientWithInactivityCheck.Echo(context.TODO())
-	suite.Require().NoError(err)
-
-	// Disconnect client
-	suite.clientWithInactivityCheck.Disconnect()
-
-	// Ensure Disconnect doesn't have any impact to the connection.
-	suite.Eventually(func() bool {
-		return suite.clientWithInactivityCheck.Connected()
-	}, 5*time.Second, 1*time.Second)
-	// Try to reconfigure client which already have an established connection.
-	err = suite.clientWithInactivityCheck.SetOption(
-		client.WithReconnect(2*time.Second, &backoff.ZeroBackOff{}),
-	)
-	suite.Require().Error(err)
-
-	// Ensure Connect doesn't purge the cache.
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	c := suite.clientWithInactivityCheck
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	err = suite.clientWithInactivityCheck.Connect(ctx)
+	suite.Require().True(c.Connected())
+	suite.Require().NoError(c.Echo(ctx))
+
+	_, err := c.Monitor(ctx, c.NewMonitor(client.WithTable(&bridgeType{})))
 	suite.Require().NoError(err)
-	err = suite.clientWithoutInactvityCheck.Echo(context.TODO())
+	added := suite.watchBridgeAdds(c, "inactivity-")
+	bridgeUUID, err := suite.createBridge("inactivity-before", nil, nil)
 	suite.Require().NoError(err)
-	// THIS is the failing assertion: checks cache of the *other* client
-	// It incorrectly assumes SetupTest leaves bridge data, which TearDownTest now cleans.
-	// Commenting it out as it's unrelated to the inactivity check test itself.
-	// suite.NotEqual(0, suite.clientWithoutInactvityCheck.Cache().Table("Bridge").Len())
+	suite.requireBridgeAdd(added, "inactivity-before")
 
-	// set up a disconnect notification
-	disconnectNotification := suite.clientWithoutInactvityCheck.DisconnectNotify()
-	notified := make(chan struct{})
-	ready := make(chan struct{})
+	// Inactivity checking enables automatic reconnect after Disconnect.
+	c.Disconnect()
+	suite.Require().Eventually(c.Connected, 5*time.Second, 10*time.Millisecond)
+	err = c.SetOption(client.WithReconnect(2*time.Second, &backoff.ZeroBackOff{}))
+	suite.Require().Error(err, "cannot reconfigure a connected client")
+	suite.Require().NoError(c.Connect(ctx))
+	br := &bridgeType{UUID: bridgeUUID}
+	suite.Require().NoError(c.Get(ctx, br))
+	suite.Equal("inactivity-before", br.Name)
+	suite.Require().NoError(c.Echo(ctx))
 
-	go func() {
-		ready <- struct{}{}
-		<-disconnectNotification
-		notified <- struct{}{}
-	}()
-
-	<-ready
-	// close the connection
-	suite.clientWithoutInactvityCheck.Close()
-
-	select {
-	case <-notified:
-		// got notification
-	case <-time.After(5 * time.Second):
-		suite.T().Fatal("expected a disconnect notification but didn't receive one")
-	}
-
-	suite.False(suite.clientWithoutInactvityCheck.Connected())
-
-	err = suite.clientWithoutInactvityCheck.Echo(context.TODO())
-	suite.Require().EqualError(err, client.ErrNotConnected.Error())
-
-	ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	err = suite.clientWithoutInactvityCheck.Connect(ctx)
-	suite.Require().NoError(err)
-
-	err = suite.clientWithoutInactvityCheck.Echo(context.TODO())
-	suite.Require().NoError(err)
-
-	_, err = suite.clientWithoutInactvityCheck.MonitorAll(context.TODO())
-	suite.Require().NoError(err)
+	// Close must stop automatic reconnect, not recreate this client's workers.
+	notification := c.DisconnectNotify()
+	c.Close()
+	suite.requireDisconnect(notification)
+	suite.Require().False(c.Connected())
+	suite.Require().ErrorIs(c.Connect(ctx), client.ErrClosed)
+	suite.Require().ErrorIs(c.Echo(ctx), client.ErrNotConnected)
+	// The other client remains open for TearDownTest to clean up the database.
 }
 
 func (suite *OVSIntegrationSuite) TestWithReconnect() {
-	suite.T().Skip("On container restart client is connected but rpc2 connection is shutdown, so Echo fails with ErrNotConnected")
-	suite.True(suite.clientWithoutInactvityCheck.Connected())
-	err := suite.clientWithoutInactvityCheck.Echo(context.TODO())
+	c := suite.clientWithoutInactvityCheck
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	defer cancel()
+	suite.Require().True(c.Connected())
+	suite.Require().NoError(c.Echo(ctx))
+
+	added := suite.watchBridgeAdds(c, "recon-")
+	bridgeUUID, err := suite.createBridge("recon-before", nil, nil)
 	suite.Require().NoError(err)
+	suite.requireBridgeAdd(added, "recon-before")
 
-	// Disconnect client
-	suite.clientWithoutInactvityCheck.Disconnect()
+	c.Disconnect()
+	suite.Require().Eventually(func() bool { return !c.Connected() }, 5*time.Second, 10*time.Millisecond)
+	err = c.SetOption(client.WithReconnect(2*time.Second, &backoff.ZeroBackOff{}))
+	suite.Require().NoError(err)
+	suite.Require().NoError(c.Connect(ctx))
+	suite.Require().NoError(c.Connect(ctx), "Connect must be idempotent")
+	br := &bridgeType{UUID: bridgeUUID}
+	suite.Require().NoError(c.Get(ctx, br))
+	suite.Equal("recon-before", br.Name)
 
-	suite.Eventually(func() bool {
-		return !suite.clientWithoutInactvityCheck.Connected()
-	}, 5*time.Second, 1*time.Second)
+	// Restart the real server. A successful echo after restart proves this is
+	// a usable replacement connection, rather than a not-yet-detected old one.
+	err = suite.pool.Client.RestartContainer(suite.resource.Container.ID, 0)
+	suite.Require().NoError(err)
+	suite.Require().Eventually(func() bool {
+		if !c.Connected() {
+			return false
+		}
+		probeCtx, cancel := context.WithTimeout(ctx, time.Second)
+		defer cancel()
+		return c.Echo(probeCtx) == nil
+	}, 20*time.Second, 100*time.Millisecond)
 
-	// Reconfigure
-	err = suite.clientWithoutInactvityCheck.SetOption(
+	br = &bridgeType{UUID: bridgeUUID}
+	suite.Require().NoError(c.Get(ctx, br))
+	suite.Equal("recon-before", br.Name)
+	uuid, err := suite.createBridge("recon-after", nil, nil)
+	suite.Require().NoError(err)
+	suite.Equal(uuid, suite.requireBridgeAdd(added, "recon-after").UUID)
+	suite.Require().NoError(c.Get(ctx, &bridgeType{UUID: uuid}))
+
+	notification := c.DisconnectNotify()
+	c.Close()
+	suite.requireDisconnect(notification)
+	suite.Require().False(c.Connected())
+	suite.Require().ErrorIs(c.Connect(ctx), client.ErrClosed)
+	suite.Require().ErrorIs(c.Echo(ctx), client.ErrNotConnected)
+
+	// A new lifecycle requires a new client. Keep it for TearDownTest so rows
+	// created by this test can still be removed after the original is closed.
+	fresh, err := client.NewOVSDBClient(defDB,
+		client.WithEndpoint("tcp::56640"),
+		client.WithLeaderOnly(true),
 		client.WithReconnect(2*time.Second, &backoff.ZeroBackOff{}),
 	)
 	suite.Require().NoError(err)
-
-	// Connect (again)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	err = suite.clientWithoutInactvityCheck.Connect(ctx)
+	suite.clientWithoutInactvityCheck = fresh
+	suite.T().Cleanup(fresh.Close)
+	suite.Require().NoError(fresh.Connect(ctx))
+	_, err = fresh.Monitor(ctx, fresh.NewMonitor(
+		client.WithTable(&ovsType{}),
+		client.WithTable(&bridgeType{}),
+	))
 	suite.Require().NoError(err)
-
-	// make another connect call, this should return without error as we're already connected
-	ctx, cancel = context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	err = suite.clientWithoutInactvityCheck.Connect(ctx)
-	suite.Require().NoError(err)
-
-	// check the connection is working
-	err = suite.clientWithoutInactvityCheck.Echo(context.TODO())
-	suite.Require().NoError(err)
-
-	// check the cache is purged
-	suite.Equal(0, suite.clientWithoutInactvityCheck.Cache().Table("Bridge").Len())
-
-	// set up the monitor again
-	_, err = suite.clientWithoutInactvityCheck.MonitorAll(context.TODO())
-	suite.Require().NoError(err)
-
-	// add a bridge and verify our handler gets called
-	bridgeName := "recon-b4"
-	brChan := make(chan *bridgeType)
-	suite.clientWithoutInactvityCheck.Cache().AddEventHandler(&cache.EventHandlerFuncs{
-		AddFunc: func(_ string, model model.Model) {
-			br, ok := model.(*bridgeType)
-			if !ok {
-				return
-			}
-			if strings.HasPrefix(br.Name, "recon-") {
-				brChan <- br
-			}
-		},
-	})
-
-	_, err = suite.createBridge(bridgeName, nil, nil)
-	suite.Require().NoError(err)
-	br := <-brChan
-	suite.Equal(bridgeName, br.Name)
-
-	// trigger reconnect
-	err = suite.pool.Client.RestartContainer(suite.resource.Container.ID, 0)
-	suite.Require().NoError(err)
-
-	// check that we are automatically reconnected
-	suite.Eventually(func() bool {
-		return suite.clientWithoutInactvityCheck.Connected()
-	}, 20*time.Second, 1*time.Second)
-
-	err = suite.clientWithoutInactvityCheck.Echo(context.TODO())
-	suite.Require().NoError(err)
-
-	// check our original bridge is in the cache
-	err = suite.clientWithoutInactvityCheck.Get(ctx, br)
-	suite.Require().NoError(err)
-
-	// create a new bridge to ensure the monitor and cache handler is still working
-	bridgeName = "recon-after"
-	_, err = suite.createBridge(bridgeName, nil, nil)
-	suite.Require().NoError(err)
-
-LOOP:
-	for {
-		select {
-		case <-time.After(5 * time.Second):
-			suite.T().Fatal("timed out waiting for bridge")
-		case b := <-brChan:
-			if b.Name == bridgeName {
-				break LOOP
-			}
-		}
-	}
-
-	// set up a disconnect notification
-	disconnectNotification := suite.clientWithoutInactvityCheck.DisconnectNotify()
-	notified := make(chan struct{})
-	ready := make(chan struct{})
-
-	go func() {
-		ready <- struct{}{}
-		<-disconnectNotification
-		notified <- struct{}{}
-	}()
-
-	<-ready
-	// close the connection
-	suite.clientWithoutInactvityCheck.Close()
-
-	select {
-	case <-notified:
-		// got notification
-	case <-time.After(5 * time.Second):
-		suite.T().Fatal("expected a disconnect notification but didn't receive one")
-	}
-
-	suite.False(suite.clientWithoutInactvityCheck.Connected())
-
-	err = suite.clientWithoutInactvityCheck.Echo(context.TODO())
-	suite.Require().EqualError(err, client.ErrNotConnected.Error())
-
-	ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	err = suite.clientWithoutInactvityCheck.Connect(ctx)
-	suite.Require().NoError(err)
-
-	err = suite.clientWithoutInactvityCheck.Echo(context.TODO())
-	suite.Require().NoError(err)
-
-	_, err = suite.clientWithoutInactvityCheck.MonitorAll(context.TODO())
-	suite.Require().NoError(err)
+	suite.Require().NoError(fresh.Get(ctx, &bridgeType{UUID: uuid}))
 }
 
 func (suite *OVSIntegrationSuite) TestInsertTransactIntegration() {
@@ -598,10 +499,17 @@ func (suite *OVSIntegrationSuite) TestMultipleOpsTransactIntegration() {
 	bridgeName := "a_bridge_to_nowhere"
 	uuid, err := suite.createBridge(bridgeName, nil, nil)
 	suite.Require().NoError(err)
+
+	// Wait for bridge to appear in cache with the expected initial ExternalIDs.
+	// The initial bridge is created with {go: awesome, docker: made-for-each-other}.
+	initialExternalIDs := map[string]string{
+		"go":     "awesome",
+		"docker": "made-for-each-other",
+	}
 	suite.Eventually(func() bool {
 		br := &bridgeType{UUID: uuid}
 		err := suite.clientWithoutInactvityCheck.Get(context.Background(), br)
-		return err == nil
+		return err == nil && reflect.DeepEqual(br.ExternalIDs, initialExternalIDs)
 	}, 2*time.Second, 500*time.Millisecond)
 
 	var operations []ovsdb.Operation
@@ -631,7 +539,9 @@ func (suite *OVSIntegrationSuite) TestMultipleOpsTransactIntegration() {
 		{
 			Field:   &ovsRow.ExternalIDs,
 			Mutator: ovsdb.MutateOperationInsert,
-			Value:   map[string]string{"podman": "made-for-each-other"},
+			// Use a value distinct from "made-for-each-other" so the OVS map
+			// symmetric-diff unambiguously includes the docker deletion entry.
+			Value: map[string]string{"podman": "made-by-podman"},
 		},
 	}
 	op2, err := suite.clientWithoutInactvityCheck.Where(br).Mutate(&ovsRow, op2Mutations...)
@@ -648,18 +558,21 @@ func (suite *OVSIntegrationSuite) TestMultipleOpsTransactIntegration() {
 	_, err = ovsdb.CheckOperationResults(reply, operations)
 	suite.Require().NoError(err)
 
-	suite.Eventually(func() bool {
-		err := suite.clientWithoutInactvityCheck.Get(context.Background(), br)
-		return err == nil
-	}, 2*time.Second, 500*time.Millisecond)
-
 	expectedExternalIDs := map[string]string{
 		"go":     "awesome",
-		"podman": "made-for-each-other",
+		"podman": "made-by-podman",
 		"one":    "1",
 		"two":    "2",
 		"three":  "3",
 	}
+	// Reset br on each iteration: model.CloneInto uses json.Unmarshal which
+	// merges into existing maps rather than replacing them. A fresh struct
+	// ensures deleted keys (e.g. "docker") don't survive across iterations.
+	suite.Eventually(func() bool {
+		br = &bridgeType{UUID: uuid}
+		err := suite.clientWithoutInactvityCheck.Get(context.Background(), br)
+		return err == nil && reflect.DeepEqual(br.ExternalIDs, expectedExternalIDs)
+	}, 2*time.Second, 500*time.Millisecond)
 	suite.Exactly(expectedExternalIDs, br.ExternalIDs)
 }
 
@@ -1146,7 +1059,10 @@ func (suite *OVSIntegrationSuite) TestUnsetOptional() {
 	}
 
 	// verify the bridge has FailMode set
-	err = suite.clientWithoutInactvityCheck.Get(ctx, &br)
+	suite.Eventually(func() bool {
+		err = suite.clientWithoutInactvityCheck.Get(ctx, &br)
+		return err == nil
+	}, 2*time.Second, 50*time.Millisecond)
 	suite.Require().NoError(err)
 	suite.NotNil(br.FailMode)
 
@@ -1160,8 +1076,10 @@ func (suite *OVSIntegrationSuite) TestUnsetOptional() {
 	suite.Require().NoError(err)
 
 	// verify the bridge has FailMode unset
-	err = suite.clientWithoutInactvityCheck.Get(ctx, &br)
-	suite.Require().NoError(err)
+	suite.Eventually(func() bool {
+		err = suite.clientWithoutInactvityCheck.Get(ctx, &br)
+		return err == nil && br.FailMode == nil
+	}, 2*time.Second, 50*time.Millisecond)
 	suite.Nil(br.FailMode)
 }
 
@@ -1178,7 +1096,10 @@ func (suite *OVSIntegrationSuite) TestUpdateOptional() {
 	}
 
 	// verify the bridge has FailMode set
-	err = suite.clientWithoutInactvityCheck.Get(ctx, &br)
+	suite.Eventually(func() bool {
+		err = suite.clientWithoutInactvityCheck.Get(ctx, &br)
+		return err == nil
+	}, 2*time.Second, 50*time.Millisecond)
 	suite.Require().NoError(err)
 	suite.Equal(&BridgeFailModeSecure, br.FailMode)
 
@@ -1192,8 +1113,10 @@ func (suite *OVSIntegrationSuite) TestUpdateOptional() {
 	suite.Require().NoError(err)
 
 	// verify the bridge has FailMode updated
-	err = suite.clientWithoutInactvityCheck.Get(ctx, &br)
-	suite.Require().NoError(err)
+	suite.Eventually(func() bool {
+		err = suite.clientWithoutInactvityCheck.Get(ctx, &br)
+		return err == nil && br.FailMode != nil && *br.FailMode == BridgeFailModeStandalone
+	}, 2*time.Second, 50*time.Millisecond)
 	suite.Equal(&BridgeFailModeStandalone, br.FailMode)
 }
 
@@ -1353,14 +1276,21 @@ func (suite *OVSIntegrationSuite) TestMultipleOpsSameRow() {
 	suite.Nil(errors)
 	suite.Len(results, len(ops))
 
+	expectedPorts := []string{port1UUID}
+	expectedExternalIDs := map[string]string{"key1": "value1", "keyA": "valueA"}
 	br = bridgeType{
 		UUID: bridgeUUID,
 	}
-	err = suite.clientWithoutInactvityCheck.Get(ctx, &br)
-	suite.Require().NoError(err)
-
-	suite.Equal([]string{port1UUID}, br.Ports)
-	suite.Equal(map[string]string{"key1": "value1", "keyA": "valueA"}, br.ExternalIDs)
+	suite.Eventually(func() bool {
+		br = bridgeType{UUID: bridgeUUID}
+		err = suite.clientWithoutInactvityCheck.Get(ctx, &br)
+		return err == nil &&
+			reflect.DeepEqual(br.Ports, expectedPorts) &&
+			reflect.DeepEqual(br.ExternalIDs, expectedExternalIDs) &&
+			br.DatapathID == nil
+	}, 5*time.Second, 50*time.Millisecond)
+	suite.Equal(expectedPorts, br.Ports)
+	suite.Equal(expectedExternalIDs, br.ExternalIDs)
 	suite.Nil(br.DatapathID)
 }
 
@@ -1670,6 +1600,23 @@ func (suite *OVSIntegrationSuite) TestReferentialIntegrity() {
 				suite.Require().NoError(err)
 			}
 
+			suite.Eventually(func() bool {
+				for _, m := range tt.expectModels {
+					actual := model.Clone(m)
+					if err := c.Get(ctx, actual); err != nil {
+						return false
+					}
+					if !reflect.DeepEqual(m, actual) {
+						return false
+					}
+				}
+				for _, m := range tt.dontExpectModels {
+					if err := c.Get(ctx, m); err == nil {
+						return false
+					}
+				}
+				return true
+			}, 2*time.Second, 50*time.Millisecond)
 			for _, m := range tt.expectModels {
 				actual := model.Clone(m)
 				err := c.Get(ctx, actual)
