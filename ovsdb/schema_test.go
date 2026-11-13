@@ -1,11 +1,12 @@
 package ovsdb
 
 import (
-	"encoding/json"
 	"fmt"
 	"math"
 	"reflect"
 	"testing"
+
+	"github.com/ovn-kubernetes/libovsdb/internal/json"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
