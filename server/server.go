@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	stdjson "encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -265,6 +266,98 @@ func (o *OvsdbServer) Cancel(_ *rpc2.Client, _ []any, _ *[]any) error {
 	return fmt.Errorf("not implemented")
 }
 
+const zeroUUID = "00000000-0000-0000-0000-000000000000"
+
+func canonicalMonitorID(raw []byte) (string, error) {
+	var value any
+	if err := stdjson.Unmarshal(raw, &value); err != nil {
+		return "", err
+	}
+	canonical, err := stdjson.Marshal(value)
+	if err != nil {
+		return "", err
+	}
+	return string(canonical), nil
+}
+
+func canonicalMonitorIDValue(value any) (string, error) {
+	canonical, err := stdjson.Marshal(value)
+	if err != nil {
+		return "", err
+	}
+	return canonicalMonitorID(canonical)
+}
+
+func monitorRequestsColumn(request *ovsdb.MonitorRequest, column string) bool {
+	for _, requested := range request.Columns {
+		if requested == column {
+			return true
+		}
+	}
+	return false
+}
+
+func (o *OvsdbServer) monitorInitialRows(ctx context.Context, db, table string, request *ovsdb.MonitorRequest, dbModel model.DatabaseModel, includeDefaults bool) ([]ovsdb.Row, error) {
+	models := make(map[string]model.Model)
+	if len(request.Where) == 0 {
+		rows, err := o.db.List(ctx, db, table)
+		if err != nil {
+			return nil, err
+		}
+		models = rows
+	} else {
+		// monitor_cond matches a row when any condition is true, unlike a
+		// transaction where-clause, which requires every condition to match.
+		for _, condition := range request.Where {
+			rows, err := o.db.List(ctx, db, table, condition)
+			if err != nil {
+				return nil, err
+			}
+			for uuid, row := range rows {
+				models[uuid] = row
+			}
+		}
+	}
+
+	columns := make(map[string]bool, len(request.Columns)+1)
+	columns["_uuid"] = true
+	for _, column := range request.Columns {
+		columns[column] = true
+	}
+	rows := make([]ovsdb.Row, 0, len(models))
+	for _, row := range models {
+		if includeDefaults {
+			selected := append([]string(nil), request.Columns...)
+			if len(selected) == 0 {
+				for column := range dbModel.Schema.Table(table).Columns {
+					selected = append(selected, column)
+				}
+			}
+			selected = append(selected, "_uuid")
+			ovsRow := rowWithDefaults(&dbModel, table, row, selected)
+			if ovsRow == nil {
+				return nil, fmt.Errorf("failed to encode monitored row for table %s", table)
+			}
+			rows = append(rows, *ovsRow)
+			continue
+		}
+		info, err := dbModel.NewModelInfo(row)
+		if err != nil {
+			return nil, err
+		}
+		ovsRow, err := dbModel.Mapper.NewRow(info)
+		if err != nil {
+			return nil, err
+		}
+		if len(request.Columns) > 0 {
+			filtered := filterColumns(&ovsRow, columns)
+			ovsRow = *filtered
+		}
+		rows = append(rows, ovsRow)
+	}
+	return rows, nil
+}
+
 // Monitor monitors a given database table and provides updates to the client via an RPC callback
 func (o *OvsdbServer) Monitor(client *rpc2.Client, args []json.RawMessage, reply *ovsdb.TableUpdates) error {
 	ctx, span := tracer.Start(context.Background(), "Monitor")
@@ -276,7 +369,10 @@ func (o *OvsdbServer) Monitor(client *rpc2.Client, args []json.RawMessage, reply
 	if !o.db.Exists(ctx, db) {
 		return fmt.Errorf("db does not exist")
 	}
-	value := string(args[1])
+	value, err := canonicalMonitorID(args[1])
+	if err != nil {
+		return err
+	}
 	var request map[string]*ovsdb.MonitorRequest
 	if err := json.Unmarshal(args[2], &request); err != nil {
 		return err
@@ -292,24 +388,37 @@ func (o *OvsdbServer) Monitor(client *rpc2.Client, args []json.RawMessage, reply
 		}
 	}
 
-	transaction := o.db.NewTransaction(ctx, db)
-
+	o.modelsMutex.RLock()
+	dbModel := o.models[db]
+	o.modelsMutex.RUnlock()
 	tableUpdates := make(ovsdb.TableUpdates)
-	for t, request := range request {
-		op := ovsdb.Operation{Op: ovsdb.OperationSelect, Table: t, Columns: request.Columns}
-		result, _ := transaction.Transact(ctx, op)
-		if len(result) == 0 || len(result[0].Rows) == 0 {
+	for table, monitorRequest := range request {
+		if monitorRequest.Select == nil {
+			monitorRequest.Select = ovsdb.NewDefaultMonitorSelect()
+		}
+		if !monitorRequest.Select.Initial() {
 			continue
 		}
-		rows := result[0].Rows
-		tableUpdates[t] = make(ovsdb.TableUpdate, len(rows))
+		rows, err := o.monitorInitialRows(ctx, db, table, monitorRequest, dbModel, true)
+		if err != nil {
+			return err
+		}
+		if len(rows) == 0 {
+			continue
+		}
+		tableUpdates[table] = make(ovsdb.TableUpdate, len(rows))
 		for i := range rows {
 			uuid := rows[i]["_uuid"].(ovsdb.UUID).GoUUID
-			tableUpdates[t][uuid] = &ovsdb.RowUpdate{New: &rows[i]}
+			if !monitorRequestsColumn(monitorRequest, "_uuid") {
+				delete(rows[i], "_uuid")
+			}
+			tableUpdates[table][uuid] = &ovsdb.RowUpdate{New: &rows[i]}
 		}
 	}
 	*reply = tableUpdates
-	o.monitors[client].monitors[value] = newMonitor(value, request, client)
+	monitor := newMonitor(value, request, client)
+	monitor.dbModel = &dbModel
+	o.monitors[client].monitors[value] = monitor
 	return nil
 }
 
@@ -324,7 +433,10 @@ func (o *OvsdbServer) MonitorCond(client *rpc2.Client, args []json.RawMessage, r
 	if !o.db.Exists(ctx, db) {
 		return fmt.Errorf("db does not exist")
 	}
-	value := string(args[1])
+	value, err := canonicalMonitorID(args[1])
+	if err != nil {
+		return err
+	}
 	var request map[string]*ovsdb.MonitorRequest
 	if err := json.Unmarshal(args[2], &request); err != nil {
 		return err
@@ -340,24 +452,37 @@ func (o *OvsdbServer) MonitorCond(client *rpc2.Client, args []json.RawMessage, r
 		}
 	}
 
-	transaction := o.db.NewTransaction(ctx, db)
-
+	o.modelsMutex.RLock()
+	dbModel := o.models[db]
+	o.modelsMutex.RUnlock()
 	tableUpdates := make(ovsdb.TableUpdates2)
-	for t, request := range request {
-		op := ovsdb.Operation{Op: ovsdb.OperationSelect, Table: t, Columns: request.Columns}
-		result, _ := transaction.Transact(ctx, op)
-		if len(result) == 0 || len(result[0].Rows) == 0 {
+	for table, monitorRequest := range request {
+		if monitorRequest.Select == nil {
+			monitorRequest.Select = ovsdb.NewDefaultMonitorSelect()
+		}
+		if !monitorRequest.Select.Initial() {
 			continue
 		}
-		rows := result[0].Rows
-		tableUpdates[t] = make(ovsdb.TableUpdate2, len(rows))
+		rows, err := o.monitorInitialRows(ctx, db, table, monitorRequest, dbModel, false)
+		if err != nil {
+			return err
+		}
+		if len(rows) == 0 {
+			continue
+		}
+		tableUpdates[table] = make(ovsdb.TableUpdate2, len(rows))
 		for i := range rows {
 			uuid := rows[i]["_uuid"].(ovsdb.UUID).GoUUID
-			tableUpdates[t][uuid] = &ovsdb.RowUpdate2{Initial: &rows[i]}
+			if !monitorRequestsColumn(monitorRequest, "_uuid") {
+				delete(rows[i], "_uuid")
+			}
+			tableUpdates[table][uuid] = &ovsdb.RowUpdate2{Initial: &rows[i]}
 		}
 	}
 	*reply = tableUpdates
-	o.monitors[client].monitors[value] = newConditionalMonitor(value, request, client)
+	monitor := newConditionalMonitor(value, request, client)
+	monitor.dbModel = &dbModel
+	o.monitors[client].monitors[value] = monitor
 	return nil
 }
 
@@ -372,7 +497,10 @@ func (o *OvsdbServer) MonitorCondSince(client *rpc2.Client, args []json.RawMessa
 	if !o.db.Exists(ctx, db) {
 		return fmt.Errorf("db does not exist")
 	}
-	value := string(args[1])
+	value, err := canonicalMonitorID(args[1])
+	if err != nil {
+		return err
+	}
 	var request map[string]*ovsdb.MonitorRequest
 	if err := json.Unmarshal(args[2], &request); err != nil {
 		return err
@@ -388,30 +516,63 @@ func (o *OvsdbServer) MonitorCondSince(client *rpc2.Client, args []json.RawMessa
 		}
 	}
 
-	transaction := o.db.NewTransaction(ctx, db)
-
+	o.modelsMutex.RLock()
+	dbModel := o.models[db]
+	o.modelsMutex.RUnlock()
 	tableUpdates := make(ovsdb.TableUpdates2)
-	for t, request := range request {
-		op := ovsdb.Operation{Op: ovsdb.OperationSelect, Table: t, Columns: request.Columns}
-		result, _ := transaction.Transact(ctx, op)
-		if len(result) == 0 || len(result[0].Rows) == 0 {
+	for table, monitorRequest := range request {
+		if monitorRequest.Select == nil {
+			monitorRequest.Select = ovsdb.NewDefaultMonitorSelect()
+		}
+		if !monitorRequest.Select.Initial() {
 			continue
 		}
-		rows := result[0].Rows
-		tableUpdates[t] = make(ovsdb.TableUpdate2, len(rows))
+		rows, err := o.monitorInitialRows(ctx, db, table, monitorRequest, dbModel, false)
+		if err != nil {
+			return err
+		}
+		if len(rows) == 0 {
+			continue
+		}
+		tableUpdates[table] = make(ovsdb.TableUpdate2, len(rows))
 		for i := range rows {
 			uuid := rows[i]["_uuid"].(ovsdb.UUID).GoUUID
-			tableUpdates[t][uuid] = &ovsdb.RowUpdate2{Initial: &rows[i]}
+			if !monitorRequestsColumn(monitorRequest, "_uuid") {
+				delete(rows[i], "_uuid")
+			}
+			tableUpdates[table][uuid] = &ovsdb.RowUpdate2{Initial: &rows[i]}
 		}
 	}
-	*reply = ovsdb.MonitorCondSinceReply{Found: false, LastTransactionID: "00000000-0000-0000-000000000000", Updates: tableUpdates}
-	o.monitors[client].monitors[value] = newConditionalSinceMonitor(value, request, client)
+	// This server does not retain transaction history, so the requested
+	// transaction cannot be found and the full initial view is returned.
+	*reply = ovsdb.MonitorCondSinceReply{Found: false, LastTransactionID: zeroUUID, Updates: tableUpdates}
+	monitor := newConditionalSinceMonitor(value, request, client)
+	monitor.dbModel = &dbModel
+	o.monitors[client].monitors[value] = monitor
 	return nil
 }
 
-// MonitorCancel cancels a monitor on a given table
-func (o *OvsdbServer) MonitorCancel(_ *rpc2.Client, _ []any, _ *[]any) error {
-	return fmt.Errorf("not implemented")
+// MonitorCancel cancels a monitor on a given table.
+func (o *OvsdbServer) MonitorCancel(client *rpc2.Client, args []any, _ *ovsdb.OperationResult) error {
+	if len(args) != 1 {
+		return fmt.Errorf("monitor_cancel requires one argument")
+	}
+	id, err := canonicalMonitorIDValue(args[0])
+	if err != nil {
+		return err
+	}
+
+	o.monitorMutex.Lock()
+	defer o.monitorMutex.Unlock()
+	clientMonitors, ok := o.monitors[client]
+	if !ok {
+		return fmt.Errorf("unknown monitor")
+	}
+	if _, ok := clientMonitors.monitors[id]; !ok {
+		return fmt.Errorf("unknown monitor")
+	}
+	delete(clientMonitors.monitors, id)
+	return nil
 }
 
 // Lock acquires a lock on a table for a the client

@@ -15,6 +15,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestZeroUUID(t *testing.T) {
+	_, err := uuid.Parse(zeroUUID)
+	require.NoError(t, err)
+}
+
+func TestCanonicalMonitorID(t *testing.T) {
+	id, err := canonicalMonitorID(json.RawMessage(` { "id" : "monitor", "databaseName" : "Open_vSwitch" } `))
+	require.NoError(t, err)
+	fromValue, err := canonicalMonitorIDValue(map[string]any{
+		"databaseName": "Open_vSwitch",
+		"id":           "monitor",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, fromValue, id)
+}
+
 func TestOvsdbServerMonitor(t *testing.T) {
 	dbModel, err := test.GetModel()
 	require.NoError(t, err)
@@ -26,9 +42,9 @@ func TestOvsdbServerMonitor(t *testing.T) {
 	require.NoError(t, err)
 	requests := make(map[string]ovsdb.MonitorRequest)
 	for table, tableSchema := range schema.Tables {
-		var columns []string
-		for column := range tableSchema.Columns {
-			columns = append(columns, column)
+		columns := []string{"_uuid"}
+		if tableSchema.Column("name") != nil {
+			columns = append(columns, "name")
 		}
 		requests[table] = ovsdb.MonitorRequest{
 			Columns: columns,

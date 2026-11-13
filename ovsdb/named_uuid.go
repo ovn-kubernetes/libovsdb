@@ -42,6 +42,12 @@ func ExpandNamedUUIDs(ops []Operation, schema *DatabaseSchema) ([]Operation, err
 	// Pass 2: replace named UUIDs in operation fields with the real UUID
 	for i := range ops {
 		op := &ops[i]
+		if op.Table == "" {
+			switch op.Op {
+			case OperationComment, OperationCommit, OperationAbort, OperationAssert:
+				continue
+			}
+		}
 		tableSchema := schema.Table(op.Table)
 		if tableSchema == nil {
 			return nil, fmt.Errorf("table %q not found in schema %q", op.Table, schema.Name)
