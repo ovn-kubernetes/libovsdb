@@ -43,7 +43,7 @@ func buildTestServerAndClient(t *testing.T) (client.Client, func()) {
 			t.Error(err)
 		}
 	}(t, server)
-	defer server.Close()
+	t.Cleanup(server.Close)
 	require.Eventually(t, func() bool {
 		return server.Ready()
 	}, 1*time.Second, 10*time.Millisecond)
