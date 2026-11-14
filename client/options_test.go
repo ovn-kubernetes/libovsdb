@@ -90,6 +90,36 @@ func TestWithEndpoint(t *testing.T) {
 			nil,
 			true,
 		},
+		{
+			"list",
+			"tcp:10.0.0.1:6642,tcp:10.0.0.2:6642,tcp:10.0.0.3:6642",
+			[]string{"tcp:10.0.0.1:6642", "tcp:10.0.0.2:6642", "tcp:10.0.0.3:6642"},
+			false,
+		},
+		{
+			"list with spaces and defaults",
+			"unix:, ssl:[fc00::1]:6642",
+			[]string{defaultUnixEndpoint, "ssl:[fc00::1]:6642"},
+			false,
+		},
+		{
+			"empty",
+			"",
+			nil,
+			true,
+		},
+		{
+			"list with an empty element",
+			"tcp:10.0.0.1:6642,",
+			nil,
+			true,
+		},
+		{
+			"list with an invalid element",
+			"tcp:10.0.0.1:6642,foo : ",
+			nil,
+			true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
