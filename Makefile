@@ -33,6 +33,7 @@ build: prebuild
 test: prebuild
 	@echo "+ $@"
 	@go test -race -coverprofile=unit.cov -test.short -timeout 30s -v $(if $(TESTS),-run $(TESTS)) ./...
+	@IN_MEMORY_DATABASE=1 go test -race -coverprofile=in-memory-integration.cov -coverpkg=github.com/ovn-kubernetes/libovsdb/... -timeout 60s -v $(if $(TESTS),-run $(TESTS)) ./test/ovs
 
 .PHONY: integration-test
 integration-test:
@@ -41,8 +42,9 @@ integration-test:
 
 .PHONY: coverage
 coverage: test integration-test
-	@sed -i '1d' integration.cov
-	@cat unit.cov integration.cov > profile.cov
+	@cat unit.cov > profile.cov
+	@tail -n +2 integration.cov >> profile.cov
+	@tail -n +2 in-memory-integration.cov >> profile.cov
 
 .PHONY: bench
 bench: prebuild

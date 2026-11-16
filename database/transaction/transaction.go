@@ -316,7 +316,7 @@ func (t *Transaction) Insert(ctx context.Context, op *ovsdb.Operation) (ovsdb.Op
 	return result, &update
 }
 
-func (t *Transaction) Select(ctx context.Context, table string, where []ovsdb.Condition, _ []string) ovsdb.OperationResult {
+func (t *Transaction) Select(ctx context.Context, table string, where []ovsdb.Condition, columns []string) ovsdb.OperationResult {
 	ctx, span := tracer.Start(ctx, "Select")
 	defer span.End()
 	var results []ovsdb.Row
@@ -337,7 +337,42 @@ func (t *Transaction) Select(ctx context.Context, table string, where []ovsdb.Co
 		if err != nil {
 			return ovsdb.ResultFromError(err)
 		}
-		results = append(results, resultRow)
+		if len(columns) > 0 {
+			selected := make(ovsdb.Row, len(columns))
+			for _, columnName := range columns {
+				if columnName == "_uuid" {
+					if uuid, ok := resultRow["_uuid"]; ok {
+						selected["_uuid"] = uuid
+					}
+					continue
+				}
+				column, ok := info.Metadata.TableSchema.Columns[columnName]
+				if !ok {
+					return ovsdb.ResultFromError(fmt.Errorf("column %s does not exist in table %s", columnName, table))
+				}
+				nativeValue, err := info.FieldByColumn(columnName)
+				if err != nil {
+					continue
+				}
+				selected[columnName], err = ovsdb.NativeToOvs(column, nativeValue)
+				if err != nil {
+					return ovsdb.ResultFromError(err)
+				}
+			}
+			resultRow = selected
+		}
+		// RFC 7047 section 5.2.2 requires duplicate projected rows to be
+		// collapsed when the selected columns do not uniquely identify them.
+		duplicate := false
+		for _, existing := range results {
+			if reflect.DeepEqual(existing, resultRow) {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			results = append(results, resultRow)
+		}
 	}
 	return ovsdb.OperationResult{
 		Rows: results,
@@ -518,7 +553,7 @@ func (t *Transaction) Abort(ctx context.Context) ovsdb.OperationResult {
 func (t *Transaction) Comment(ctx context.Context, _ string) ovsdb.OperationResult {
 	_, span := tracer.Start(ctx, "Comment")
 	defer span.End()
-	return ovsdb.ResultFromError(&ovsdb.NotSupported{})
+	return ovsdb.OperationResult{}
 }
 
 func (t *Transaction) Assert(ctx context.Context, _ string) ovsdb.OperationResult {

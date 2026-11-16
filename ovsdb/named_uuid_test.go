@@ -352,6 +352,7 @@ func TestOperationExpandNamedUUID(t *testing.T) {
 	namedUUID := "adsfasdfadsf"
 	namedUUID1 := "142124521551"
 	badUUID := "asdfadsfasdfasf"
+	comment := "comment"
 
 	namedUUIDSet, _ := NewOvsSet([]UUID{{GoUUID: namedUUID}})
 	testUUIDSet, _ := NewOvsSet([]UUID{{GoUUID: testUUID}})
@@ -365,6 +366,18 @@ func TestOperationExpandNamedUUID(t *testing.T) {
 		expected    []Operation
 		expectedErr string
 	}{
+		{
+			"tableless operation",
+			[]Operation{{Op: OperationComment, Comment: &comment}},
+			[]Operation{{Op: OperationComment, Comment: &comment}},
+			"",
+		},
+		{
+			"missing required table",
+			[]Operation{{Op: OperationSelect}},
+			[]Operation{},
+			`table "" not found in schema "UUID_Test"`,
+		},
 		{
 			"simple replace",
 			[]Operation{
