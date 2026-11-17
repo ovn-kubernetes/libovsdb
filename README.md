@@ -122,10 +122,8 @@ with changed constraints, removed features, or changed application semantics.
   disappears, monitor recreation fails rather than silently dropping that table.
   With automatic reconnection enabled, such failures are retried under the
   configured reconnect policy.
-- Schema-changing reconnects are covered for a single monitor receiving a full
-  snapshot. Incremental `monitor_cond_since` resume across schema or selection
-  changes, and shared-cache reconciliation for multiple monitors, remain
-  limitations; dynamic `MonitorAll` selection does not resolve those cases.
+- Shared-cache reconciliation for multiple monitors remains a limitation;
+  dynamic `MonitorAll` selection does not resolve overlapping-monitor behavior.
 
 After connecting, use `ovs.IsTableSupported(m)` and
 `ovs.IsColumnSupported(m, &m.Field)` to guard optional features. These report the
@@ -137,6 +135,34 @@ optional table names as the third argument to `model.NewClientDBModel`, and tag
 individual optional fields with `ovsdb:"column,omitunsupported"`. A supported
 optional column behaves normally. For model-only use, call
 `dbModel.SetCompatibility(true)` before `model.NewDatabaseModel`.
+
+### Schema conversion and reconnects
+
+For an ordinary reconnect with a single `monitor_cond_since` monitor, the client
+reuses its saved transaction ID. If the server returns `found=true`, it preserves
+the cache and applies incremental updates. A `found=false` response instead
+provides a full snapshot: the client purges the old cache, rebuilds it against the
+current schema, and populates the snapshot.
+
+OVS schema conversion invalidates existing monitors and discards transaction
+history. The [OVS protocol documentation](https://www.openvswitch.org/support/dist-docs/ovsdb-server.7.html)
+(section "Schema Conversion") specifies that clients without database-change
+awareness are disconnected. On reconnect, the pre-conversion transaction ID is
+no longer available, so the server supplies a full snapshot. `MonitorAll`
+reselects the supported modeled tables; explicit selections must remain valid.
+New columns receive their schema defaults, which may be omitted from the initial
+rows sent on the wire.
+
+Automatic recovery requires `WithReconnect` (or `WithInactivityCheck`) and the
+client detecting the lost connection. The real-OVS integration test verifies
+ordinary incremental resume and conversion-triggered full rebuilds using a
+single monitor and a one-node cluster. It does not establish recovery for every
+deployment: [#456](https://github.com/ovn-kubernetes/libovsdb/pull/456) reports a
+case where monitoring stops after conversion but the connection remains open.
+The client does not currently enable `set_db_change_aware` or handle
+`monitor_canceled`; enabling change awareness would require handling cancellation
+rather than relying on the server to disconnect. Reusing an incremental baseline
+across arbitrary schema or monitor-selection changes is not guaranteed.
 
 ### Monitor coverage and partial models
 
