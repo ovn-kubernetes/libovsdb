@@ -474,10 +474,19 @@ func modifyModel(dbModel model.DatabaseModel, table string, info *mapper.Info, m
 // modify. If the change is an update and a modify row is provided, it will be
 // filled with the modify data.
 func updateOrModifyModel(dbModel model.DatabaseModel, table string, info *mapper.Info, changeRow, modifyRow *ovsdb.Row, isModify bool) (bool, error) {
+	if info.Metadata.TableName != table {
+		return false, fmt.Errorf("cannot apply update for table %s to model for table %s", table, info.Metadata.TableName)
+	}
 	schema := dbModel.Schema.Table(table)
 	var changed bool
 
 	for column, updateOvs := range *changeRow {
+		// A server schema can contain columns absent from the client's model.
+		// Treat modifications like initial rows: ignore unmodeled columns,
+		// while still applying modeled changes in the same notification.
+		if _, modeled := info.Metadata.Fields[column]; !modeled {
+			continue
+		}
 		colSchema := schema.Column(column)
 		if colSchema == nil {
 			// ignore columns we don't know about in our schema

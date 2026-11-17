@@ -1,6 +1,7 @@
 package mapper
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 
@@ -76,7 +77,7 @@ func (m Mapper) getRowData(ovsData ovsdb.Row, result *Info) error {
 				result.Metadata.TableName, name, err.Error())
 		}
 
-		if err := result.SetField(name, nativeElem); err != nil {
+		if err := result.SetField(name, nativeElem); err != nil && !errors.Is(err, ErrOmitted) {
 			return err
 		}
 	}
@@ -120,6 +121,11 @@ func (m Mapper) getRowDataWithUUID(ovsData ovsdb.Row, result *Info) error {
 // By default, default or null values are skipped. This behavior can be modified by specifying
 // a list of fields (pointers to fields in the struct) to be added to the row
 func (m Mapper) NewRow(data *Info, fields ...any) (ovsdb.Row, error) {
+	// Validate all explicit fields before iterating schema columns, including
+	// fields that are absent from that schema.
+	if _, err := data.ColumnsByPtr(fields...); err != nil {
+		return nil, err
+	}
 	columns := make(map[string]*ovsdb.ColumnSchema)
 	for k, v := range data.Metadata.TableSchema.Columns {
 		columns[k] = v
@@ -129,7 +135,9 @@ func (m Mapper) NewRow(data *Info, fields ...any) (ovsdb.Row, error) {
 	for name, column := range columns {
 		nativeElem, err := data.FieldByColumn(name)
 		if err != nil {
-			// If provided struct does not have a field to hold this value, skip it
+			// If provided struct does not have a field to hold this value
+			// Or it does have a field but it's not supported by the runtime schema,
+			// skip it
 			continue
 		}
 

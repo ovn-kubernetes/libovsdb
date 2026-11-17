@@ -1,9 +1,11 @@
 package mapper
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 
 	"github.com/ovn-kubernetes/libovsdb/ovsdb"
 )
@@ -26,6 +28,15 @@ func NewErrColumnNotFound(column, table string) *ErrColumnNotFound {
 	}
 }
 
+const (
+	ovsdbStructTag  = "ovsdb"
+	omitUnsupported = "omitunsupported"
+)
+
+// ErrOmitted is returned when an operation has been performed on a
+// column that has been omitted due to not being available in the runtime schema
+var ErrOmitted = errors.New("column is not available in runtime schema")
+
 // Info is a struct that wraps an object with its metadata
 type Info struct {
 	// FieldName indexed by column
@@ -35,13 +46,17 @@ type Info struct {
 
 // Metadata represents the information needed to know how to map OVSDB columns into an objetss fields
 type Metadata struct {
-	Fields      map[string]string  // Map of ColumnName -> FieldName
-	TableSchema *ovsdb.TableSchema // TableSchema associated
-	TableName   string             // Table name
+	Fields        map[string]string  // Map of ColumnName -> FieldName
+	OmittedFields map[string]string  // Map of omitted ColumnName -> FieldName
+	TableSchema   *ovsdb.TableSchema // TableSchema associated
+	TableName     string             // Table name
 }
 
 // FieldByColumn returns the field value that corresponds to a column
 func (i *Info) FieldByColumn(column string) (any, error) {
+	if _, ok := i.Metadata.OmittedFields[column]; ok {
+		return nil, ErrOmitted
+	}
 	fieldName, ok := i.Metadata.Fields[column]
 	if !ok {
 		return nil, NewErrColumnNotFound(column, i.Metadata.TableName)
@@ -49,7 +64,7 @@ func (i *Info) FieldByColumn(column string) (any, error) {
 	return reflect.ValueOf(i.Obj).Elem().FieldByName(fieldName).Interface(), nil
 }
 
-// FieldByColumn returns the field value that corresponds to a column
+// hasColumn returns whether a column is present
 func (i *Info) hasColumn(column string) bool {
 	_, ok := i.Metadata.Fields[column]
 	return ok
@@ -57,6 +72,9 @@ func (i *Info) hasColumn(column string) bool {
 
 // SetField sets the field in the column to the specified value
 func (i *Info) SetField(column string, value any) error {
+	if _, ok := i.Metadata.OmittedFields[column]; ok {
+		return ErrOmitted
+	}
 	fieldName, ok := i.Metadata.Fields[column]
 	if !ok {
 		return fmt.Errorf("SetField: column %s not found in orm info", column)
@@ -81,7 +99,11 @@ func (i *Info) ColumnByPtr(fieldPtr any) (string, error) {
 	objType := reflect.TypeOf(i.Obj).Elem()
 	for j := 0; j < objType.NumField(); j++ {
 		if objType.Field(j).Offset == offset {
-			column := objType.Field(j).Tag.Get("ovsdb")
+			field := objType.Field(j)
+			column, _ := parseStructTag(field)
+			if _, omitted := i.Metadata.OmittedFields[column]; omitted {
+				return "", ErrOmitted
+			}
 			if _, ok := i.Metadata.Fields[column]; !ok {
 				return "", fmt.Errorf("field does not have orm column information")
 			}
@@ -126,6 +148,12 @@ OUTER:
 
 // NewInfo creates a MapperInfo structure around an object based on a given table schema
 func NewInfo(tableName string, table *ovsdb.TableSchema, obj any) (*Info, error) {
+	return NewInfoWithCompatibility(tableName, table, obj, false)
+}
+
+// NewInfoWithCompatibility allows model columns absent from the runtime schema.
+// Present columns must still have the correct Go type.
+func NewInfoWithCompatibility(tableName string, table *ovsdb.TableSchema, obj any, compatible bool) (*Info, error) {
 	objPtrVal := reflect.ValueOf(obj)
 	if objPtrVal.Type().Kind() != reflect.Pointer {
 		return nil, ovsdb.NewErrWrongType("NewMapperInfo", "pointer to a struct", obj)
@@ -137,15 +165,21 @@ func NewInfo(tableName string, table *ovsdb.TableSchema, obj any) (*Info, error)
 	objType := objVal.Type()
 
 	fields := make(map[string]string, objType.NumField())
+	omittedFields := make(map[string]string)
 	for i := 0; i < objType.NumField(); i++ {
 		field := objType.Field(i)
-		colName := field.Tag.Get("ovsdb")
+		colName, omit := parseStructTag(field)
 		if colName == "" {
 			// Untagged fields are ignored
 			continue
 		}
 		column := table.Column(colName)
 		if column == nil {
+			// fields that are marked optional in struct tags are safe to skip
+			if omit || compatible {
+				omittedFields[colName] = field.Name
+				continue
+			}
 			return nil, &ErrMapper{
 				objType:   objType.String(),
 				field:     field.Name,
@@ -172,9 +206,10 @@ func NewInfo(tableName string, table *ovsdb.TableSchema, obj any) (*Info, error)
 	return &Info{
 		Obj: obj,
 		Metadata: Metadata{
-			Fields:      fields,
-			TableSchema: table,
-			TableName:   tableName,
+			Fields:        fields,
+			OmittedFields: omittedFields,
+			TableSchema:   table,
+			TableName:     tableName,
 		},
 	}, nil
 }
@@ -210,4 +245,21 @@ func (i *Info) ColumnsByPtrWithUUID(fields ...any) ([]string, error) {
 		return columns, nil
 	}
 	return append(columns, "_uuid"), nil
+}
+
+// parseStructTag parses the ovsdb struct tag
+// it returns the column name and whether it should be omitted if
+// unsupported by the runtime schema
+func parseStructTag(field reflect.StructField) (string, bool) {
+	tagData := field.Tag.Get(ovsdbStructTag)
+	parts := strings.Split(tagData, ",")
+	if len(parts) == 0 {
+		return "", false
+	}
+	omit := false
+	colName := parts[0]
+	if len(parts) == 2 && parts[1] == omitUnsupported {
+		omit = true
+	}
+	return colName, omit
 }
