@@ -6,10 +6,14 @@
 * [Pull Request Lifecycle](#pull-request-lifecycle)
 * [Development Environment Setup](#development-environment-setup)
 * [Sign Your Commits](#sign-your-commits)
+* [Logical Grouping of Commits](#logical-grouping-of-commits)
 * [Commit Message Guidelines](#commit-message-guidelines)
 * [Pull Request Checklist](#pull-request-checklist)
+* [AI Guidelines](#ai-guidelines)
 
 Welcome! We are glad that you want to contribute to libovsdb!
+
+All contributors are expected to follow our [Code of Conduct](./CODE_OF_CONDUCT.md).
 
 As you get started, you are in the best position to give us feedback on areas of
 the project that we need help with including:
@@ -31,6 +35,13 @@ We welcome many different types of contributions including:
 * Documentation
 * Issue triage
 * Answering questions on Slack
+* Participating in community meetings
+
+### Come to Meetings
+
+Everyone is welcome to join our meetings; you do not need an invitation or a
+prepared contribution. libovsdb currently shares the wider ovn-kubernetes
+community meeting. See [MEETINGS.md](./MEETINGS.md) for details.
 
 ## Find an Issue
 
@@ -38,15 +49,21 @@ We have [good first issues](https://github.com/ovn-kubernetes/libovsdb/labels/go
 for new contributors and [help wanted](https://github.com/ovn-kubernetes/libovsdb/labels/help%20wanted)
 issues suitable for any contributor.
 
+Sometimes there will not be any issues with these labels. If you want to
+contribute but cannot find a suitable issue, ask in the [#libovsdb
+channel](https://cloud-native.slack.com/archives/C083G8GF7GA) on the CNCF Slack server and we will
+be happy to help.
+
 Once you see an issue that you'd like to work on, please post a comment saying
-that you want to work on it.
+that you want to work on it. Something as simple as "I want to work on this" is
+fine.
 
 ## Ask for Help
 
 The best way to reach us with a question when contributing is to ask on:
 
 * The original GitHub issue
-* The [#libovsdb channel](https://cloud-native.slack.com/) on the CNCF Slack server
+* The [#libovsdb channel](https://cloud-native.slack.com/archives/C083G8GF7GA) on the CNCF Slack server
 
 ## Pull Request Lifecycle
 
@@ -152,6 +169,17 @@ If you forgot to sign off and have not yet pushed, amend the commit:
 git commit --amend -s
 ```
 
+## Logical Grouping of Commits
+
+Keep changes logically grouped into individual commits. If you use checkpoint
+commits while developing, squash them into coherent changes before asking for
+review.
+
+When addressing review comments, prefer fixing up the relevant commit rather
+than adding commits such as `fix review comments`. If you need to both rebase
+and revise commits, push those operations separately when practical so GitHub's
+comparison links remain useful to reviewers.
+
 ## Commit Message Guidelines
 
 A good commit message should describe what changed and why.
@@ -168,9 +196,11 @@ A good commit message should describe what changed and why.
 
 2. Keep the second line blank.
 3. Wrap all other lines at 72 columns (except for long URLs).
-4. Reference issues where relevant:
+4. Reference issues where relevant. Use `Fixes:` when the change closes an
+   issue and `Refs:` for related issues. Multiple references may be separated
+   by commas:
    * `Fixes: #1337`
-   * `Refs: #1234`
+   * `Refs: #1234, #5678`
 
 Example:
 
@@ -192,4 +222,44 @@ Before submitting your pull request:
 * [ ] Linter passes: `make lint`
 * [ ] Unit tests pass: `make test`
 * [ ] New behaviour is covered by tests
+* [ ] User-facing changes include documentation updates
+* [ ] Commits are logically grouped and have clear commit messages
 * [ ] Commits are signed off (`git commit -s`)
+
+## AI Guidelines
+
+You may use AI tools when preparing contributions such as issues and pull
+requests. As the author, you remain responsible for understanding every change
+you submit.
+
+* Review and test AI-generated changes yourself before submitting. Do not rely
+  on reviewers to perform the first review.
+* Be prepared to explain any change in your pull request. If you cannot explain
+  why a change was made, the pull request may be closed.
+* Respond to review comments in your own words. Reviewers want to engage
+  directly with you, not with generated responses.
+* Disclose AI tool use when it materially contributed to your submission, as
+  described below.
+* All contributions must follow this guide. Large AI-generated pull requests
+  and AI-generated commit messages are discouraged.
+
+### Disclosure
+
+Disclose AI tool use when it materially contributed to what you submit. You
+must still adhere to the [DCO](#dco) and sign off your commits.
+
+Use the "Special notes for your reviewer" section in the pull request, and
+optionally add a commit trailer. Acceptable trailer formats include:
+
+* `Assisted-by: Tool Name and/or Model Name <contact@example.com>`
+* `Co-authored-by: Tool Name and/or Model Name <contact@example.com>`
+
+Many AI tools add `Co-authored-by` automatically; that is acceptable.
+
+Disclosure is required when AI wrote or suggested code, tests, documentation,
+or commit messages that you used, or suggested an approach or refactor that
+shaped the implementation.
+
+Disclosure is not required for general questions or learning, IDE autocomplete,
+using AI to explain or review existing code, spell-checking, or minor fixes.
+When in doubt, disclose.

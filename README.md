@@ -157,4 +157,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 ## Contact
 
 The libovsdb community is part of ovn-kubernetes. Find us in the
-[#libovsdb channel](https://cloud-native.slack.com/) on the CNCF Slack server.
+[#libovsdb channel](https://cloud-native.slack.com/archives/C083G8GF7GA) on the CNCF Slack server.
