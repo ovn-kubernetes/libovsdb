@@ -83,6 +83,105 @@ _, err = ovs.Transact(context.Background(), ops...)
 For the full API — conditional queries (`Where`, `WhereAny`, `WhereAll`, `WhereCache`),
 client-defined indexes, `Select`, and cache event handlers — see the [API guide](docs/api.md).
 
+## Schema compatibility
+
+Compatibility depends on which side has extra tables or columns:
+
+- **Older model, newer server:** additional server tables and columns are tolerated
+  by default. Implicit monitors request only modeled columns, and incoming row
+  updates ignore unmodeled fields while still applying changes to known fields.
+  This also supports deliberately partial models; no compatibility option is needed.
+  Schema indexes involving unmodeled columns are not maintained in the local cache;
+  the server still enforces them.
+- **Newer model, older server:** validation is strict by default. To allow tables
+  or columns in the model to be absent from the server, opt in when creating the
+  client:
+
+```go
+ovs, err := client.NewOVSDBClient(dbModel,
+    client.WithEndpoint("tcp:172.18.0.4:6641"),
+    client.WithCompatibility(true),
+)
+```
+
+Compatibility is inferred from the model's table names and `ovsdb` tags and the
+server's runtime schema. No generated files need editing, and the embedded
+modelgen schema is not required. This tolerates **absence**, not incompatible
+column types or a different database name. Neither direction guarantees compatibility
+with changed constraints, removed features, or changed application semantics.
+
+- Missing tables are excluded from the cache and `MonitorAll`.
+- Missing columns are omitted from implicit row writes and monitors; reading
+  freshly populated models leaves those fields at their Go zero values.
+- Explicitly requesting an unsupported field for an operation returns an error.
+  Raw `Transact` operations are not rewritten.
+- Client indexes containing missing columns are omitted as a whole, not shortened.
+- The original model is retained so metadata can be rebuilt on reconnect.
+  `MonitorAll` reselects all modeled tables supported by the current schema on
+  each connection. Explicit monitor selections remain fixed: if a selected table
+  disappears, monitor recreation fails rather than silently dropping that table.
+  With automatic reconnection enabled, such failures are retried under the
+  configured reconnect policy.
+- Shared-cache reconciliation for multiple monitors remains a limitation;
+  dynamic `MonitorAll` selection does not resolve overlapping-monitor behavior.
+
+After connecting, use `ovs.IsTableSupported(m)` and
+`ovs.IsColumnSupported(m, &m.Field)` to guard optional features. These report the
+currently loaded schema, not whether a table is being monitored. Before the first
+successful connection they return false.
+
+For narrower opt-in, the original mechanism remains available: pass a map of
+optional table names as the third argument to `model.NewClientDBModel`, and tag
+individual optional fields with `ovsdb:"column,omitunsupported"`. A supported
+optional column behaves normally. For model-only use, call
+`dbModel.SetCompatibility(true)` before `model.NewDatabaseModel`.
+
+### Schema conversion and reconnects
+
+For an ordinary reconnect with a single `monitor_cond_since` monitor, the client
+reuses its saved transaction ID. If the server returns `found=true`, it preserves
+the cache and applies incremental updates. A `found=false` response instead
+provides a full snapshot: the client purges the old cache, rebuilds it against the
+current schema, and populates the snapshot.
+
+OVS schema conversion invalidates existing monitors and discards transaction
+history. The [OVS protocol documentation](https://www.openvswitch.org/support/dist-docs/ovsdb-server.7.html)
+(section "Schema Conversion") specifies that clients without database-change
+awareness are disconnected. On reconnect, the pre-conversion transaction ID is
+no longer available, so the server supplies a full snapshot. `MonitorAll`
+reselects the supported modeled tables; explicit selections must remain valid.
+New columns receive their schema defaults, which may be omitted from the initial
+rows sent on the wire.
+
+Automatic recovery requires `WithReconnect` (or `WithInactivityCheck`) and the
+client detecting the lost connection. The real-OVS integration test verifies
+ordinary incremental resume and conversion-triggered full rebuilds using a
+single monitor and a one-node cluster. It does not establish recovery for every
+deployment: [#456](https://github.com/ovn-kubernetes/libovsdb/pull/456) reports a
+case where monitoring stops after conversion but the connection remains open.
+The client does not currently enable `set_db_change_aware` or handle
+`monitor_canceled`; enabling change awareness would require handling cancellation
+rather than relying on the server to disconnect. Reusing an incremental baseline
+across arbitrary schema or monitor-selection changes is not guaranteed.
+
+### Monitor coverage and partial models
+
+A field's presence in a Go model does not guarantee that its value is monitored.
+For example, a modelgen-derived model may contain every column in a table, while
+an explicit monitor requests only some of them. On initial population, unmonitored
+fields have Go zero values, indistinguishable from real database values that are
+zero. Treating those fields as current database data can cause application logic
+bugs. Tables without monitor coverage do not have their rows populated
+implicitly either.
+
+Prefer custom models containing only the tables and columns your application
+needs, and monitor all runtime-supported columns of those models. Narrower
+explicit field selections are still supported, but callers must track which
+fields they can rely on. `IsTableSupported` and `IsColumnSupported` report schema
+support, not monitor coverage or freshness. Cancelling a monitor currently stops
+updates without removing its cached data, so previously populated values may
+also become stale.
+
 ## Code Generation
 
 `modelgen` generates Go model types from an OVSDB schema file, so you don't have to

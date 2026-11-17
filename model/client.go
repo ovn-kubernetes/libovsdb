@@ -21,9 +21,11 @@ type ClientIndex struct {
 
 // ClientDBModel contains the client information needed to build a DatabaseModel
 type ClientDBModel struct {
-	name    string
-	types   map[string]reflect.Type
-	indexes map[string][]ClientIndex
+	name       string
+	types      map[string]reflect.Type
+	indexes    map[string][]ClientIndex
+	optional   map[string]bool
+	compatible bool
 }
 
 // NewModel returns a new instance of a model from a specific string
@@ -70,6 +72,12 @@ func (db *ClientDBModel) SetIndexes(indexes map[string][]ClientIndex) {
 	db.indexes = copyIndexes(indexes)
 }
 
+// SetCompatibility allows tables and columns absent from the server schema.
+// Type mismatches and database name mismatches remain errors.
+func (db *ClientDBModel) SetCompatibility(compatible bool) {
+	db.compatible = compatible
+}
+
 // Validate validates the DatabaseModel against the input schema
 // Returns all the errors detected
 func (db ClientDBModel) validate(schema ovsdb.DatabaseSchema) []error {
@@ -83,7 +91,9 @@ func (db ClientDBModel) validate(schema ovsdb.DatabaseSchema) []error {
 	for tableName := range db.types {
 		tableSchema := schema.Table(tableName)
 		if tableSchema == nil {
-			errors = append(errors, fmt.Errorf("database model contains a model for table %s that does not exist in schema", tableName))
+			if !db.optional[tableName] && !db.compatible {
+				errors = append(errors, fmt.Errorf("database model contains a model for table %s that does not exist in schema", tableName))
+			}
 			continue
 		}
 		model, err := db.newModel(tableName)
@@ -91,7 +101,7 @@ func (db ClientDBModel) validate(schema ovsdb.DatabaseSchema) []error {
 			errors = append(errors, err)
 			continue
 		}
-		info, err := mapper.NewInfo(tableName, tableSchema, model)
+		info, err := mapper.NewInfoWithCompatibility(tableName, tableSchema, model, db.compatible)
 		if err != nil {
 			errors = append(errors, err)
 			continue
@@ -102,6 +112,9 @@ func (db ClientDBModel) validate(schema ovsdb.DatabaseSchema) []error {
 	for tableName, indexSets := range db.indexes {
 		info, ok := infos[tableName]
 		if !ok {
+			if db.types[tableName] != nil && (db.compatible || db.optional[tableName]) && schema.Table(tableName) == nil {
+				continue
+			}
 			errors = append(errors, fmt.Errorf("database model contains a client index for table %s that does not exist in schema", tableName))
 			continue
 		}
@@ -109,6 +122,9 @@ func (db ClientDBModel) validate(schema ovsdb.DatabaseSchema) []error {
 			for _, indexColumn := range indexSet.Columns {
 				f, err := info.FieldByColumn(indexColumn.Column)
 				if err != nil {
+					if err == mapper.ErrOmitted {
+						continue
+					}
 					errors = append(
 						errors,
 						fmt.Errorf("database model contains a client index for column %s that does not exist in table %s",
@@ -132,7 +148,19 @@ func (db ClientDBModel) validate(schema ovsdb.DatabaseSchema) []error {
 }
 
 // NewClientDBModel constructs a ClientDBModel based on a database name and dictionary of models indexed by table name
-func NewClientDBModel(name string, models map[string]Model) (ClientDBModel, error) {
+// You can also provide a map of optional tables. The absence of these tables will not cause schema validation to fail,
+// the contract with the caller is as follows:
+//  1. You must ensure you check that a table exists before trying to use it
+//  2. Fields tagged ovsdb:"column,omitunsupported" are omitted from implicit
+//     row writes when absent from the runtime schema. Explicit use of an
+//     unsupported field returns an error. Raw transactions are not rewritten.
+func NewClientDBModel(name string, models map[string]Model, optionalTables ...map[string]bool) (ClientDBModel, error) {
+	optional := make(map[string]bool)
+	for _, tables := range optionalTables {
+		for table, enabled := range tables {
+			optional[table] = enabled
+		}
+	}
 	types := make(map[string]reflect.Type, len(models))
 	for table, model := range models {
 		modelType := reflect.TypeOf(model)
@@ -154,8 +182,9 @@ func NewClientDBModel(name string, models map[string]Model) (ClientDBModel, erro
 		types[table] = modelType
 	}
 	return ClientDBModel{
-		types: types,
-		name:  name,
+		types:    types,
+		name:     name,
+		optional: optional,
 	}, nil
 }
 

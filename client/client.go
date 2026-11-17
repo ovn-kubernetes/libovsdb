@@ -52,6 +52,8 @@ type Client interface {
 	Connect(context.Context) error
 	Disconnect()
 	Close()
+	IsTableSupported(model.Model) bool
+	IsColumnSupported(model.Model, any) bool
 	Schema() ovsdb.DatabaseSchema
 	Cache() *cache.TableCache
 	UpdateEndpoints([]string)
@@ -390,7 +392,11 @@ func (o *ovsdbClient) tryEndpoint(ctx context.Context, u *url.URL) (string, erro
 
 		db.modelMutex.Lock()
 		var errors []error
-		db.model, errors = model.NewDatabaseModel(schema, db.model.Client())
+		clientModel := db.model.Client()
+		if dbName == o.primaryDBName && o.options.compatibility {
+			clientModel.SetCompatibility(true)
+		}
+		db.model, errors = model.NewDatabaseModel(schema, clientModel)
 		db.modelMutex.Unlock()
 		if len(errors) > 0 {
 			var combined []string
@@ -891,14 +897,14 @@ func (o *ovsdbClient) transact(ctx context.Context, dbName string, skipChWrite b
 	return reply, nil
 }
 
-// MonitorAll is a convenience method to monitor every table/column
+// MonitorAll monitors every modeled table and column supported by the runtime
+// schema. The selection is resolved again on reconnect; unlike explicit monitor
+// selections, it can acquire newly supported tables or drop removed tables.
 func (o *ovsdbClient) MonitorAll(ctx context.Context) (MonitorCookie, error) {
 	ctx, span := tracer.Start(ctx, "MonitorAll")
 	defer span.End()
 	m := newMonitor()
-	for name := range o.primaryDB().model.Types() {
-		m.Tables = append(m.Tables, TableMonitor{Table: name})
-	}
+	m.allTables = true
 	return o.Monitor(ctx, m)
 }
 
@@ -946,14 +952,20 @@ func (o *ovsdbClient) Monitor(ctx context.Context, monitor *Monitor) (MonitorCoo
 }
 
 // If fields is provided, the request will be constrained to the provided columns
-// If no fields are provided, all columns will be used
+// If no fields are provided, all modeled runtime columns will be used.
 func newMonitorRequest(data *mapper.Info, fields []string, conditions []ovsdb.Condition) (*ovsdb.MonitorRequest, error) {
 	var columns []string
 	if len(fields) > 0 {
 		columns = append(columns, fields...)
 	} else {
 		for c := range data.Metadata.TableSchema.Columns {
-			columns = append(columns, c)
+			if _, modeled := data.Metadata.Fields[c]; modeled {
+				columns = append(columns, c)
+			}
+		}
+		// An empty list is omitted in JSON, which requests every column.
+		if len(columns) == 0 {
+			columns = []string{"_uuid"}
 		}
 	}
 	return &ovsdb.MonitorRequest{Columns: columns, Where: conditions, Select: ovsdb.NewDefaultMonitorSelect()}, nil
@@ -980,24 +992,35 @@ func (o *ovsdbClient) monitor(ctx context.Context, cookie MonitorCookie, reconne
 		}
 		return errors.New(strings.Join(errString, ". "))
 	}
-	if len(monitor.Tables) == 0 {
-		return errors.New("at least one table should be monitored")
-	}
 	dbName := cookie.DatabaseName
 	db := o.databases[dbName]
 	db.modelMutex.RLock()
-	typeMap := db.model.Types()
+	dbModel := db.model
+	db.modelMutex.RUnlock()
+	typeMap := dbModel.Types()
+	tables := monitor.Tables
+	if monitor.allTables {
+		// Resolve against the same model snapshot used to build column requests.
+		// Explicit selections remain unchanged and must still exist below.
+		tables = make([]TableMonitor, 0, len(typeMap))
+		for name := range typeMap {
+			tables = append(tables, TableMonitor{Table: name})
+		}
+	}
+	if len(tables) == 0 {
+		return errors.New("at least one table should be monitored")
+	}
 	requests := make(map[string]ovsdb.MonitorRequest)
-	for _, o := range monitor.Tables {
+	for _, o := range tables {
 		_, ok := typeMap[o.Table]
 		if !ok {
 			return fmt.Errorf("type for table %s does not exist in model", o.Table)
 		}
-		model, err := db.model.NewModel(o.Table)
+		model, err := dbModel.NewModel(o.Table)
 		if err != nil {
 			return err
 		}
-		info, err := db.model.NewModelInfo(model)
+		info, err := dbModel.NewModelInfo(model)
 		if err != nil {
 			return err
 		}
@@ -1007,7 +1030,6 @@ func (o *ovsdbClient) monitor(ctx context.Context, cookie MonitorCookie, reconne
 		}
 		requests[o.Table] = *request
 	}
-	db.modelMutex.RUnlock()
 
 	var args []any
 	if monitor.Method == ovsdb.ConditionalMonitorSinceRPC {
@@ -1628,3 +1650,39 @@ func (o *ovsdbClient) GetSelectResults(ops []ovsdb.Operation, results []ovsdb.Op
 }
 
 var tracer = otel.Tracer("github.com/ovn-kubernetes/libovsdb/client")
+
+// IsTableSupported checks whether a provided Model is supported by the
+// runtime schema
+func (o *ovsdbClient) IsTableSupported(m model.Model) bool {
+	o.primaryDB().modelMutex.RLock()
+	defer o.primaryDB().modelMutex.RUnlock()
+	tableName := o.primaryDB().model.FindTable(reflect.TypeOf(m))
+	if _, ok := o.primaryDB().model.Schema.Tables[tableName]; ok {
+		return true
+	}
+	return false
+}
+
+// IsColumnSupported checks whether a provided column (derived via field Pointer in a Model)
+// is supported by the runtime schema
+func (o *ovsdbClient) IsColumnSupported(m model.Model, fieldPtr any) bool {
+	value := reflect.ValueOf(m)
+	if !value.IsValid() || value.Kind() != reflect.Pointer || value.IsNil() {
+		return false
+	}
+	o.primaryDB().modelMutex.RLock()
+	defer o.primaryDB().modelMutex.RUnlock()
+	tableName := o.primaryDB().model.FindTable(reflect.TypeOf(m))
+	_, ok := o.primaryDB().model.Schema.Tables[tableName]
+	if !ok {
+		return false
+	}
+	info, err := o.primaryDB().model.NewModelInfo(m)
+	if err != nil {
+		return false
+	}
+	if _, err := info.ColumnByPtr(fieldPtr); err != nil {
+		return false
+	}
+	return true
+}

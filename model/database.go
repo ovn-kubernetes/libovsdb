@@ -29,7 +29,7 @@ func NewDatabaseModel(schema ovsdb.DatabaseSchema, client ClientDBModel) (Databa
 	}
 	dbModel.Mapper = mapper.NewMapper(schema)
 	var metadata map[reflect.Type]mapper.Metadata
-	metadata, errs = generateModelInfo(schema, client.types)
+	metadata, errs = generateModelInfo(schema, dbModel.Types(), client.compatible)
 	if len(errs) > 0 {
 		return DatabaseModel{}, errs
 	}
@@ -69,7 +69,16 @@ func (db DatabaseModel) NewModel(table string) (Model, error) {
 // The reflect.Type is a pointer to a struct that contains 'ovs' tags
 // as described above. Such pointer to struct also implements the Model interface
 func (db DatabaseModel) Types() map[string]reflect.Type {
-	return db.client.types
+	if !db.Valid() {
+		return db.client.types
+	}
+	types := make(map[string]reflect.Type)
+	for table, typ := range db.client.types {
+		if db.Schema.Table(table) != nil {
+			types[table] = typ
+		}
+	}
+	return types
 }
 
 // FindTable returns the string associated with a reflect.Type or ""
@@ -84,7 +93,7 @@ func (db DatabaseModel) FindTable(mType reflect.Type) string {
 
 // generateModelMetadata creates metadata objects from all models included in the
 // database and caches them for future re-use
-func generateModelInfo(dbSchema ovsdb.DatabaseSchema, modelTypes map[string]reflect.Type) (map[reflect.Type]mapper.Metadata, []error) {
+func generateModelInfo(dbSchema ovsdb.DatabaseSchema, modelTypes map[string]reflect.Type, compatible bool) (map[reflect.Type]mapper.Metadata, []error) {
 	errors := []error{}
 	metadata := make(map[reflect.Type]mapper.Metadata, len(modelTypes))
 	for tableName, tType := range modelTypes {
@@ -95,7 +104,7 @@ func generateModelInfo(dbSchema ovsdb.DatabaseSchema, modelTypes map[string]refl
 		}
 
 		obj := reflect.New(tType.Elem()).Interface().(Model)
-		info, err := mapper.NewInfo(tableName, tableSchema, obj)
+		info, err := mapper.NewInfoWithCompatibility(tableName, tableSchema, obj, compatible)
 		if err != nil {
 			errors = append(errors, err)
 			continue
