@@ -1045,6 +1045,7 @@ func (t *TableCache) Purge(dbModel model.DatabaseModel) {
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
 	t.dbModel = dbModel
+	t.cache = make(map[string]*RowCache, len(dbModel.Schema.Tables))
 	tableTypes := t.dbModel.Types()
 	for name := range t.dbModel.Schema.Tables {
 		t.cache[name] = newRowCache(name, t.dbModel, tableTypes[name])
