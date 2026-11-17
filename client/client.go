@@ -897,16 +897,14 @@ func (o *ovsdbClient) transact(ctx context.Context, dbName string, skipChWrite b
 	return reply, nil
 }
 
-// MonitorAll is a convenience method to monitor every table/column
+// MonitorAll monitors every modeled table and column supported by the runtime
+// schema. The selection is resolved again on reconnect; unlike explicit monitor
+// selections, it can acquire newly supported tables or drop removed tables.
 func (o *ovsdbClient) MonitorAll(ctx context.Context) (MonitorCookie, error) {
 	ctx, span := tracer.Start(ctx, "MonitorAll")
 	defer span.End()
 	m := newMonitor()
-	o.primaryDB().modelMutex.RLock()
-	for name := range o.primaryDB().model.Types() {
-		m.Tables = append(m.Tables, TableMonitor{Table: name})
-	}
-	o.primaryDB().modelMutex.RUnlock()
+	m.allTables = true
 	return o.Monitor(ctx, m)
 }
 
@@ -994,17 +992,26 @@ func (o *ovsdbClient) monitor(ctx context.Context, cookie MonitorCookie, reconne
 		}
 		return errors.New(strings.Join(errString, ". "))
 	}
-	if len(monitor.Tables) == 0 {
-		return errors.New("at least one table should be monitored")
-	}
 	dbName := cookie.DatabaseName
 	db := o.databases[dbName]
 	db.modelMutex.RLock()
 	dbModel := db.model
 	db.modelMutex.RUnlock()
 	typeMap := dbModel.Types()
+	tables := monitor.Tables
+	if monitor.allTables {
+		// Resolve against the same model snapshot used to build column requests.
+		// Explicit selections remain unchanged and must still exist below.
+		tables = make([]TableMonitor, 0, len(typeMap))
+		for name := range typeMap {
+			tables = append(tables, TableMonitor{Table: name})
+		}
+	}
+	if len(tables) == 0 {
+		return errors.New("at least one table should be monitored")
+	}
 	requests := make(map[string]ovsdb.MonitorRequest)
-	for _, o := range monitor.Tables {
+	for _, o := range tables {
 		_, ok := typeMap[o.Table]
 		if !ok {
 			return fmt.Errorf("type for table %s does not exist in model", o.Table)

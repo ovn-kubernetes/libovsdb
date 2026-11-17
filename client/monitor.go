@@ -17,6 +17,9 @@ type Monitor struct {
 	Tables            []TableMonitor
 	Errors            []error
 	LastTransactionID string
+
+	// allTables preserves MonitorAll's intent across runtime schema changes.
+	allTables bool
 }
 
 // newMonitor creates a new *Monitor with default values
