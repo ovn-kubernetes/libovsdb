@@ -64,7 +64,8 @@ func (suite *OVSIntegrationSuite) SetupSuite() {
 		Tty: true,
 	}
 	hostConfig := func(config *docker.HostConfig) {
-		config.AutoRemove = true
+		// Keep the container after it stops so reconnect tests can start it again.
+		config.AutoRemove = false
 		config.RestartPolicy = docker.RestartPolicy{Name: "no"}
 	}
 
@@ -513,7 +514,10 @@ func (suite *OVSIntegrationSuite) TestWithInactivityCheck() {
 }
 
 func (suite *OVSIntegrationSuite) TestWithReconnect() {
-	suite.T().Skip("On container restart client is connected but rpc2 connection is shutdown, so Echo fails with ErrNotConnected")
+	if suite.inMemory {
+		suite.T().Skip("requires restarting the external OVS container")
+	}
+
 	suite.True(suite.clientWithoutInactvityCheck.Connected())
 	err := suite.clientWithoutInactvityCheck.Echo(context.TODO())
 	suite.Require().NoError(err)
@@ -521,15 +525,15 @@ func (suite *OVSIntegrationSuite) TestWithReconnect() {
 	// Disconnect client
 	suite.clientWithoutInactvityCheck.Disconnect()
 
-	suite.Eventually(func() bool {
-		return !suite.clientWithoutInactvityCheck.Connected()
-	}, 5*time.Second, 1*time.Second)
-
-	// Reconfigure
-	err = suite.clientWithoutInactvityCheck.SetOption(
-		client.WithReconnect(2*time.Second, &backoff.ZeroBackOff{}),
-	)
-	suite.Require().NoError(err)
+	// Connected becomes false before the asynchronous disconnect handler has
+	// cleared the RPC client. Wait until teardown is complete before changing
+	// the reconnect option.
+	suite.Require().Eventually(func() bool {
+		err = suite.clientWithoutInactvityCheck.SetOption(
+			client.WithReconnect(2*time.Second, &backoff.ZeroBackOff{}),
+		)
+		return err == nil
+	}, 5*time.Second, 10*time.Millisecond)
 
 	// Connect (again)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -574,17 +578,19 @@ func (suite *OVSIntegrationSuite) TestWithReconnect() {
 	br := <-brChan
 	suite.Equal(bridgeName, br.Name)
 
-	// trigger reconnect
-	err = suite.pool.Client.RestartContainer(suite.resource.Container.ID, 0)
+	// Trigger reconnect by stopping and starting the container. Unlike a restart,
+	// this reliably gives the client time to observe the broken connection.
+	err = suite.pool.Client.StopContainer(suite.resource.Container.ID, 15)
+	suite.Require().NoError(err)
+	err = suite.pool.Client.StartContainer(suite.resource.Container.ID, nil)
 	suite.Require().NoError(err)
 
-	// check that we are automatically reconnected
-	suite.Eventually(func() bool {
-		return suite.clientWithoutInactvityCheck.Connected()
-	}, 20*time.Second, 1*time.Second)
-
-	err = suite.clientWithoutInactvityCheck.Echo(context.TODO())
-	suite.Require().NoError(err)
+	// Connected can become true before the RPC connection is ready, so wait for
+	// an Echo to succeed before making assertions against the cache.
+	suite.Require().Eventually(func() bool {
+		return suite.clientWithoutInactvityCheck.Connected() &&
+			suite.clientWithoutInactvityCheck.Echo(context.TODO()) == nil
+	}, 60*time.Second, 500*time.Millisecond)
 
 	// check our original bridge is in the cache
 	err = suite.clientWithoutInactvityCheck.Get(ctx, br)
