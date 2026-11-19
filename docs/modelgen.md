@@ -65,7 +65,7 @@ func main() {
     if err != nil { ... }
 
     err = ovs.Connect(context.Background())
-    err = ovs.MonitorAll(context.Background())
+    _, err = ovs.MonitorAll(context.Background())
 
     lr := &generated.LogicalRouter{Name: "myRouter"}
     err = ovs.Get(context.Background(), lr)
