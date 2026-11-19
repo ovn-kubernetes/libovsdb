@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -62,32 +63,57 @@ func WithTLSConfig(cfg *tls.Config) Option {
 // successfully connects will be used.
 // Endpoints are specified in OVSDB Connection Format
 // For more details, see the ovsdb(7) man page
+// The endpoint may also be a comma-separated list, as ovsdb-server remotes
+// and the ovn-remote setting are written: each element is added in order.
 func WithEndpoint(endpoint string) Option {
 	return func(o *options) error {
-		ep, err := url.Parse(endpoint)
-		if err != nil {
-			return err
+		var endpoints []string
+		for _, element := range splitEndpoints(endpoint) {
+			address, err := parseEndpoint(element)
+			if err != nil {
+				return err
+			}
+			endpoints = append(endpoints, address)
 		}
-		switch ep.Scheme {
-		case UNIX:
-			if len(ep.Path) == 0 {
-				o.endpoints = append(o.endpoints, defaultUnixEndpoint)
-				return nil
-			}
-		case TCP:
-			if len(ep.Opaque) == 0 {
-				o.endpoints = append(o.endpoints, defaultTCPEndpoint)
-				return nil
-			}
-		case SSL:
-			if len(ep.Opaque) == 0 {
-				o.endpoints = append(o.endpoints, defaultSSLEndpoint)
-				return nil
-			}
-		}
-		o.endpoints = append(o.endpoints, endpoint)
+		o.endpoints = append(o.endpoints, endpoints...)
 		return nil
 	}
+}
+
+// splitEndpoints splits a comma-separated list of endpoints.
+func splitEndpoints(endpoints string) []string {
+	list := strings.Split(endpoints, ",")
+	for i := range list {
+		list[i] = strings.TrimSpace(list[i])
+	}
+	return list
+}
+
+// parseEndpoint validates a single endpoint and returns its address, the
+// default one for its scheme when it has none.
+func parseEndpoint(endpoint string) (string, error) {
+	if endpoint == "" {
+		return "", errors.New("empty endpoint")
+	}
+	ep, err := url.Parse(endpoint)
+	if err != nil {
+		return "", err
+	}
+	switch ep.Scheme {
+	case UNIX:
+		if len(ep.Path) == 0 {
+			return defaultUnixEndpoint, nil
+		}
+	case TCP:
+		if len(ep.Opaque) == 0 {
+			return defaultTCPEndpoint, nil
+		}
+	case SSL:
+		if len(ep.Opaque) == 0 {
+			return defaultSSLEndpoint, nil
+		}
+	}
+	return endpoint, nil
 }
 
 // WithLeaderOnly tells the client to treat endpoints that are clustered
