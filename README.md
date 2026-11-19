@@ -52,7 +52,7 @@ ovs, err := client.NewOVSDBClient(dbModel, client.WithEndpoint("tcp:172.18.0.4:6
 if err != nil { ... }
 
 err = ovs.Connect(context.Background())
-err = ovs.MonitorAll(context.Background()) // required for cache-based operations
+_, err = ovs.MonitorAll(context.Background()) // required for cache-based operations
 ```
 
 ### 4. Interact with the Database
