@@ -105,6 +105,10 @@ func WithLeaderOnly(leaderOnly bool) Option {
 // algorithm to use. Using WithReconnect implies that
 // requested transactions will block until the client has fully reconnected,
 // rather than immediately returning an error if there is no connection.
+// If the backoff gives up, the client stops reconnecting and is left
+// disconnected: DisconnectNotify is notified and transactions fail with
+// ErrNotConnected until Connect succeeds. A backoff that never stops, such as
+// an ExponentialBackOff with MaxElapsedTime set to 0, keeps reconnecting.
 func WithReconnect(timeout time.Duration, backoff backoff.BackOff) Option {
 	return func(o *options) error {
 		o.reconnect = true
